@@ -20,6 +20,35 @@ export function getModelsTableData(
     for (const f of m.files) coldQuantKeys.add(`${m.name}::${f.quant}`);
   }
 
+  // Local file paths + display name per model::quant, for selection/deletion.
+  const localPathsMap = new Map<string, string[]>();
+  const localDisplayNames = new Map<string, string>();
+  for (const m of localModels) {
+    for (const f of m.files) {
+      const key = `${m.name}::${f.quant}`;
+      if (f.isSplit) {
+        localPathsMap.set(
+          key,
+          f.files.map((s) => s.path),
+        );
+        localDisplayNames.set(key, f.representativeFilename);
+      } else {
+        localPathsMap.set(key, [f.path]);
+        localDisplayNames.set(key, f.filename);
+      }
+    }
+  }
+
+  // Cold-storage paths as a fallback for quants not present locally.
+  const coldPathsMap = new Map<string, string[]>();
+  for (const m of coldModels) {
+    for (const f of m.files) {
+      const key = `${m.name}::${f.quant}`;
+      if (localPathsMap.has(key)) continue;
+      coldPathsMap.set(key, f.isSplit ? f.files.map((s) => s.path) : [f.path]);
+    }
+  }
+
   const rowMap = new Map<string, Map<string, QuantInfo>>();
   for (const m of [...localModels, ...coldModels]) {
     let quantMap = rowMap.get(m.name);
@@ -29,12 +58,18 @@ export function getModelsTableData(
     }
     for (const f of m.files) {
       if (!quantMap.has(f.quant)) {
+        const quantKey = `${m.name}::${f.quant}`;
         quantMap.set(f.quant, {
           label: f.quant,
           isSingleFile: !f.isSplit,
           filename: f.isSplit ? null : f.filename,
-          inColdStorage: coldQuantKeys.has(`${m.name}::${f.quant}`),
+          displayName:
+            localDisplayNames.get(quantKey) ??
+            (f.isSplit ? f.representativeFilename : f.filename),
+          inColdStorage: coldQuantKeys.has(quantKey),
           size: f.isSplit ? f.totalSize : f.size,
+          paths:
+            localPathsMap.get(quantKey) ?? coldPathsMap.get(quantKey) ?? [],
           shards: f.isSplit
             ? [...f.files]
                 .sort((a, b) => a.path.localeCompare(b.path))

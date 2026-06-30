@@ -1,6 +1,6 @@
 'use client';
 
-import {useState, useCallback} from 'react';
+import {useState, useCallback, useMemo} from 'react';
 import * as stylex from '@stylexjs/stylex';
 import {
   Table,
@@ -8,11 +8,13 @@ import {
   pixel,
   type TableColumn,
 } from '@astryxdesign/core/Table';
-import {HStack} from '@astryxdesign/core/Stack';
+import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
 import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
+import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
+import {TabList, Tab} from '@astryxdesign/core/TabList';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
 
@@ -24,13 +26,21 @@ export interface ShardInfo {
 export interface QuantInfo {
   label: string;
   filename: string | null;
+  displayName: string;
   isSingleFile: boolean;
   inColdStorage: boolean;
   size: number;
+  paths: string[];
   shards: ShardInfo[];
   totalShards: number;
   presentShards: number;
   missingIndices: number[];
+}
+
+export interface LocationTab {
+  id: string;
+  label: string;
+  isLocal: boolean;
 }
 
 export interface ModelRow extends Record<string, unknown> {
@@ -56,6 +66,7 @@ interface DisplayRow extends Record<string, unknown> {
   inColdStorage: boolean | null;
   allInColdStorage: boolean;
   noneInColdStorage: boolean;
+  paths: string[];
   totalShards: number;
   presentShards: number;
   missingIndices: number[];
@@ -190,10 +201,20 @@ export function ModelsTableClient({
   models,
   peers,
   peerModels,
+  selected,
+  onToggleSelected,
+  locations,
+  activeLocation = 'all',
+  onLocationChange,
 }: {
   models: ModelRow[];
   peers: PeerConfig[];
   peerModels: Map<string, PeerModels>;
+  selected?: Set<string>;
+  onToggleSelected?: (paths: string[]) => void;
+  locations?: LocationTab[];
+  activeLocation?: string;
+  onLocationChange?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -207,22 +228,59 @@ export function ModelsTableClient({
   }, []);
 
   // peerAddress -> Set<"modelName::quant"> and peerAddress -> Set<modelName>.
-  const peerQuantKeys = new Map<string, Set<string>>();
-  const peerModelKeys = new Map<string, Set<string>>();
-  for (const [address, lo] of peerModels) {
-    if (lo.type !== 'value') continue;
-    const quantKeys = new Set<string>();
-    const modelKeys = new Set<string>();
-    for (const m of lo.value) {
-      modelKeys.add(m.name);
-      for (const f of m.files) quantKeys.add(`${m.name}::${f.quant}`);
+  const peerQuantKeys = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const [address, lo] of peerModels) {
+      if (lo.type !== 'value') continue;
+      const keys = new Set<string>();
+      for (const m of lo.value)
+        for (const f of m.files) keys.add(`${m.name}::${f.quant}`);
+      map.set(address, keys);
     }
-    peerQuantKeys.set(address, quantKeys);
-    peerModelKeys.set(address, modelKeys);
-  }
+    return map;
+  }, [peerModels]);
+
+  const peerModelKeys = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const [address, lo] of peerModels) {
+      if (lo.type !== 'value') continue;
+      const keys = new Set<string>();
+      for (const m of lo.value) keys.add(m.name);
+      map.set(address, keys);
+    }
+    return map;
+  }, [peerModels]);
+
+  // Filter models to the active location tab.
+  const effectiveModels = useMemo(() => {
+    if (activeLocation === 'all') return models;
+    return models
+      .map((m) => {
+        const quants = m.quants.filter((q) =>
+          activeLocation === 'cold-storage'
+            ? q.inColdStorage
+            : (peerQuantKeys
+                .get(activeLocation)
+                ?.has(`${m.name}::${q.label}`) ?? false),
+        );
+        if (quants.length === 0) return null;
+        const sizes = quants.map((q) => q.size).filter((s) => s > 0);
+        return {
+          ...m,
+          quants,
+          minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
+          maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
+          allInColdStorage: quants.every((q) => q.inColdStorage),
+          noneInColdStorage: quants.every((q) => !q.inColdStorage),
+        } satisfies ModelRow;
+      })
+      .filter((m): m is ModelRow => m !== null);
+  }, [models, activeLocation, peerQuantKeys]);
+
+  const showCheckboxes = onToggleSelected != null;
 
   const rows: DisplayRow[] = [];
-  for (const m of models) {
+  for (const m of effectiveModels) {
     rows.push({
       key: m.name,
       label: m.name,
@@ -236,6 +294,7 @@ export function ModelsTableClient({
       inColdStorage: null,
       allInColdStorage: m.allInColdStorage,
       noneInColdStorage: m.noneInColdStorage,
+      paths: m.quants.flatMap((q) => q.paths),
       totalShards: 0,
       presentShards: 0,
       missingIndices: [],
@@ -256,6 +315,7 @@ export function ModelsTableClient({
         inColdStorage: q.inColdStorage,
         allInColdStorage: false,
         noneInColdStorage: false,
+        paths: q.paths,
         totalShards: q.totalShards,
         presentShards: q.presentShards,
         missingIndices: q.missingIndices,
@@ -275,6 +335,7 @@ export function ModelsTableClient({
             inColdStorage: null,
             allInColdStorage: false,
             noneInColdStorage: false,
+            paths: [],
             totalShards: 0,
             presentShards: 0,
             missingIndices: [],
@@ -285,6 +346,35 @@ export function ModelsTableClient({
   }
 
   const columns: TableColumn<DisplayRow>[] = [
+    ...(showCheckboxes
+      ? [
+          {
+            key: 'select',
+            header: '',
+            width: pixel(36),
+            align: 'center' as const,
+            renderCell: (item: DisplayRow) => {
+              if (item.depth === 2 || item.paths.length === 0) return null;
+              const allSelected =
+                selected != null &&
+                item.paths.length > 0 &&
+                item.paths.every((p) => selected.has(p));
+              const someSelected =
+                selected != null && item.paths.some((p) => selected.has(p));
+              return (
+                <CheckboxInput
+                  label={`Select ${item.label}`}
+                  isLabelHidden
+                  value={
+                    allSelected ? true : someSelected ? 'indeterminate' : false
+                  }
+                  onChange={() => onToggleSelected!(item.paths)}
+                />
+              );
+            },
+          } satisfies TableColumn<DisplayRow>,
+        ]
+      : []),
     {
       key: 'label',
       header: 'Model',
@@ -335,5 +425,22 @@ export function ModelsTableClient({
     },
   ];
 
-  return <Table data={rows} columns={columns} idKey="key" />;
+  return (
+    <VStack gap={3}>
+      {locations && onLocationChange && (
+        <TabList value={activeLocation} onChange={onLocationChange} hasDivider>
+          <Tab value="all" label="All" />
+          {locations.map((loc) => (
+            <Tab
+              key={loc.id}
+              value={loc.id}
+              label={loc.isLocal ? `${loc.label} (local)` : loc.label}
+            />
+          ))}
+          <Tab value="cold-storage" label="Cold Storage" />
+        </TabList>
+      )}
+      <Table data={rows} columns={columns} idKey="key" />
+    </VStack>
+  );
 }
