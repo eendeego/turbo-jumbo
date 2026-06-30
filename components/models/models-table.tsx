@@ -35,6 +35,17 @@ export function getModelsTableData(
           filename: f.isSplit ? null : f.filename,
           inColdStorage: coldQuantKeys.has(`${m.name}::${f.quant}`),
           size: f.isSplit ? f.totalSize : f.size,
+          shards: f.isSplit
+            ? [...f.files]
+                .sort((a, b) => a.path.localeCompare(b.path))
+                .map((s) => ({
+                  filename: s.path.split('/').pop() ?? s.path,
+                  size: s.size,
+                }))
+            : [],
+          totalShards: f.isSplit ? f.totalShards : 0,
+          presentShards: f.isSplit ? f.presentShards : 0,
+          missingIndices: f.isSplit ? f.missingIndices : [],
         });
       }
     }
