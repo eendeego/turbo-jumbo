@@ -93,11 +93,13 @@ export function HomeClient({
     [router, peerConfigs],
   );
 
-  // The selected tab lives in the URL; clear any selection whenever it changes
-  // (including browser back/forward) using a render-phase reset, not an effect.
+  // Clear any selection whenever the active tab (URL) or the underlying model
+  // data changes, using a render-phase reset rather than an effect.
   const [prevLocation, setPrevLocation] = useState(activeLocation);
-  if (prevLocation !== activeLocation) {
+  const [prevModels, setPrevModels] = useState(modelsTableData);
+  if (prevLocation !== activeLocation || prevModels !== modelsTableData) {
     setPrevLocation(activeLocation);
+    setPrevModels(modelsTableData);
     setSelected(new Set());
   }
 
