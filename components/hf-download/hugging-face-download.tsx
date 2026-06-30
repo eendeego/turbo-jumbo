@@ -136,7 +136,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1e3).toFixed(1)} KB`;
 }
 
-export function HfDownloadSection({
+export function HuggingFaceDownload({
   localModelsPath,
 }: {
   localModelsPath: string;

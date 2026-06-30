@@ -18,7 +18,7 @@ import {
   type ConflictItem,
 } from '@/components/models/conflicts-modal';
 
-export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
+export function ColdStorage({initialModels}: {initialModels: Model[]}) {
   const [models, setModels] = useState(initialModels);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);

@@ -1,17 +1,17 @@
 'use client';
 
 import {useEffect, useState} from 'react';
-import type {Peer} from '@/lib/config';
+import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/model-types';
 import type {WsMessage} from '@/lib/ws-messages';
 import {Banner} from '@astryxdesign/core/Banner';
-import {PeerSection, type PeerModels} from '@/components/peers/peer-section';
+import {Peer, type PeerModels} from '@/components/peers/peer';
 import {AsyncState} from '@/lib/async-state';
 import {clientLog} from '@/lib/client-log';
 
-export function PeersSection({coldModels}: {coldModels: Model[]}) {
-  const [peers, setPeers] = useState<AsyncState<Peer[]>>(
-    AsyncState.loading<Peer[]>(),
+export function Peers({coldModels}: {coldModels: Model[]}) {
+  const [peers, setPeers] = useState<AsyncState<PeerConfig[]>>(
+    AsyncState.loading<PeerConfig[]>(),
   );
   const [peerModels, setPeerModels] = useState<Map<string, PeerModels>>(
     new Map(),
@@ -24,7 +24,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
         if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
         return r.json();
       })
-      .then((data: Peer[]) => {
+      .then((data: PeerConfig[]) => {
         clientLog('debug', `[http] GET /api/v1/peers → ${data.length} peer(s)`);
         setPeers(AsyncState.value(data));
         setPeerModels(
@@ -43,7 +43,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
   useEffect(() => {
     if (!peerList) return;
 
-    const fetchPeer = (peer: Peer) => {
+    const fetchPeer = (peer: PeerConfig) => {
       const url = `/api/v1/peers/${encodeURIComponent(peer.name)}/models`;
       clientLog('trace', `[http] GET ${url} (poll)`);
       fetch(url)
@@ -123,7 +123,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
   return (
     <>
       {peers.value.map((peer) => (
-        <PeerSection
+        <Peer
           key={peer.address}
           peer={peer}
           models={peerModels.get(peer.address) ?? AsyncState.empty()}

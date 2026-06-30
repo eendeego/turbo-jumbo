@@ -7,8 +7,8 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Banner} from '@astryxdesign/core/Banner';
-import type {Peer} from '@/lib/config';
-import type {Model} from '@/lib/models';
+import type {Peer as PeerConfig} from '@/lib/config';
+import type {Model} from '@/lib/model-types';
 import {
   type CopyProgress,
   readCopyProgress,
@@ -30,13 +30,13 @@ import type {AsyncState} from '@/lib/async-state';
 
 export type PeerModels = AsyncState<Model[]>;
 
-export function PeerSection({
+export function Peer({
   peer,
   models,
   coldModels,
   onModelsRefreshed,
 }: {
-  peer: Peer;
+  peer: PeerConfig;
   models: PeerModels;
   coldModels: Model[];
   onModelsRefreshed: (address: string, models: Model[]) => void;

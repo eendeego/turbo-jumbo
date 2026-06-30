@@ -30,7 +30,7 @@ const LEVEL_VARIANT: Record<
   trace: 'neutral',
 };
 
-export function LogSection({logLevel}: {logLevel: string}) {
+export function Log({logLevel}: {logLevel: string}) {
   const [entries, setEntries] = useState<LogEntry[]>(getEntries);
 
   useEffect(() => subscribe(() => setEntries(getEntries())), []);
