@@ -16,6 +16,12 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / 1e3).toFixed(1)} KB`;
 }
 
+export function formatSpeed(bps: number): string {
+  if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} GB/s`;
+  if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} MB/s`;
+  return `${(bps / 1e3).toFixed(0)} KB/s`;
+}
+
 export function filePaths(file: ModelFile): string[] {
   if (file.isSplit) {
     const paths = file.files.map(shardPath).filter(Boolean);

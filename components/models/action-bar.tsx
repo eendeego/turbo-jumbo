@@ -1,12 +1,13 @@
 'use client';
 
+import {useRef, useEffect} from 'react';
 import {Card} from '@astryxdesign/core/Card';
 import {HStack, VStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import type {CopyProgress} from '@/lib/copy-progress';
-import {formatBytes} from '@/components/models/model-list';
+import {formatBytes, formatSpeed} from '@/components/models/model-list';
 
 const formatBytePair = (v: number, m: number) =>
   `${formatBytes(v)} of ${formatBytes(m)}`;
@@ -30,7 +31,31 @@ export function ActionBar({
   copyProgress,
   checking,
 }: ActionBarProps) {
+  // Derive a live transfer speed from successive byte-progress samples. The
+  // result lives in a ref (no setState in the effect) and is read during the
+  // next render, which the changing copyProgress prop already triggers.
+  const sampleRef = useRef<{bytes: number; time: number} | null>(null);
+  const speedRef = useRef<number | null>(null);
+  const bytesDone = copyProgress?.bytesDone;
+
+  useEffect(() => {
+    if (!copying || bytesDone == null) {
+      sampleRef.current = null;
+      speedRef.current = null;
+      return;
+    }
+    const now = Date.now();
+    if (sampleRef.current !== null) {
+      const dt = (now - sampleRef.current.time) / 1000;
+      const db = bytesDone - sampleRef.current.bytes;
+      if (dt > 0 && db >= 0) speedRef.current = db / dt;
+    }
+    sampleRef.current = {bytes: bytesDone, time: now};
+  }, [bytesDone, copying]);
+
   if (selected.size === 0) return null;
+
+  const speed = copying ? speedRef.current : null;
 
   const showProgress =
     copying && copyProgress != null && copyProgress.filesTotal > 0;
@@ -67,7 +92,11 @@ export function ActionBar({
                 value={copyProgress!.bytesDone}
                 max={copyProgress!.bytesTotal}
                 hasValueLabel
-                formatValueLabel={formatBytePair}
+                formatValueLabel={(v, m) =>
+                  speed != null
+                    ? `${formatBytePair(v, m)} · ${formatSpeed(speed)}`
+                    : formatBytePair(v, m)
+                }
               />
             )}
             <ProgressBar
