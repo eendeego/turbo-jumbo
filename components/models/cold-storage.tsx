@@ -3,6 +3,8 @@
 import {useState} from 'react';
 import {VStack} from '@astryxdesign/core/Stack';
 import {Banner} from '@astryxdesign/core/Banner';
+import {Button} from '@astryxdesign/core/Button';
+import {Text} from '@astryxdesign/core/Text';
 import type {Model} from '@/lib/model-types';
 import {
   type CopyProgress,
@@ -31,6 +33,21 @@ export function ColdStorage({initialModels}: {initialModels: Model[]}) {
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rawListing, setRawListing] = useState<{
+    dir: string;
+    files: string[];
+  } | null>(null);
+  const [loadingRaw, setLoadingRaw] = useState(false);
+
+  async function listDirectory() {
+    setLoadingRaw(true);
+    try {
+      const res = await fetch('/api/v1/cold-storage/ls');
+      setRawListing(await res.json());
+    } finally {
+      setLoadingRaw(false);
+    }
+  }
 
   function onToggle(paths: string[]) {
     setSelected((prev) => {
@@ -141,6 +158,34 @@ export function ColdStorage({initialModels}: {initialModels: Model[]}) {
     <VStack gap={1}>
       {error && <Banner status="error" title={`Error: ${error}`} />}
       <ModelList models={models} selected={selected} onToggle={onToggle} />
+      {models.length === 0 &&
+        (rawListing === null ? (
+          <Button
+            label={loadingRaw ? 'Listing…' : 'List directory'}
+            variant="secondary"
+            size="sm"
+            isDisabled={loadingRaw}
+            onClick={listDirectory}
+          />
+        ) : (
+          <VStack gap={1}>
+            <Text type="supporting">
+              {rawListing.dir} — {rawListing.files.length}{' '}
+              {rawListing.files.length === 1 ? 'file' : 'files'}
+            </Text>
+            {rawListing.files.length === 0 ? (
+              <Text type="supporting">Directory is empty</Text>
+            ) : (
+              <VStack gap={0.5}>
+                {rawListing.files.map((f) => (
+                  <Text key={f} type="code" color="secondary">
+                    {f}
+                  </Text>
+                ))}
+              </VStack>
+            )}
+          </VStack>
+        ))}
       <ActionBar
         selected={selected}
         onDelete={() => setConfirming(true)}
