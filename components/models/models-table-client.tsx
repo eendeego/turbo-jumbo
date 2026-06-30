@@ -8,7 +8,7 @@ import {
   pixel,
   type TableColumn,
 } from '@astryxdesign/core/Table';
-import {VStack, HStack} from '@astryxdesign/core/Stack';
+import {HStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
 import {Button} from '@astryxdesign/core/Button';
@@ -198,6 +198,30 @@ function ColdStorageCell({row}: {row: DisplayRow}) {
   return <Badge label="Partial" variant="orange" />;
 }
 
+export function LocationTabs({
+  locations,
+  activeLocation,
+  onLocationChange,
+}: {
+  locations: LocationTab[];
+  activeLocation: string;
+  onLocationChange: (id: string) => void;
+}) {
+  return (
+    <TabList value={activeLocation} onChange={onLocationChange} hasDivider>
+      <Tab value="all" label="All" />
+      {locations.map((loc) => (
+        <Tab
+          key={loc.id}
+          value={loc.id}
+          label={loc.isLocal ? `${loc.label} (local)` : loc.label}
+        />
+      ))}
+      <Tab value="cold-storage" label="Cold Storage" />
+    </TabList>
+  );
+}
+
 export function ModelsTableClient({
   models,
   peers,
@@ -206,7 +230,6 @@ export function ModelsTableClient({
   onToggleSelected,
   locations,
   activeLocation = 'all',
-  onLocationChange,
 }: {
   models: ModelRow[];
   peers: PeerConfig[];
@@ -215,7 +238,6 @@ export function ModelsTableClient({
   onToggleSelected?: (paths: string[]) => void;
   locations?: LocationTab[];
   activeLocation?: string;
-  onLocationChange?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -445,22 +467,5 @@ export function ModelsTableClient({
       : []),
   ];
 
-  return (
-    <VStack gap={3}>
-      {locations && onLocationChange && (
-        <TabList value={activeLocation} onChange={onLocationChange} hasDivider>
-          <Tab value="all" label="All" />
-          {locations.map((loc) => (
-            <Tab
-              key={loc.id}
-              value={loc.id}
-              label={loc.isLocal ? `${loc.label} (local)` : loc.label}
-            />
-          ))}
-          <Tab value="cold-storage" label="Cold Storage" />
-        </TabList>
-      )}
-      <Table data={rows} columns={columns} idKey="key" />
-    </VStack>
-  );
+  return <Table data={rows} columns={columns} idKey="key" />;
 }

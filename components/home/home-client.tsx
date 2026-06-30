@@ -18,7 +18,10 @@ import type {
   ModelRow,
   LocationTab,
 } from '@/components/models/models-table-client';
-import {ModelsTableClient} from '@/components/models/models-table-client';
+import {
+  ModelsTableClient,
+  LocationTabs,
+} from '@/components/models/models-table-client';
 import {ActionBar} from '@/components/models/action-bar';
 import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
 import {
@@ -316,6 +319,11 @@ export function HomeClient({
           <ThemeToggle />
         </HStack>
 
+        <LocationTabs
+          locations={locations}
+          activeLocation={activeLocation}
+          onLocationChange={handleLocationChange}
+        />
         <ModelsTableClient
           models={modelsTableData}
           peers={peerConfigs}
@@ -324,7 +332,6 @@ export function HomeClient({
           onToggleSelected={onToggleSelected}
           locations={locations}
           activeLocation={activeLocation}
-          onLocationChange={handleLocationChange}
         />
         {error && <Banner status="error" title={`Error: ${error}`} />}
         <ActionBar
