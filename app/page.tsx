@@ -1,10 +1,9 @@
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Section} from '@astryxdesign/core/Section';
 import {VStack} from '@astryxdesign/core/Stack';
-import {Heading, Text} from '@astryxdesign/core/Text';
+import {Heading} from '@astryxdesign/core/Text';
 import {localModelsDir, coldStorageDir} from '@/lib/config';
 import {scanModels} from '@/lib/models';
-import {LocalModelsSection} from '@/components/models/local-models-section';
 import {ColdStorageSection} from '@/components/models/cold-storage-section';
 import {PeersSection} from '@/components/peers/peers-section';
 import {HfDownloadSection} from '@/components/hf-download/hf-download-section';
@@ -14,7 +13,6 @@ import {HfDownloadSection} from '@/components/hf-download/hf-download-section';
 export const dynamic = 'force-dynamic';
 
 export default function Home() {
-  const localModels = scanModels(localModelsDir);
   const coldModels = scanModels(coldStorageDir);
 
   return (
@@ -22,20 +20,8 @@ export default function Home() {
       <VStack gap={6}>
         <Heading level={1}>Turbo Jumbo</Heading>
 
+        {/* The local machine appears here as a peer marked "— local". */}
         <PeersSection coldModels={coldModels} />
-
-        <Section>
-          <VStack gap={3}>
-            <Heading level={2}>Local models</Heading>
-            <Text type="supporting">
-              {localModelsDir ?? 'No local peer matches this machine'}
-            </Text>
-            <LocalModelsSection
-              initialModels={localModels}
-              coldModels={coldModels}
-            />
-          </VStack>
-        </Section>
 
         {localModelsDir && (
           <HfDownloadSection localModelsPath={localModelsDir} />
@@ -44,9 +30,6 @@ export default function Home() {
         <Section>
           <VStack gap={3}>
             <Heading level={2}>Models in cold storage</Heading>
-            <Text type="supporting">
-              {coldStorageDir ?? 'No local peer matches this machine'}
-            </Text>
             <ColdStorageSection initialModels={coldModels} />
           </VStack>
         </Section>

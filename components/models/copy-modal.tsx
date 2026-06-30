@@ -80,7 +80,9 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
 
   const showColdStorage = from !== 'cold-storage';
   const showLocal = from !== 'local';
-  const availablePeers = (peers ?? []).filter((p) => p.address !== from);
+  const availablePeers = (peers ?? []).filter(
+    (p) => p.address !== from && !p.isLocal,
+  );
   const coldAlreadyPresent =
     coldModels !== null && allPresent(files, coldModels);
   const localAlreadyPresent =

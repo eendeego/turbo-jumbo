@@ -2,7 +2,7 @@
 
 import {useEffect, useState} from 'react';
 import {Section} from '@astryxdesign/core/Section';
-import {VStack} from '@astryxdesign/core/Stack';
+import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import type {Peer} from '@/lib/config';
@@ -59,7 +59,10 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
 
     const fetchModels = () => {
       peers.forEach((peer) => {
-        fetch(`http://${peer.address}/api/v1/local-models`)
+        const url = peer.isLocal
+          ? '/api/v1/local-models'
+          : `http://${peer.address}/api/v1/local-models`;
+        fetch(url)
           .then((r) => r.json())
           .then((models: Model[]) => {
             setPeerModels((prev) => new Map(prev).set(peer.address, models));
@@ -89,13 +92,14 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
     setConfirmingPeer(null);
     const sel = peerSelections[peer.address] ?? [];
     setPeerDeleting((prev) => ({...prev, [peer.address]: true}));
+    const base = peer.isLocal ? '' : `http://${peer.address}`;
     try {
-      await fetch(`http://${peer.address}/api/v1/local-models`, {
+      await fetch(`${base}/api/v1/local-models`, {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({files: sel}),
       });
-      const res = await fetch(`http://${peer.address}/api/v1/local-models`);
+      const res = await fetch(`${base}/api/v1/local-models`);
       const models: Model[] = await res.json();
       setPeerModels((prev) => new Map(prev).set(peer.address, models));
       setPeerSelections((prev) => ({...prev, [peer.address]: []}));
@@ -114,7 +118,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           files: peerSelections[peer.address] ?? [],
-          from: peer.address,
+          from: peer.isLocal ? 'local' : peer.address,
           toColdStorage: destinations.toColdStorage,
           toLocal: destinations.toLocal,
           toPeers: destinations.toPeers,
@@ -160,7 +164,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           files: sel,
-          from: peer.address,
+          from: peer.isLocal ? 'local' : peer.address,
           ...destinations,
           fileSizes: buildFileSizes(peerModels.get(peer.address) ?? []),
           skip,
@@ -170,9 +174,8 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
         setPeerCopyProgress((prev) => ({...prev, [peer.address]: p})),
       );
       if (destinations.deleteAfterCopy) {
-        const refreshed = await fetch(
-          `http://${peer.address}/api/v1/local-models`,
-        );
+        const base = peer.isLocal ? '' : `http://${peer.address}`;
+        const refreshed = await fetch(`${base}/api/v1/local-models`);
         const models: Model[] = await refreshed.json();
         setPeerModels((prev) => new Map(prev).set(peer.address, models));
         setPeerSelections((prev) => ({...prev, [peer.address]: []}));
@@ -216,7 +219,9 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
       {confirmingCopyPeer && (
         <CopyModal
           files={selectedFileInfo(confirmingCopyModels, confirmingCopySelected)}
-          from={confirmingCopyPeer.address}
+          from={
+            confirmingCopyPeer.isLocal ? 'local' : confirmingCopyPeer.address
+          }
           onCopy={(destinations) =>
             onCopyPeer(confirmingCopyPeer, destinations)
           }
@@ -244,8 +249,10 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
         return (
           <Section key={peer.address}>
             <VStack gap={3}>
-              <Heading level={2}>{peer.name}</Heading>
-              <Text type="supporting">{peer.address}</Text>
+              <HStack gap={2} vAlign="center">
+                <Heading level={2}>{peer.name}</Heading>
+                {peer.isLocal && <Text type="supporting">— local</Text>}
+              </HStack>
               {models === undefined ? (
                 <Spinner label="Loading…" />
               ) : (

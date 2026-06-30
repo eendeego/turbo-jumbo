@@ -11,6 +11,8 @@ export interface Peer {
   // Required for the local peer; remote peers manage their own paths.
   base_path?: string;
   cold_storage_path?: string;
+  // Set by the /api/v1/peers response for the peer that is this machine.
+  isLocal?: boolean;
 }
 
 export interface Config {
