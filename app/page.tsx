@@ -4,7 +4,8 @@ import {VStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {localModelsDir, coldStorageDir} from '@/lib/config';
 import {scanModels} from '@/lib/models';
-import {ModelList} from '@/components/models/model-list';
+import {LocalModelsSection} from '@/components/models/local-models-section';
+import {ColdStorageSection} from '@/components/models/cold-storage-section';
 import {PeersSection} from '@/components/peers/peers-section';
 import {HfDownloadSection} from '@/components/hf-download/hf-download-section';
 
@@ -29,7 +30,7 @@ export default function Home() {
             <Text type="supporting">
               {localModelsDir ?? 'No local peer matches this machine'}
             </Text>
-            <ModelList models={localModels} />
+            <LocalModelsSection initialModels={localModels} />
           </VStack>
         </Section>
 
@@ -43,7 +44,7 @@ export default function Home() {
             <Text type="supporting">
               {coldStorageDir ?? 'No local peer matches this machine'}
             </Text>
-            <ModelList models={coldModels} />
+            <ColdStorageSection initialModels={coldModels} />
           </VStack>
         </Section>
       </VStack>

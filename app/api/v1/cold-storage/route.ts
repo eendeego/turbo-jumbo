@@ -1,20 +1,20 @@
 import {NextResponse} from 'next/server';
 import {promises as fsp} from 'fs';
 import nodePath from 'path';
-import {localModelsDir} from '@/lib/config';
+import {coldStorageDir} from '@/lib/config';
 import {scanModels} from '@/lib/models';
 
 export function GET() {
-  const models = scanModels(localModelsDir);
+  const models = scanModels(coldStorageDir);
   return NextResponse.json(models);
 }
 
 export async function DELETE(req: Request) {
-  if (!localModelsDir) return new Response('No local peer', {status: 400});
+  if (!coldStorageDir) return new Response('No cold storage', {status: 400});
   const {files} = (await req.json()) as {files: string[]};
   if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
     return new Response('Invalid files', {status: 400});
-  const base = nodePath.resolve(localModelsDir);
+  const base = nodePath.resolve(coldStorageDir);
   for (const file of files) {
     const full = nodePath.resolve(base, file);
     if (!full.startsWith(base + nodePath.sep))

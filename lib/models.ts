@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 const QUANT_RE =
-  /[-_.](?:IQ\d+_(?:XXS|XS|NL|[SML])|Q\d+(?:_K(?:_[SML])?|_[01])?|BF16|F16|F32)$/i;
+  /[-_.](?:UD-)?(?:IQ\d+_(?:XXS|XS|NL|[SML])|Q\d+(?:_K(?:_(?:XL|XS|[SML]))?|_[01])?|BF16|F16|F32)$/i;
 const SPLIT_RE = /^(.+)-(\d+)-of-(\d+)\.gguf$/i;
 
 function extractModelName(filename: string): string {
@@ -14,7 +14,7 @@ function extractModelName(filename: string): string {
 function extractQuant(filename: string): string {
   const base = filename.replace(/\.(gguf|safetensors|bin)$/i, '');
   const m = base.match(
-    /[-_.]((IQ\d+_(?:XXS|XS|NL|[SML])|Q\d+(?:_K(?:_[SML])?|_[01])?|BF16|F16|F32))$/i,
+    /[-_.]((?:UD-)?(?:IQ\d+_(?:XXS|XS|NL|[SML])|Q\d+(?:_K(?:_(?:XL|XS|[SML]))?|_[01])?|BF16|F16|F32))$/i,
   );
   return m ? m[1].toUpperCase() : 'unknown';
 }
@@ -22,6 +22,7 @@ function extractQuant(filename: string): string {
 export interface SingleFile {
   isSplit: false;
   filename: string;
+  path: string; // relative from storage root, for API calls
   quant: string;
   size: number;
   missing: boolean;
@@ -30,6 +31,7 @@ export interface SingleFile {
 export interface SplitGroup {
   isSplit: true;
   representativeFilename: string;
+  files: string[]; // relative paths of present shards, for API calls
   quant: string;
   totalShards: number;
   presentShards: number;
@@ -46,6 +48,7 @@ export interface Model {
 
 export function scanModels(storagePath: string | undefined): Model[] {
   if (!storagePath) return [];
+  const root = storagePath;
   const singleMap = new Map<string, SingleFile[]>();
 
   interface SplitAccum {
@@ -53,6 +56,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
     quant: string;
     totalShards: number;
     presentIndices: Set<number>;
+    presentPaths: string[];
     totalSize: number;
     representativeFilename: string;
   }
@@ -72,6 +76,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
       }
 
       const fullPath = path.join(dir, entry.name);
+      const relPath = path.relative(root, fullPath);
       const splitMatch = entry.name.match(SPLIT_RE);
 
       if (splitMatch) {
@@ -95,12 +100,14 @@ export function scanModels(storagePath: string | undefined): Model[] {
             quant,
             totalShards: total,
             presentIndices: new Set(),
+            presentPaths: [],
             totalSize: 0,
             representativeFilename: entry.name,
           });
         }
         const accum = splitMap.get(key)!;
         accum.presentIndices.add(index);
+        accum.presentPaths.push(relPath);
         accum.totalSize += size;
       } else if (/\.(gguf|safetensors|bin)$/i.test(entry.name)) {
         let size = 0;
@@ -114,6 +121,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
         const file: SingleFile = {
           isSplit: false,
           filename: entry.name,
+          path: relPath,
           quant: extractQuant(entry.name),
           size,
           missing,
@@ -144,6 +152,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
     const splitGroup: SplitGroup = {
       isSplit: true,
       representativeFilename: accum.representativeFilename,
+      files: accum.presentPaths,
       quant: accum.quant,
       totalShards: accum.totalShards,
       presentShards: accum.presentIndices.size,

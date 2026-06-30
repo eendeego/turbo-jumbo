@@ -16,20 +16,29 @@ export function PeersSection() {
   useEffect(() => {
     fetch('/api/v1/peers')
       .then((r) => r.json())
-      .then((data: Peer[]) => {
-        setPeers(data);
-        data.forEach((peer) => {
-          fetch(`http://${peer.address}/api/v1/local-models`)
-            .then((r) => r.json())
-            .then((models: Model[]) => {
-              setPeerModels((prev) => new Map(prev).set(peer.address, models));
-            })
-            .catch(() => {
-              setPeerModels((prev) => new Map(prev).set(peer.address, []));
-            });
-        });
-      });
+      .then((data: Peer[]) => setPeers(data));
   }, []);
+
+  useEffect(() => {
+    if (!peers) return;
+
+    const fetchModels = () => {
+      peers.forEach((peer) => {
+        fetch(`http://${peer.address}/api/v1/local-models`)
+          .then((r) => r.json())
+          .then((models: Model[]) => {
+            setPeerModels((prev) => new Map(prev).set(peer.address, models));
+          })
+          .catch(() => {
+            setPeerModels((prev) => new Map(prev).set(peer.address, []));
+          });
+      });
+    };
+
+    fetchModels();
+    const id = setInterval(fetchModels, 5000);
+    return () => clearInterval(id);
+  }, [peers]);
 
   if (!peers || peers.length === 0) return null;
 
