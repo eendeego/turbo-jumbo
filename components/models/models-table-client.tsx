@@ -402,27 +402,39 @@ export function ModelsTableClient({
         </Text>
       ),
     },
-    {
-      key: 'peers',
-      header: 'Peers',
-      width: pixel(120),
-      align: 'center',
-      renderCell: (item) => (
-        <PeersCell
-          row={item}
-          peers={peers}
-          peerQuantKeys={peerQuantKeys}
-          peerModelKeys={peerModelKeys}
-        />
-      ),
-    },
-    {
-      key: 'coldStorage',
-      header: 'Cold Storage',
-      width: pixel(100),
-      align: 'center',
-      renderCell: (item) => <ColdStorageCell row={item} />,
-    },
+    // Peers column only on the "All" tab (redundant on a peer's own tab and on
+    // the cold-storage tab).
+    ...(activeLocation !== 'cold-storage' &&
+    !locations?.some((l) => l.id === activeLocation)
+      ? [
+          {
+            key: 'peers',
+            header: 'Peers',
+            width: pixel(120),
+            align: 'center' as const,
+            renderCell: (item: DisplayRow) => (
+              <PeersCell
+                row={item}
+                peers={peers}
+                peerQuantKeys={peerQuantKeys}
+                peerModelKeys={peerModelKeys}
+              />
+            ),
+          } satisfies TableColumn<DisplayRow>,
+        ]
+      : []),
+    // Cold Storage column hidden on the cold-storage tab itself.
+    ...(activeLocation !== 'cold-storage'
+      ? [
+          {
+            key: 'coldStorage',
+            header: 'Cold Storage',
+            width: pixel(100),
+            align: 'center' as const,
+            renderCell: (item: DisplayRow) => <ColdStorageCell row={item} />,
+          } satisfies TableColumn<DisplayRow>,
+        ]
+      : []),
   ];
 
   return (
