@@ -16,6 +16,7 @@ fi
 : "${CONFIG_FILE:?set CONFIG_FILE in $ENV_FILE — host path to config.yaml}"
 : "${MODEL_MOUNTS:?set MODEL_MOUNTS in $ENV_FILE — space-separated host dirs mounted rw at the same path in the container}"
 
+HF_TOKEN_FILE_HOST=${HF_TOKEN_FILE_HOST:-$(pwd)/hf_token.txt}
 CONTAINER_NAME=${CONTAINER_NAME:-turbo-jumbo}
 IMAGE_NAME=${IMAGE_NAME:-turbo-jumbo}
 PORT=${PORT:-3000}
@@ -41,6 +42,8 @@ deploy() {
 
     echo "Starting container…"
     podman run -d --name "$CONTAINER_NAME" \
+        -v "$HF_TOKEN_FILE_HOST:/run/secrets/hf_token:ro" \
+        -e HF_TOKEN_FILE=/run/secrets/hf_token \
         -p "$PORT:3000" \
         -v "$CONFIG_FILE:/config/config.yaml:ro" \
         "${volume_args[@]}" \

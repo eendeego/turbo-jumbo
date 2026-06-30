@@ -49,3 +49,6 @@ next-env.d.ts
 # local config (copy config.yaml.sample to config.yaml and edit)
 /config.yaml
 
+# optional HF token file (read at startup via HF_TOKEN_FILE)
+/hf_token.txt
+

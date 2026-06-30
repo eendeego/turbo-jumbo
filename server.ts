@@ -1,8 +1,16 @@
 import {createServer} from 'node:http';
 import {parse} from 'node:url';
+import {readFileSync} from 'node:fs';
 import next from 'next';
 import {initWsServer, handleWsUpgrade, WS_PATH} from './lib/ws-server';
 import {startPeerMonitor} from './lib/peer-monitor';
+
+// Load the HuggingFace token from a mounted secret file, if configured, so the
+// `hf` CLI can authenticate without the token living in the environment/image.
+const hfTokenFile = process.env.HF_TOKEN_FILE;
+if (hfTokenFile) {
+  process.env.HF_TOKEN = readFileSync(hfTokenFile, 'utf8').trim();
+}
 
 const dev = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT ?? '3000', 10);
