@@ -3,7 +3,11 @@
 import {useState} from 'react';
 import {VStack} from '@astryxdesign/core/Stack';
 import type {Model} from '@/lib/models';
-import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
+import {
+  type CopyProgress,
+  readCopyProgress,
+  buildFileSizes,
+} from '@/lib/copy-progress';
 import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
 import {DeleteModal, selectedFileInfo} from '@/components/models/delete-modal';
@@ -57,6 +61,7 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
           files: Array.from(selected),
           from: 'cold-storage',
           ...destinations,
+          fileSizes: buildFileSizes(models),
         }),
       });
       await readCopyProgress(res, setCopyProgress);

@@ -7,7 +7,11 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/models';
-import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
+import {
+  type CopyProgress,
+  readCopyProgress,
+  buildFileSizes,
+} from '@/lib/copy-progress';
 import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
 import {
@@ -98,7 +102,12 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
       const res = await fetch('/api/v1/copy', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({files: sel, from: peer.address, ...destinations}),
+        body: JSON.stringify({
+          files: sel,
+          from: peer.address,
+          ...destinations,
+          fileSizes: buildFileSizes(peerModels.get(peer.address) ?? []),
+        }),
       });
       await readCopyProgress(res, (p) =>
         setPeerCopyProgress((prev) => ({...prev, [peer.address]: p})),

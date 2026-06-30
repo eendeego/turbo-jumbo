@@ -3,9 +3,11 @@ import {promises as fsp} from 'fs';
 import {createReadStream, createWriteStream} from 'fs';
 import nodePath from 'path';
 import {pipeline} from 'stream/promises';
-import {Readable} from 'stream';
+import {Readable, Transform} from 'stream';
 
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB
+// Emit a progress event at most once per this many streamed bytes.
+const EMIT_INTERVAL = CHUNK_SIZE;
 
 type CopyRequest = {
   files: string[];
@@ -13,12 +15,23 @@ type CopyRequest = {
   toColdStorage: boolean;
   toPeers: string[];
   deleteAfterCopy: boolean;
+  fileSizes?: Record<string, number>; // caller-supplied sizes for peer sources
 };
 
 function resolveLocal(basePath: string, file: string): string | null {
   const base = nodePath.resolve(basePath);
   const full = nodePath.resolve(base, file);
   return full.startsWith(base + nodePath.sep) ? full : null;
+}
+
+// A pass-through stream that reports how many bytes flow through it.
+function makeCounter(onBytes: (n: number) => void): Transform {
+  return new Transform({
+    transform(chunk, _enc, cb) {
+      onBytes(chunk.length);
+      cb(null, chunk);
+    },
+  });
 }
 
 export async function POST(req: Request) {
@@ -51,31 +64,74 @@ export async function POST(req: Request) {
     }
   }
 
+  // Build a file-size map: stat local files, or use caller-supplied sizes when
+  // the source is a remote peer (whose files this server can't stat).
+  const fileSizeMap: Record<string, number> = {};
+  if (!isPeerSource && sourceBasePath) {
+    for (const file of files) {
+      const {size} = await fsp.stat(resolveLocal(sourceBasePath, file)!);
+      fileSizeMap[file] = size;
+    }
+  } else if (body.fileSizes) {
+    Object.assign(fileSizeMap, body.fileSizes);
+  }
+
+  const totalFileBytes = files.reduce((s, f) => s + (fileSizeMap[f] ?? 0), 0);
   const coldOps = toColdStorage ? files.length : 0;
   const peerOps = toPeers.length * (isPeerSource ? 1 : files.length);
-  const total = coldOps + peerOps;
+  const filesTotal = coldOps + peerOps;
+  const numDestinations = (toColdStorage ? 1 : 0) + toPeers.length;
+  const bytesTotal = totalFileBytes * numDestinations;
 
   const enc = new TextEncoder();
 
   // Stream newline-delimited progress so the browser can render a live bar.
   const stream = new ReadableStream({
     async start(controller) {
-      let done = 0;
-      const progress = () => {
-        done++;
-        controller.enqueue(enc.encode(JSON.stringify({done, total}) + '\n'));
+      let closed = false;
+      const safeEnqueue = (data: Uint8Array) => {
+        if (closed) return;
+        try {
+          controller.enqueue(data);
+        } catch {
+          closed = true;
+        }
+      };
+      const safeClose = () => {
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
       };
 
-      // Send an initial event so the client learns the total immediately.
-      controller.enqueue(enc.encode(JSON.stringify({done: 0, total}) + '\n'));
+      let filesDone = 0;
+      let bytesDone = 0;
+      let fileDone = 0;
+      let fileTotal = 0;
+
+      const emit = () =>
+        safeEnqueue(
+          enc.encode(
+            JSON.stringify({
+              filesDone,
+              filesTotal,
+              fileDone,
+              fileTotal,
+              bytesDone,
+              bytesTotal,
+            }) + '\n',
+          ),
+        );
+
+      emit(); // initial event
 
       try {
-        // Copy to cold storage
+        // ── Copy to cold storage ──────────────────────────────────────────
         if (toColdStorage) {
           for (const file of files) {
             const dst = nodePath.resolve(coldBase, file);
             if (!dst.startsWith(coldBase + nodePath.sep)) {
-              controller.close();
+              safeClose();
               return;
             }
             await fsp.mkdir(nodePath.dirname(dst), {recursive: true});
@@ -85,40 +141,96 @@ export async function POST(req: Request) {
                 `http://${from}/api/v1/local-models/download?file=${encodeURIComponent(file)}`,
               );
               if (!res.ok || !res.body) {
-                controller.close();
+                safeClose();
                 return;
               }
-              const writer = createWriteStream(dst);
-              // @ts-expect-error – DOM ReadableStream vs Node ReadableStream type mismatch
-              await pipeline(Readable.fromWeb(res.body), writer);
+
+              const contentLen = parseInt(
+                res.headers.get('content-length') ?? '0',
+                10,
+              );
+              fileTotal = fileSizeMap[file] ?? contentLen;
+              fileDone = 0;
+              emit();
+
+              let nextEmitAt = EMIT_INTERVAL;
+              const counter = makeCounter((n) => {
+                fileDone += n;
+                bytesDone += n;
+                if (fileDone >= nextEmitAt) {
+                  nextEmitAt = fileDone + EMIT_INTERVAL;
+                  emit();
+                }
+              });
+              await pipeline(
+                // @ts-expect-error – DOM ReadableStream vs Node ReadableStream type mismatch
+                Readable.fromWeb(res.body),
+                counter,
+                createWriteStream(dst),
+              );
             } else {
               const src = resolveLocal(sourceBasePath!, file)!;
-              await fsp.copyFile(src, dst);
+              fileTotal = fileSizeMap[file] ?? 0;
+              fileDone = 0;
+              emit();
+
+              let nextEmitAt = EMIT_INTERVAL;
+              const counter = makeCounter((n) => {
+                fileDone += n;
+                bytesDone += n;
+                if (fileDone >= nextEmitAt) {
+                  nextEmitAt = fileDone + EMIT_INTERVAL;
+                  emit();
+                }
+              });
+              await pipeline(
+                createReadStream(src),
+                counter,
+                createWriteStream(dst),
+              );
             }
-            progress();
+
+            filesDone++;
+            fileDone = fileTotal;
+            emit();
           }
         }
 
-        // Copy to peers
+        // ── Copy to peers ─────────────────────────────────────────────────
         for (const peerAddr of toPeers) {
           if (isPeerSource) {
-            // Tell the source peer to push files directly to the destination
-            // peer, avoiding routing the data through this server.
+            // Tell the source peer to push directly — no per-byte visibility
+            // here, so report the whole file in one step.
+            const pushBytes = files.reduce(
+              (s, f) => s + (fileSizeMap[f] ?? 0),
+              0,
+            );
+            fileTotal = pushBytes;
+            fileDone = 0;
+            emit();
+
             const res = await fetch(`http://${from}/api/v1/local-models/push`, {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({files, toPeer: peerAddr}),
             });
             if (!res.ok) {
-              controller.close();
+              safeClose();
               return;
             }
-            progress();
+
+            filesDone++;
+            bytesDone += pushBytes;
+            fileDone = pushBytes;
+            emit();
           } else {
             for (const file of files) {
               const uploadUrl = `http://${peerAddr}/api/v1/local-models/upload`;
               const src = resolveLocal(sourceBasePath!, file)!;
-              const {size: fileSize} = await fsp.stat(src);
+              const fileSize = fileSizeMap[file] ?? 0;
+              fileTotal = fileSize;
+              fileDone = 0;
+              emit();
 
               if (fileSize === 0) {
                 await fetch(uploadUrl, {
@@ -143,14 +255,20 @@ export async function POST(req: Request) {
                     // @ts-expect-error – duplex required for streaming request bodies in Node fetch
                     duplex: 'half',
                   });
+                  fileDone = chunkEnd;
+                  bytesDone += chunkEnd - offset;
+                  emit();
                 }
               }
-              progress();
+
+              filesDone++;
+              fileDone = fileSize;
+              emit();
             }
           }
         }
 
-        // Delete source after successful copy to cold storage
+        // ── Delete source after successful copy to cold storage ───────────
         if (deleteAfterCopy && toColdStorage) {
           if (isPeerSource) {
             await fetch(`http://${from}/api/v1/local-models`, {
@@ -160,15 +278,14 @@ export async function POST(req: Request) {
             });
           } else {
             for (const file of files) {
-              const full = resolveLocal(sourceBasePath!, file)!;
-              await fsp.rm(full, {force: true});
+              await fsp.rm(resolveLocal(sourceBasePath!, file)!, {force: true});
             }
           }
         }
 
-        controller.close();
+        safeClose();
       } catch {
-        controller.close();
+        safeClose();
       }
     },
   });

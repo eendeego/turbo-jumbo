@@ -3,7 +3,11 @@
 import {useState} from 'react';
 import {VStack} from '@astryxdesign/core/Stack';
 import type {Model} from '@/lib/models';
-import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
+import {
+  type CopyProgress,
+  readCopyProgress,
+  buildFileSizes,
+} from '@/lib/copy-progress';
 import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
 import {
@@ -67,6 +71,7 @@ export function LocalModelsSection({
           files: Array.from(selected),
           from: 'local',
           ...destinations,
+          fileSizes: buildFileSizes(models),
         }),
       });
       await readCopyProgress(res, setCopyProgress);

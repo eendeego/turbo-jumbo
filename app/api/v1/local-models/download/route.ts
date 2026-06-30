@@ -1,5 +1,6 @@
 import {localModelsDir} from '@/lib/config';
 import nodePath from 'path';
+import {promises as fsp} from 'fs';
 import {createReadStream} from 'fs';
 import {Readable} from 'stream';
 
@@ -15,9 +16,13 @@ export async function GET(req: Request) {
     return new Response('Invalid path', {status: 400});
 
   try {
+    const {size} = await fsp.stat(full);
     const stream = createReadStream(full);
     return new Response(Readable.toWeb(stream) as unknown as ReadableStream, {
-      headers: {'Content-Type': 'application/octet-stream'},
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(size),
+      },
     });
   } catch {
     return new Response('File not found', {status: 404});
