@@ -2,7 +2,13 @@ import {test, expect} from 'bun:test';
 import {promises as fsp} from 'fs';
 import os from 'os';
 import path from 'path';
-import {decideStatus, readMeta, writeMeta, metaPath} from '@/lib/audit';
+import {
+  decideStatus,
+  expectedRelPath,
+  readMeta,
+  writeMeta,
+  metaPath,
+} from '@/lib/audit';
 import type {HfFileInfo} from '@/lib/hf-infer';
 
 const hf: HfFileInfo = {
@@ -13,12 +19,15 @@ const hf: HfFileInfo = {
   sha256: 'deadbeef',
 };
 
-test('pass when size, sha, and path all match', () => {
+// The expected on-disk layout mirrors HuggingFace: <repoId>/<repoPath>.
+const placed = 'o/r/M.Q4.gguf';
+
+test('pass when size, sha, and repoId/repoPath all match', () => {
   expect(
     decideStatus({
       hf,
       actualSize: 100,
-      relPath: 'M.Q4.gguf',
+      relPath: placed,
       computedSha256: 'deadbeef',
     }),
   ).toBe('pass');
@@ -40,7 +49,7 @@ test('incomplete on size mismatch (before sha is considered)', () => {
     decideStatus({
       hf,
       actualSize: 99,
-      relPath: 'M.Q4.gguf',
+      relPath: placed,
       computedSha256: 'deadbeef',
     }),
   ).toBe('incomplete');
@@ -51,18 +60,29 @@ test('checksum-mismatch when computed sha differs', () => {
     decideStatus({
       hf,
       actualSize: 100,
-      relPath: 'M.Q4.gguf',
+      relPath: placed,
       computedSha256: 'other',
     }),
   ).toBe('checksum-mismatch');
 });
 
-test('misplaced when path differs but size and sha match', () => {
+test('misplaced when a file sits at the storage root instead of <repoId>/<repoPath>', () => {
   expect(
     decideStatus({
       hf,
       actualSize: 100,
-      relPath: 'sub/M.Q4.gguf',
+      relPath: 'M.Q4.gguf',
+      computedSha256: 'deadbeef',
+    }),
+  ).toBe('misplaced');
+});
+
+test('misplaced when the repo directory is wrong', () => {
+  expect(
+    decideStatus({
+      hf,
+      actualSize: 100,
+      relPath: 'other/M.Q4.gguf',
       computedSha256: 'deadbeef',
     }),
   ).toBe('misplaced');
@@ -73,10 +93,14 @@ test('error when sha could not be computed despite matching size', () => {
     decideStatus({
       hf,
       actualSize: 100,
-      relPath: 'M.Q4.gguf',
+      relPath: placed,
       computedSha256: null,
     }),
   ).toBe('error');
+});
+
+test('expectedRelPath joins repoId and repoPath', () => {
+  expect(expectedRelPath(hf)).toBe('o/r/M.Q4.gguf');
 });
 
 test('writeMeta/readMeta round-trip and metaPath naming', async () => {

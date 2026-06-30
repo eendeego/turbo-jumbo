@@ -60,7 +60,10 @@ For each file at the location:
    (`computedSha256`, and cache `sourceSha256` = inferred HF sha256).
 4. **SHA256 check** — `computedSha256 === sourceSha256`. Mismatch → `Checksum mismatch`.
 5. **Directory check** — the file's path relative to the storage root must equal
-   `repoPath`. Mismatch → `Misplaced`.
+   the HuggingFace layout mirrored on disk, `<repoId>/<repoPath>` (e.g.
+   `unsloth/FLUX.2-klein-9B-GGUF/flux-2-klein-9b-Q8_0.gguf`). Note `repoPath`
+   alone is only the path _within_ the repo, so a file dropped at the storage
+   root does **not** count as correctly placed. Mismatch → `Misplaced`.
 6. All of size ✓, sha ✓, directory ✓ → `Pass`.
 
 ### Statuses
@@ -70,7 +73,7 @@ For each file at the location:
 | `Pass`              | size ✓ + sha256 ✓ + directory ✓                           |
 | `Incomplete`        | on-disk size ≠ HF size, or missing shards (fail-fast)     |
 | `Checksum mismatch` | size matched but computed sha256 ≠ HF sha256 (corruption) |
-| `Misplaced`         | size/sha ok but path ≠ HF repo path                       |
+| `Misplaced`         | size/sha ok but path ≠ `<repoId>/<repoPath>`              |
 | `Unverifiable`      | could not infer an HF repo containing the exact filename  |
 
 ## Per-file sidecar metadata

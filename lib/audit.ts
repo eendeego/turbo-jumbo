@@ -28,6 +28,17 @@ export interface TjMeta {
 }
 
 /**
+ * Where a file should live relative to the storage root: the HuggingFace
+ * layout mirrored on disk, i.e. `<repoId>/<repoPath>` (e.g.
+ * `unsloth/FLUX.2-klein-9B-GGUF/flux-2-klein-9b-Q8_0.gguf`). `repoPath` alone
+ * is only the path *within* the repo, so a file dropped at the storage root
+ * must not be treated as correctly placed.
+ */
+export function expectedRelPath(hf: HfFileInfo): string {
+  return `${hf.repoId}/${hf.repoPath}`;
+}
+
+/**
  * Pure verdict. Order matches the spec: size (fail-fast) -> sha256 -> directory.
  * `computedSha256` is null only when hashing failed after the size matched.
  */
@@ -42,7 +53,7 @@ export function decideStatus(input: {
   if (actualSize !== hf.size) return 'incomplete';
   if (computedSha256 === null) return 'error';
   if (computedSha256 !== hf.sha256) return 'checksum-mismatch';
-  if (relPath !== hf.repoPath) return 'misplaced';
+  if (relPath !== expectedRelPath(hf)) return 'misplaced';
   return 'pass';
 }
 
@@ -129,6 +140,8 @@ export async function auditFile(
     file: relPath,
     status,
     message:
-      status === 'misplaced' ? `expected path ${hf.repoPath}` : undefined,
+      status === 'misplaced'
+        ? `expected path ${expectedRelPath(hf)}`
+        : undefined,
   };
 }
