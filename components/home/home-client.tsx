@@ -3,6 +3,7 @@
 import {useMemo} from 'react';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Section} from '@astryxdesign/core/Section';
+import {Divider} from '@astryxdesign/core/Divider';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Text';
 import type {Peer as PeerConfig} from '@/lib/config';
@@ -63,6 +64,8 @@ export function HomeClient({
           peers={peerConfigs}
           peerModels={seededPeerModels}
         />
+
+        <Divider />
 
         <Peers
           peers={peers}
