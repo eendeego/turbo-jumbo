@@ -303,6 +303,65 @@ export async function POST(req: Request) {
             bytesDone += pushBytes;
             fileDone = pushBytes;
             emit();
+          } else if (from === 'cold-storage' && peerAddr !== localPeerAddr) {
+            // Tell the remote peer to copy from its own cold storage, streaming
+            // progress back rather than routing bytes through this host.
+            const nonSkippedFiles = files.filter(
+              (f) => !shouldSkip(f, peerAddr),
+            );
+            if (nonSkippedFiles.length > 0) {
+              const peerBytes = nonSkippedFiles.reduce(
+                (s, f) => s + (fileSizeMap[f] ?? 0),
+                0,
+              );
+              fileTotal = peerBytes;
+              fileDone = 0;
+              emit();
+
+              logger.info(
+                `[copy] cold→local ${nonSkippedFiles.length} file(s) → ${peerAddr}`,
+              );
+              const res = await fetch(
+                `http://${peerAddr}/api/v1/cold-storage/to-local`,
+                {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({files: nonSkippedFiles}),
+                  signal,
+                },
+              );
+              if (!res.ok || !res.body) {
+                logger.error(
+                  `[copy] cold→local failed for ${peerAddr}: ${res.status}`,
+                );
+                safeClose();
+                return;
+              }
+
+              const reader = res.body.getReader();
+              const dec = new TextDecoder();
+              let buf = '';
+              const baseBytesDone = bytesDone;
+              const baseFilesDone = filesDone;
+              for (;;) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, {stream: true});
+                const lines = buf.split('\n');
+                buf = lines.pop() ?? '';
+                for (const line of lines) {
+                  if (!line.trim()) continue;
+                  const p = JSON.parse(line) as {
+                    bytesDone: number;
+                    filesDone: number;
+                  };
+                  fileDone = p.bytesDone;
+                  bytesDone = baseBytesDone + p.bytesDone;
+                  filesDone = baseFilesDone + p.filesDone;
+                  emit();
+                }
+              }
+            }
           } else {
             for (const file of files) {
               if (shouldSkip(file, peerAddr)) continue;
