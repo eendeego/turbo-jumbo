@@ -1,14 +1,17 @@
 import {test, expect} from 'bun:test';
 import {promises as fsp} from 'fs';
+import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
 import {
+  auditFile,
   cachedResultFromMeta,
   decideStatus,
   expectedRelPath,
   hfSummary,
   moveFileWithMeta,
   readMeta,
+  resolveSource,
   writeMeta,
   metaPath,
 } from '@/lib/audit';
@@ -253,4 +256,87 @@ test('moveFileWithMeta rejects a target that escapes the storage root', async ()
   ).rejects.toThrow();
 
   await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('resolveSource falls back to the sidecar source when inference fails', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-resolve-'));
+  const full = path.join(base, 'GPT.gguf');
+  await fsp.writeFile(full, 'data');
+  // A manually-set source, recorded by the set-source flow.
+  await writeMeta(full, {
+    modelUrl: 'https://huggingface.co/Hauhau/Repo',
+    originUrl: 'https://huggingface.co/Hauhau/Repo/blob/main/GPT.gguf',
+    sourceSha256: 'feed',
+    computedSha256: 'feed',
+  });
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models?')) return new Response('[]', {status: 200}); // inference: no match
+    if (u.includes('/api/models/Hauhau/Repo/tree/main')) {
+      return new Response(
+        JSON.stringify([
+          {
+            type: 'file',
+            path: 'GPT.gguf',
+            size: 7,
+            lfs: {oid: 'sha256:feed', size: 7},
+          },
+        ]),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  try {
+    const hf = await resolveSource(full, 'GPT', 'GPT.gguf');
+    expect(hf).toEqual({
+      repoId: 'Hauhau/Repo',
+      branch: 'main',
+      repoPath: 'GPT.gguf',
+      size: 7,
+      sha256: 'feed',
+    });
+    // The Fix target is derived from this, so it agrees with the audit verdict.
+    expect(expectedRelPath(hf!)).toBe('Hauhau/Repo/GPT.gguf');
+  } finally {
+    globalThis.fetch = realFetch;
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('auditFile verifies against an explicit source without any inference', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-src-'));
+  const rel = 'o/r/m.gguf'; // already at <repoId>/<repoPath>, so not misplaced
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  const content = Buffer.from('hello world');
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+
+  const source: HfFileInfo = {
+    repoId: 'o/r',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    size: content.length,
+    sha256: sha,
+  };
+
+  // With an explicit source there must be no network call at all.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    throw new Error('auditFile should not fetch when given a source');
+  }) as typeof fetch;
+  try {
+    const result = await auditFile(base, rel, '', 'm.gguf', undefined, source);
+    expect(result.status).toBe('pass');
+    const meta = await readMeta(full);
+    expect(meta?.sourceSha256).toBe(sha);
+    expect(meta?.computedSha256).toBe(sha);
+  } finally {
+    globalThis.fetch = realFetch;
+    await fsp.rm(base, {recursive: true, force: true});
+  }
 });

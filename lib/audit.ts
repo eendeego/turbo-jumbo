@@ -2,7 +2,12 @@ import {execFile} from 'child_process';
 import {promises as fsp} from 'fs';
 import path from 'path';
 import {promisify} from 'util';
-import {inferHfFile, type HfFileInfo} from '@/lib/hf-infer';
+import {
+  inferHfFile,
+  parseHfFileUrl,
+  resolveHfFileByPath,
+  type HfFileInfo,
+} from '@/lib/hf-infer';
 
 const execFileP = promisify(execFile);
 
@@ -201,8 +206,33 @@ export async function moveFileWithMeta(
 }
 
 /**
- * Audit a single physical file: infer HF source, fail-fast on size, then hash,
- * persist the sidecar, and return the verdict.
+ * Resolve a file's HuggingFace source, in order: name inference, then a fall
+ * back to the file's own sidecar `originUrl`. The fallback is what lets a source
+ * set by hand survive — both later audits and the Fix action rely on it, so the
+ * audit verdict and the relocation target always agree. Returns null when the
+ * source can't be determined.
+ */
+export async function resolveSource(
+  fullPath: string,
+  modelName: string,
+  filename: string,
+): Promise<HfFileInfo | null> {
+  const inferred = await inferHfFile(modelName, filename);
+  if (inferred) return inferred;
+  const meta = await readMeta(fullPath);
+  const ref = meta?.originUrl ? parseHfFileUrl(meta.originUrl) : null;
+  if (!ref) return null;
+  return resolveHfFileByPath(ref.repoId, ref.branch, ref.repoPath);
+}
+
+/**
+ * Audit a single physical file: resolve its HF source, fail-fast on size, then
+ * hash, persist the sidecar, and return the verdict.
+ *
+ * The source is found in order: an explicit `source` (a manually-supplied URL,
+ * already resolved), then `resolveSource` (inference, then sidecar fallback) —
+ * so a source set by hand survives later audit runs even though inference still
+ * can't guess it.
  */
 export async function auditFile(
   basePath: string,
@@ -210,6 +240,7 @@ export async function auditFile(
   modelName: string,
   filename: string,
   signal?: AbortSignal,
+  source?: HfFileInfo,
 ): Promise<AuditResult> {
   const fullPath = path.join(basePath, relPath);
 
@@ -220,7 +251,7 @@ export async function auditFile(
     return {file: relPath, status: 'incomplete', message: 'file missing'};
   }
 
-  const hf = await inferHfFile(modelName, filename);
+  const hf = source ?? (await resolveSource(fullPath, modelName, filename));
   if (!hf) return {file: relPath, status: 'unverifiable'};
   const summary = hfSummary(hf);
   if (actualSize !== hf.size) {

@@ -1,5 +1,10 @@
 import {test, expect, afterEach} from 'bun:test';
-import {inferHfFile, clearHfCache} from '@/lib/hf-infer';
+import {
+  inferHfFile,
+  clearHfCache,
+  parseHfFileUrl,
+  resolveHfFileByPath,
+} from '@/lib/hf-infer';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -118,4 +123,75 @@ test('strips the sha256: prefix from the lfs oid when present', async () => {
 
   const info = await inferHfFile('m', 'm.gguf');
   expect(info?.sha256).toBe('deadbeef');
+});
+
+test('parseHfFileUrl parses a blob URL into repo, branch and path', () => {
+  expect(
+    parseHfFileUrl(
+      'https://huggingface.co/HauhauCS/GPT-OSS-20B-Uncensored-HauhauCS-Aggressive/blob/main/GPT-OSS-20B-Uncensored-HauhauCS-MXFP4-Aggressive.gguf',
+    ),
+  ).toEqual({
+    repoId: 'HauhauCS/GPT-OSS-20B-Uncensored-HauhauCS-Aggressive',
+    branch: 'main',
+    repoPath: 'GPT-OSS-20B-Uncensored-HauhauCS-MXFP4-Aggressive.gguf',
+  });
+});
+
+test('parseHfFileUrl accepts the resolve form and nested paths', () => {
+  expect(
+    parseHfFileUrl('https://huggingface.co/o/r/resolve/main/sub/dir/file.gguf'),
+  ).toEqual({repoId: 'o/r', branch: 'main', repoPath: 'sub/dir/file.gguf'});
+});
+
+test('parseHfFileUrl strips a query string and trims whitespace', () => {
+  expect(
+    parseHfFileUrl(
+      '  https://huggingface.co/o/r/blob/main/f.gguf?download=true ',
+    ),
+  ).toEqual({repoId: 'o/r', branch: 'main', repoPath: 'f.gguf'});
+});
+
+test('parseHfFileUrl rejects non-file and non-HF URLs', () => {
+  expect(parseHfFileUrl('https://huggingface.co/o/r')).toBeNull();
+  expect(parseHfFileUrl('https://example.com/o/r/blob/main/f.gguf')).toBeNull();
+  expect(parseHfFileUrl('not a url')).toBeNull();
+  expect(
+    parseHfFileUrl('https://huggingface.co/o/r/blob/main/../escape'),
+  ).toBeNull();
+});
+
+test('resolveHfFileByPath matches a known path without a name search', async () => {
+  let searched = false;
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models?')) searched = true;
+    if (u.includes('/api/models/o/r/tree/main')) {
+      return jsonResponse([
+        {type: 'file', path: 'other.gguf', size: 1},
+        {
+          type: 'file',
+          path: 'sub/wanted.gguf',
+          size: 9,
+          lfs: {oid: 'sha256:feed', size: 4200},
+        },
+      ]);
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  const info = await resolveHfFileByPath('o/r', 'main', 'sub/wanted.gguf');
+  expect(info).toEqual({
+    repoId: 'o/r',
+    branch: 'main',
+    repoPath: 'sub/wanted.gguf',
+    size: 4200,
+    sha256: 'feed',
+  });
+  expect(searched).toBe(false); // resolves by path directly, no /api/models? search
+});
+
+test('resolveHfFileByPath returns null when the path is absent', async () => {
+  globalThis.fetch = (async () =>
+    jsonResponse([{type: 'file', path: 'a.gguf', size: 1}])) as typeof fetch;
+  expect(await resolveHfFileByPath('o/r', 'main', 'missing.gguf')).toBeNull();
 });

@@ -1,8 +1,13 @@
 import path from 'path';
 import {localModelsDir, coldStorageDir} from '@/lib/config';
 import {scanModels} from '@/lib/models';
-import {expectedRelPath, moveFileWithMeta, type FixResult} from '@/lib/audit';
-import {clearHfCache, inferHfFile} from '@/lib/hf-infer';
+import {
+  expectedRelPath,
+  moveFileWithMeta,
+  resolveSource,
+  type FixResult,
+} from '@/lib/audit';
+import {clearHfCache} from '@/lib/hf-infer';
 
 /**
  * Relocate misplaced model files into their HuggingFace layout
@@ -39,7 +44,13 @@ export async function POST(req: Request) {
     modelName: string,
     filename: string,
   ) => {
-    const hf = await inferHfFile(modelName, filename);
+    // Same resolution the audit used (inference, then a manually-set sidecar
+    // source), so the relocation target matches the verdict that surfaced Fix.
+    const hf = await resolveSource(
+      path.join(root, relPath),
+      modelName,
+      filename,
+    );
     if (!hf) {
       results.push({file: relPath, status: 'skipped', message: 'unverifiable'});
       return;
