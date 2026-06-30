@@ -6,6 +6,7 @@ import {localModelsDir, coldStorageDir} from '@/lib/config';
 import {scanModels} from '@/lib/models';
 import {ModelList} from '@/components/models/model-list';
 import {PeersSection} from '@/components/peers/peers-section';
+import {HfDownloadSection} from '@/components/hf-download/hf-download-section';
 
 // Reads the live filesystem (local + cold storage), so render per-request
 // rather than prerendering at build time.
@@ -31,6 +32,10 @@ export default function Home() {
             <ModelList models={localModels} />
           </VStack>
         </Section>
+
+        {localModelsDir && (
+          <HfDownloadSection localModelsPath={localModelsDir} />
+        )}
 
         <Section>
           <VStack gap={3}>
