@@ -16,6 +16,7 @@ export const dynamic = 'force-dynamic';
 
 const QUANT_RE =
   /[-_.](?:IQ\d+_(?:XXS|XS|NL|[SML])|Q\d+(?:_K(?:_[SML])?|_[01])?|BF16|F16|F32)$/i;
+const SPLIT_RE = /^(.+)-(\d+)-of-(\d+)\.gguf$/i;
 
 function extractModelName(filename: string): string {
   return filename
@@ -31,11 +32,32 @@ function extractQuant(filename: string): string {
   return m ? m[1].toUpperCase() : 'unknown';
 }
 
-interface ModelFile {
+function formatBytes(bytes: number): string {
+  if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${(bytes / 1e3).toFixed(1)} KB`;
+}
+
+interface SingleFile {
+  isSplit: false;
   filename: string;
   quant: string;
+  size: number;
   missing: boolean;
 }
+
+interface SplitGroup {
+  isSplit: true;
+  representativeFilename: string;
+  quant: string;
+  totalShards: number;
+  presentShards: number;
+  missingIndices: number[];
+  totalSize: number;
+}
+
+type ModelFile = SingleFile | SplitGroup;
 
 interface Model {
   name: string;
@@ -44,7 +66,17 @@ interface Model {
 
 function scanModels(storagePath: string | undefined): Model[] {
   if (!storagePath) return [];
-  const modelMap = new Map<string, ModelFile[]>();
+  const singleMap = new Map<string, SingleFile[]>();
+
+  interface SplitAccum {
+    modelName: string;
+    quant: string;
+    totalShards: number;
+    presentIndices: Set<number>;
+    totalSize: number;
+    representativeFilename: string;
+  }
+  const splitMap = new Map<string, SplitAccum>();
 
   function walk(dir: string) {
     let entries;
@@ -56,28 +88,90 @@ function scanModels(storagePath: string | undefined): Model[] {
     for (const entry of entries) {
       if (entry.isDirectory()) {
         walk(path.join(dir, entry.name));
+        continue;
+      }
+
+      const fullPath = path.join(dir, entry.name);
+      const splitMatch = entry.name.match(SPLIT_RE);
+
+      if (splitMatch) {
+        // Split GGUF: <model>-<quant>-<index>-of-<count>.gguf
+        const base = splitMatch[1]; // everything before -NNNNN-of-MMMMM
+        const index = parseInt(splitMatch[2], 10);
+        const total = parseInt(splitMatch[3], 10);
+        const modelName = extractModelName(`${base}.gguf`);
+        const quant = extractQuant(`${base}.gguf`);
+        const key = `${modelName}::${base}`;
+
+        let size = 0;
+        try {
+          size = fs.statSync(fullPath).size;
+        } catch {
+          /* inaccessible shard: don't count size */
+        }
+
+        if (!splitMap.has(key)) {
+          splitMap.set(key, {
+            modelName,
+            quant,
+            totalShards: total,
+            presentIndices: new Set(),
+            totalSize: 0,
+            representativeFilename: entry.name,
+          });
+        }
+        const accum = splitMap.get(key)!;
+        accum.presentIndices.add(index);
+        accum.totalSize += size;
       } else if (/\.(gguf|safetensors|bin)$/i.test(entry.name)) {
-        const fullPath = path.join(dir, entry.name);
+        let size = 0;
         let missing = false;
         try {
-          fs.statSync(fullPath);
+          size = fs.statSync(fullPath).size;
         } catch {
           missing = true;
         }
-        const name = extractModelName(entry.name);
-        const file: ModelFile = {
+        const modelName = extractModelName(entry.name);
+        const file: SingleFile = {
+          isSplit: false,
           filename: entry.name,
           quant: extractQuant(entry.name),
+          size,
           missing,
         };
-        const existing = modelMap.get(name);
+        const existing = singleMap.get(modelName);
         if (existing) existing.push(file);
-        else modelMap.set(name, [file]);
+        else singleMap.set(modelName, [file]);
       }
     }
   }
 
   walk(storagePath);
+
+  const modelMap = new Map<string, ModelFile[]>();
+
+  for (const [modelName, files] of singleMap) {
+    modelMap.set(modelName, [...files]);
+  }
+
+  for (const accum of splitMap.values()) {
+    const missingIndices: number[] = [];
+    for (let i = 1; i <= accum.totalShards; i++) {
+      if (!accum.presentIndices.has(i)) missingIndices.push(i);
+    }
+    const splitGroup: SplitGroup = {
+      isSplit: true,
+      representativeFilename: accum.representativeFilename,
+      quant: accum.quant,
+      totalShards: accum.totalShards,
+      presentShards: accum.presentIndices.size,
+      missingIndices,
+      totalSize: accum.totalSize,
+    };
+    const existing = modelMap.get(accum.modelName);
+    if (existing) existing.push(splitGroup);
+    else modelMap.set(accum.modelName, [splitGroup]);
+  }
 
   return Array.from(modelMap.entries())
     .map(([name, files]) => ({
@@ -99,7 +193,9 @@ function ModelList({models}: {models: Model[]}) {
   return (
     <VStack gap={1}>
       {models.map((model) => {
-        const hasMissing = model.files.some((f) => f.missing);
+        const hasMissing = model.files.some((f) =>
+          f.isSplit ? f.missingIndices.length > 0 : f.missing,
+        );
         return (
           <Collapsible
             key={model.name}
@@ -114,18 +210,41 @@ function ModelList({models}: {models: Model[]}) {
             }
           >
             <VStack gap={1}>
-              {model.files.map((file) => (
-                <HStack key={file.filename} gap={3} vAlign="center">
-                  <Text type="label">{file.quant}</Text>
-                  <Text
-                    type="code"
-                    color={file.missing ? 'accent' : 'secondary'}
+              {model.files.map((file) =>
+                file.isSplit ? (
+                  <HStack
+                    key={file.representativeFilename}
+                    gap={3}
+                    vAlign="center"
                   >
-                    {file.filename}
-                  </Text>
-                  {file.missing && <Badge variant="warning" label="missing" />}
-                </HStack>
-              ))}
+                    <Text type="label">{file.quant}</Text>
+                    <Text type="code" color="secondary">
+                      {file.presentShards}/{file.totalShards} files
+                    </Text>
+                    <Text type="supporting">{formatBytes(file.totalSize)}</Text>
+                    {file.missingIndices.length > 0 && (
+                      <Badge
+                        variant="warning"
+                        label={`missing shards: ${file.missingIndices.join(', ')}`}
+                      />
+                    )}
+                  </HStack>
+                ) : (
+                  <HStack key={file.filename} gap={3} vAlign="center">
+                    <Text type="label">{file.quant}</Text>
+                    <Text
+                      type="code"
+                      color={file.missing ? 'accent' : 'secondary'}
+                    >
+                      {file.filename}
+                    </Text>
+                    <Text type="supporting">{formatBytes(file.size)}</Text>
+                    {file.missing && (
+                      <Badge variant="warning" label="missing" />
+                    )}
+                  </HStack>
+                ),
+              )}
             </VStack>
           </Collapsible>
         );
