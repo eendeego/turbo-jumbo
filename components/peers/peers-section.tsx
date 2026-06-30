@@ -5,6 +5,7 @@ import {Section} from '@astryxdesign/core/Section';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Spinner} from '@astryxdesign/core/Spinner';
+import {EmptyState} from '@astryxdesign/core/EmptyState';
 import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {
@@ -28,6 +29,7 @@ import {
 export function PeersSection({coldModels}: {coldModels: Model[]}) {
   const [peers, setPeers] = useState<Peer[] | null>(null);
   const [peerModels, setPeerModels] = useState<Map<string, Model[]>>(new Map());
+  const [peerDown, setPeerDown] = useState<Set<string>>(new Set());
   const [peerSelections, setPeerSelections] = useState<
     Record<string, string[]>
   >({});
@@ -66,9 +68,15 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
           .then((r) => r.json())
           .then((models: Model[]) => {
             setPeerModels((prev) => new Map(prev).set(peer.address, models));
+            setPeerDown((prev) => {
+              const next = new Set(prev);
+              next.delete(peer.address);
+              return next;
+            });
           })
           .catch(() => {
             setPeerModels((prev) => new Map(prev).set(peer.address, []));
+            setPeerDown((prev) => new Set(prev).add(peer.address));
           });
       });
     };
@@ -252,6 +260,8 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
               </HStack>
               {models === undefined ? (
                 <Spinner label="Loading…" />
+              ) : peerDown.has(peer.address) ? (
+                <EmptyState title="Host is down" />
               ) : (
                 <VStack gap={1}>
                   <ModelList
