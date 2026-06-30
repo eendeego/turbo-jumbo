@@ -1,9 +1,14 @@
+import type {Metadata} from 'next';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Section} from '@astryxdesign/core/Section';
 import {VStack} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Text';
-import {localModelsDir, coldStorageDir} from '@/lib/config';
+import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {scanModels} from '@/lib/models';
+
+export function generateMetadata(): Metadata {
+  return {title: `Turbo Jumbo - ${localPeer?.name ?? 'unknown'}`};
+}
 import {ColdStorageSection} from '@/components/models/cold-storage-section';
 import {PeersSection} from '@/components/peers/peers-section';
 import {HfDownloadSection} from '@/components/hf-download/hf-download-section';
