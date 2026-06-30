@@ -74,10 +74,15 @@ async function resolveHfFile(
     );
     if (!match) continue;
 
+    // The sha256 is the Git-LFS object id. A match without one (a small,
+    // non-LFS file) gives us no checksum, so it can't be verified — skip it and
+    // keep looking rather than returning an empty sha that reads as corruption.
     const oid = match.lfs?.oid ?? '';
     const sha256 = oid.startsWith('sha256:')
       ? oid.slice('sha256:'.length)
       : oid;
+    if (!sha256) continue;
+
     return {
       repoId: candidate.id,
       branch,
