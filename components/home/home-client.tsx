@@ -5,7 +5,8 @@ import {useRouter} from 'next/navigation';
 import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
-import {Heading} from '@astryxdesign/core/Text';
+import {Heading, Text} from '@astryxdesign/core/Text';
+import {Button} from '@astryxdesign/core/Button';
 import {Banner} from '@astryxdesign/core/Banner';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
@@ -32,6 +33,7 @@ import {
 import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
+import {AuditView} from '@/components/audit/audit-view';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
 
@@ -90,6 +92,7 @@ export function HomeClient({
   const {peerModels} = usePeerModels();
   const [models, setModels] = useState(modelsTableData);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [auditMode, setAuditMode] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingCopy, setConfirmingCopy] = useState(false);
@@ -129,7 +132,15 @@ export function HomeClient({
     setPrevModels(modelsTableData);
     setModels(modelsTableData);
     setSelected(new Set());
+    setAuditMode(false);
   }
+
+  const auditLocation: 'local' | 'cold-storage' | null =
+    activeLocation === 'cold-storage'
+      ? 'cold-storage'
+      : activeLocation === localPeerAddress
+        ? 'local'
+        : null;
 
   // Re-fetch the table data after a mutation (e.g. copy) without a full
   // server round-trip / page reload.
@@ -320,18 +331,41 @@ export function HomeClient({
           activeLocation={activeLocation}
           onLocationChange={handleLocationChange}
         />
-        {localModelsPath && activeLocation !== 'cold-storage' && (
-          <HuggingFaceDownload localModelsPath={localModelsPath} />
+        {activeLocation !== 'all' && (
+          <HStack gap={2} vAlign="center">
+            <Button
+              label={auditMode ? 'Exit audit' : 'Audit'}
+              variant="secondary"
+              size="sm"
+              isDisabled={auditLocation === null}
+              onClick={() => setAuditMode((on) => !on)}
+            />
+            {auditLocation === null && (
+              <Text type="supporting">
+                Audit not yet supported for remote peers
+              </Text>
+            )}
+          </HStack>
         )}
-        <ModelsTableClient
-          models={models}
-          peers={peerConfigs}
-          peerModels={seededPeerModels}
-          selected={selected}
-          onToggleSelected={onToggleSelected}
-          locations={locations}
-          activeLocation={activeLocation}
-        />
+
+        {auditMode && auditLocation ? (
+          <AuditView location={auditLocation} />
+        ) : (
+          <>
+            {localModelsPath && activeLocation !== 'cold-storage' && (
+              <HuggingFaceDownload localModelsPath={localModelsPath} />
+            )}
+            <ModelsTableClient
+              models={models}
+              peers={peerConfigs}
+              peerModels={seededPeerModels}
+              selected={selected}
+              onToggleSelected={onToggleSelected}
+              locations={locations}
+              activeLocation={activeLocation}
+            />
+          </>
+        )}
         {error && <Banner status="error" title={`Error: ${error}`} />}
         <ActionBar
           selected={selected}
