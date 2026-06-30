@@ -1,5 +1,6 @@
 import fs from 'fs';
 import os from 'os';
+import path from 'path';
 import yaml from 'js-yaml';
 import Ajv2020 from 'ajv/dist/2020';
 import schema from '@/config.schema.json';
@@ -70,3 +71,12 @@ export const localPeer: Peer | undefined = (() => {
   );
   return config.peers.find((p) => localIps.has(addressHost(p.address)));
 })();
+
+// The local peer's model directories. Local models live under
+// <base_path>/turbo-jumbo; cold storage at cold_storage_path. undefined when
+// no local peer matches this machine.
+export const localModelsDir: string | undefined = localPeer?.base_path
+  ? path.join(localPeer.base_path, 'turbo-jumbo')
+  : undefined;
+
+export const coldStorageDir: string | undefined = localPeer?.cold_storage_path;
