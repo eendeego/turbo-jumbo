@@ -18,21 +18,26 @@ export function ModelsTable({
   coldModels: Model[];
   localModels: Model[];
 }) {
-  const bitsByModel = new Map<string, Set<string>>();
+  const quantsByModel = new Map<string, Set<string>>();
   for (const m of [...localModels, ...coldModels]) {
-    let bits = bitsByModel.get(m.name);
-    if (!bits) {
-      bits = new Set();
-      bitsByModel.set(m.name, bits);
+    let quants = quantsByModel.get(m.name);
+    if (!quants) {
+      quants = new Set();
+      quantsByModel.set(m.name, quants);
     }
-    for (const f of m.files) bits.add(quantBits(f.quant));
+    for (const f of m.files) quants.add(f.quant);
   }
 
-  const models: ModelRow[] = [...bitsByModel.entries()]
-    .map(([name, bits]) => ({
-      name,
-      quantizations: [...bits].sort((a, b) => Number(a) - Number(b)).join(', '),
-    }))
+  const models: ModelRow[] = [...quantsByModel.entries()]
+    .map(([name, quants]) => {
+      // Deduplicated bit sizes for the collapsed summary…
+      const bits = [...new Set([...quants].map(quantBits))].sort(
+        (a, b) => Number(a) - Number(b),
+      );
+      // …and the full quant list for the expanded child rows.
+      const quantList = [...quants].sort((a, b) => a.localeCompare(b));
+      return {name, quantizations: bits.join(', '), quants: quantList};
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return <ModelsTableClient models={models} />;
