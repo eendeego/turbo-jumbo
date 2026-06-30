@@ -58,80 +58,48 @@ export async function POST(req: Request) {
   }> = [];
 
   for (const file of files) {
-    // Get source size
-    let sourceSize = body.fileSizes?.[file] ?? 0;
-    if (!isPeerSource && sourceSize === 0) {
-      const sourcePath =
-        from === localPeerAddr
-          ? nodePath.resolve(localBase, file)
-          : nodePath.resolve(coldBase, file);
-      try {
-        sourceSize = (await fsp.stat(sourcePath)).size;
-      } catch {
-        /* ignore */
-      }
-    }
-
-    // Lazy cached source md5
-    let sourceMd5Cache: string | null | undefined = undefined;
-    const getSourceMd5 = async (): Promise<string | null> => {
-      if (sourceMd5Cache !== undefined) return sourceMd5Cache;
-      let result: string | null;
-      if (isPeerSource) {
-        const cs = await peerChecksumData(from, file);
-        result = cs?.md5 ?? null;
-      } else {
+    try {
+      // Get source size
+      let sourceSize = body.fileSizes?.[file] ?? 0;
+      if (!isPeerSource && sourceSize === 0) {
         const sourcePath =
           from === localPeerAddr
             ? nodePath.resolve(localBase, file)
             : nodePath.resolve(coldBase, file);
         try {
-          result = await localMd5(sourcePath);
+          sourceSize = (await fsp.stat(sourcePath)).size;
         } catch {
-          result = null;
+          /* ignore */
         }
       }
-      sourceMd5Cache = result;
-      return result;
-    };
 
-    // Check cold storage destination
-    if (toColdStorage) {
-      const destPath = nodePath.resolve(coldBase, file);
-      if (!destPath.startsWith(coldBase + nodePath.sep)) continue;
-      try {
-        const {size: destSize} = await fsp.stat(destPath);
-        const sizeMatch = sourceSize === destSize;
-        let md5Match: boolean | null = null;
-        let sourceMd5: string | null = null;
-        let destMd5: string | null = null;
-        if (sizeMatch) {
-          [sourceMd5, destMd5] = await Promise.all([
-            getSourceMd5(),
-            localMd5(destPath),
-          ]);
-          if (sourceMd5 !== null) md5Match = sourceMd5 === destMd5;
+      // Lazy cached source md5
+      let sourceMd5Cache: string | null | undefined = undefined;
+      const getSourceMd5 = async (): Promise<string | null> => {
+        if (sourceMd5Cache !== undefined) return sourceMd5Cache;
+        let result: string | null;
+        if (isPeerSource) {
+          const cs = await peerChecksumData(from, file);
+          result = cs?.md5 ?? null;
+        } else {
+          const sourcePath =
+            from === localPeerAddr
+              ? nodePath.resolve(localBase, file)
+              : nodePath.resolve(coldBase, file);
+          try {
+            result = await localMd5(sourcePath);
+          } catch {
+            result = null;
+          }
         }
-        conflicts.push({
-          file,
-          destination: 'cold-storage',
-          sourceSize,
-          destSize,
-          sizeMatch,
-          md5Match,
-          sourceMd5,
-          destMd5,
-        });
-      } catch {
-        /* file doesn't exist at destination */
-      }
-    }
+        sourceMd5Cache = result;
+        return result;
+      };
 
-    // Check peer destinations (the local peer is checked directly on disk)
-    for (const peerAddr of toPeers) {
-      if (peerAddr === localPeerAddr) {
-        const destPath = nodePath.resolve(localBase, file);
-        if (!destPath.startsWith(localBase + nodePath.sep)) continue;
+      // Check cold storage destination
+      if (toColdStorage) {
+        const destPath = nodePath.resolve(coldBase, file);
+        if (!destPath.startsWith(coldBase + nodePath.sep)) continue;
         try {
           const {size: destSize} = await fsp.stat(destPath);
           const sizeMatch = sourceSize === destSize;
@@ -147,7 +115,7 @@ export async function POST(req: Request) {
           }
           conflicts.push({
             file,
-            destination: peerAddr,
+            destination: 'cold-storage',
             sourceSize,
             destSize,
             sizeMatch,
@@ -158,46 +126,82 @@ export async function POST(req: Request) {
         } catch {
           /* file doesn't exist at destination */
         }
-        continue;
       }
-      try {
-        logger.debug(`[check] head ${file} @ ${peerAddr}`);
-        const headRes = await fetch(
-          `http://${peerAddr}/api/v1/local-models/download?file=${encodeURIComponent(file)}`,
-          {method: 'HEAD'},
-        );
-        if (!headRes.ok) continue;
-        const destSize = parseInt(
-          headRes.headers.get('content-length') ?? '0',
-          10,
-        );
-        const sizeMatch = sourceSize === destSize;
-        let md5Match: boolean | null = null;
-        let sourceMd5: string | null = null;
-        let destMd5: string | null = null;
-        if (sizeMatch) {
-          const [sm, destCs] = await Promise.all([
-            getSourceMd5(),
-            peerChecksumData(peerAddr, file),
-          ]);
-          sourceMd5 = sm;
-          destMd5 = destCs?.md5 ?? null;
-          if (sourceMd5 !== null && destMd5 !== null)
-            md5Match = sourceMd5 === destMd5;
+
+      // Check peer destinations (the local peer is checked directly on disk)
+      for (const peerAddr of toPeers) {
+        if (peerAddr === localPeerAddr) {
+          const destPath = nodePath.resolve(localBase, file);
+          if (!destPath.startsWith(localBase + nodePath.sep)) continue;
+          try {
+            const {size: destSize} = await fsp.stat(destPath);
+            const sizeMatch = sourceSize === destSize;
+            let md5Match: boolean | null = null;
+            let sourceMd5: string | null = null;
+            let destMd5: string | null = null;
+            if (sizeMatch) {
+              [sourceMd5, destMd5] = await Promise.all([
+                getSourceMd5(),
+                localMd5(destPath),
+              ]);
+              if (sourceMd5 !== null) md5Match = sourceMd5 === destMd5;
+            }
+            conflicts.push({
+              file,
+              destination: peerAddr,
+              sourceSize,
+              destSize,
+              sizeMatch,
+              md5Match,
+              sourceMd5,
+              destMd5,
+            });
+          } catch {
+            /* file doesn't exist at destination */
+          }
+          continue;
         }
-        conflicts.push({
-          file,
-          destination: peerAddr,
-          sourceSize,
-          destSize,
-          sizeMatch,
-          md5Match,
-          sourceMd5,
-          destMd5,
-        });
-      } catch {
-        /* peer unreachable */
+        try {
+          logger.debug(`[check] head ${file} @ ${peerAddr}`);
+          const headRes = await fetch(
+            `http://${peerAddr}/api/v1/local-models/download?file=${encodeURIComponent(file)}`,
+            {method: 'HEAD'},
+          );
+          if (!headRes.ok) continue;
+          const destSize = parseInt(
+            headRes.headers.get('content-length') ?? '0',
+            10,
+          );
+          const sizeMatch = sourceSize === destSize;
+          let md5Match: boolean | null = null;
+          let sourceMd5: string | null = null;
+          let destMd5: string | null = null;
+          if (sizeMatch) {
+            const [sm, destCs] = await Promise.all([
+              getSourceMd5(),
+              peerChecksumData(peerAddr, file),
+            ]);
+            sourceMd5 = sm;
+            destMd5 = destCs?.md5 ?? null;
+            if (sourceMd5 !== null && destMd5 !== null)
+              md5Match = sourceMd5 === destMd5;
+          }
+          conflicts.push({
+            file,
+            destination: peerAddr,
+            sourceSize,
+            destSize,
+            sizeMatch,
+            md5Match,
+            sourceMd5,
+            destMd5,
+          });
+        } catch {
+          /* peer unreachable */
+        }
       }
+    } catch {
+      logger.debug(`[check] skipping file ${file}: not present`);
     }
   }
 

@@ -82,8 +82,12 @@ export async function POST(req: Request) {
   const fileSizeMap: Record<string, number> = {};
   if (!isPeerSource && sourceBasePath) {
     for (const file of files) {
-      const {size} = await fsp.stat(resolveLocal(sourceBasePath, file)!);
-      fileSizeMap[file] = size;
+      try {
+        const {size} = await fsp.stat(resolveLocal(sourceBasePath, file)!);
+        fileSizeMap[file] = size;
+      } catch {
+        // Source file missing — skip it.
+      }
     }
   } else if (body.fileSizes) {
     Object.assign(fileSizeMap, body.fileSizes);
