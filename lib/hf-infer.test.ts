@@ -22,6 +22,7 @@ test('infers repo by exact filename match and parses size + sha256', async () =>
     if (u.includes('/api/models?')) {
       return jsonResponse([{id: 'someorg/My-Model-GGUF'}]);
     }
+    if (u.includes('/revision/')) return jsonResponse({sha: 'commitabc'});
     if (u.includes('/tree/')) {
       return jsonResponse([
         {
@@ -40,6 +41,7 @@ test('infers repo by exact filename match and parses size + sha256', async () =>
     repoId: 'someorg/My-Model-GGUF',
     branch: 'main',
     repoPath: 'My-Model.Q4_K_M.gguf',
+    commit: 'commitabc',
     size: 4200,
     sha256: 'abc123',
   });
@@ -91,6 +93,9 @@ test('falls through to a later candidate that carries the LFS checksum', async (
         },
       ]);
     }
+    if (u.includes('/api/models/good/repo/revision/')) {
+      return jsonResponse({sha: 'goodcommit'});
+    }
     return new Response('nf', {status: 404});
   }) as typeof fetch;
 
@@ -99,6 +104,7 @@ test('falls through to a later candidate that carries the LFS checksum', async (
     repoId: 'good/repo',
     branch: 'main',
     repoPath: 'm.gguf',
+    commit: 'goodcommit',
     size: 10,
     sha256: 'cafe',
   });
@@ -176,6 +182,9 @@ test('resolveHfFileByPath matches a known path without a name search', async () 
         },
       ]);
     }
+    if (u.includes('/api/models/o/r/revision/main')) {
+      return jsonResponse({sha: 'pinnedcommit'});
+    }
     return new Response('nf', {status: 404});
   }) as typeof fetch;
 
@@ -184,6 +193,7 @@ test('resolveHfFileByPath matches a known path without a name search', async () 
     repoId: 'o/r',
     branch: 'main',
     repoPath: 'sub/wanted.gguf',
+    commit: 'pinnedcommit',
     size: 4200,
     sha256: 'feed',
   });

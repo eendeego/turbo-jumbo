@@ -4,6 +4,7 @@ import {scanModels} from '@/lib/models';
 import {
   expectedRelPath,
   moveFileWithMeta,
+  refreshMetaSource,
   resolveSource,
   type FixResult,
 } from '@/lib/audit';
@@ -66,6 +67,10 @@ export async function POST(req: Request) {
     }
     try {
       await moveFileWithMeta(root, relPath, target);
+      // Refresh the relocated sidecar from the resolved source so the file ends
+      // up with complete metadata (size + sha256) even if its sidecar predated
+      // those fields or named a stale source.
+      await refreshMetaSource(path.join(root, target), hf);
       results.push({file: relPath, status: 'moved', to: target});
     } catch (e) {
       results.push({

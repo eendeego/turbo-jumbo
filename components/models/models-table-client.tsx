@@ -143,13 +143,11 @@ function rowAudit(
 }
 
 // The expected value most relevant to a given failure, drawn from the HF source.
+// Size isn't special-cased here: the `incomplete` message already names the
+// expected size, and the HF block below always shows it.
 function expectedDetail(f: AuditResult): string | null {
   if (!f.hf) return null;
   switch (f.status) {
-    case 'incomplete':
-      return f.hf.expectedSize == null
-        ? null
-        : `Expected size: ${formatSize(f.hf.expectedSize)}`;
     case 'checksum-mismatch':
       return `Expected sha256: ${f.hf.expectedSha256}`;
     case 'misplaced':
@@ -197,6 +195,16 @@ function AuditFailureContent({
             {detail && <Text type="supporting">{detail}</Text>}
             {f.hf && (
               <VStack gap={0}>
+                {f.hf.expectedSize != null && (
+                  <Text type="supporting">
+                    Size: {formatSize(f.hf.expectedSize)}
+                  </Text>
+                )}
+                {f.hf.commit && (
+                  <Link href={f.hf.commitUrl ?? f.hf.fileUrl} isExternalLink>
+                    Revision {f.hf.commit.slice(0, 12)}
+                  </Link>
+                )}
                 <Link href={f.hf.modelUrl} isExternalLink>
                   {f.hf.repoId}
                 </Link>

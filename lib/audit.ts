@@ -24,8 +24,10 @@ export type AuditStatus =
 export interface HfSummary {
   repoId: string;
   modelUrl: string; // repo page, e.g. https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF
-  fileUrl: string; // file blob page within the repo
-  expectedSize?: number; // omitted for cached results (size isn't in the sidecar)
+  fileUrl: string; // file blob page within the repo (on the requested branch/tag)
+  commit?: string; // resolved commit SHA the file was verified against, when known
+  commitUrl?: string; // file blob page pinned to that commit (an immutable permalink)
+  expectedSize?: number;
   expectedSha256: string;
   expectedPath: string; // <repoId>/<repoPath>
 }
@@ -41,6 +43,8 @@ export interface AuditResult {
 export interface TjMeta {
   modelUrl: string; // HF model/repo URL, e.g. https://huggingface.co/unsloth/GLM-4.7-GGUF
   originUrl: string; // HF file URL within the repo
+  sourceCommit?: string; // resolved commit SHA the file was verified against, when known
+  sourceSize: number; // expected size in bytes, from the HF source
   sourceSha256: string;
   computedSha256: string;
 }
@@ -61,6 +65,12 @@ export function hfSummary(hf: HfFileInfo): HfSummary {
     repoId: hf.repoId,
     modelUrl: `https://huggingface.co/${hf.repoId}`,
     fileUrl: `https://huggingface.co/${hf.repoId}/blob/${hf.branch}/${hf.repoPath}`,
+    ...(hf.commit
+      ? {
+          commit: hf.commit,
+          commitUrl: `https://huggingface.co/${hf.repoId}/blob/${hf.commit}/${hf.repoPath}`,
+        }
+      : {}),
     expectedSize: hf.size,
     expectedSha256: hf.sha256,
     expectedPath: expectedRelPath(hf),
@@ -69,9 +79,10 @@ export function hfSummary(hf: HfFileInfo): HfSummary {
 
 /**
  * Reconstruct a best-effort verdict from a previously written sidecar, without
- * re-hashing or hitting the network. The sidecar lacks an expected size, so the
- * size check is skipped (it passed when the sidecar was written): only the
- * cached sha comparison and the current placement are evaluated. Marked
+ * re-hashing or hitting the network. The sidecar records the source size for
+ * display, but a sidecar only exists once the size already matched (auditFile
+ * bails before writing it otherwise), so the size check itself is not re-run:
+ * only the cached sha comparison and the current placement are evaluated. Marked
  * `cached` so the UI can tone it down against a fresh result.
  */
 export function cachedResultFromMeta(
@@ -89,6 +100,15 @@ export function cachedResultFromMeta(
           repoId,
           modelUrl: meta.modelUrl,
           fileUrl: meta.originUrl,
+          ...(meta.sourceCommit
+            ? {
+                commit: meta.sourceCommit,
+                commitUrl: `https://huggingface.co/${repoId}/blob/${meta.sourceCommit}/${repoPath}`,
+              }
+            : {}),
+          ...(typeof meta.sourceSize === 'number'
+            ? {expectedSize: meta.sourceSize}
+            : {}),
           expectedSha256: meta.sourceSha256,
           expectedPath: `${repoId}/${repoPath}`,
         }
@@ -158,6 +178,33 @@ export async function readMeta(fullPath: string): Promise<TjMeta | null> {
 
 export async function writeMeta(fullPath: string, meta: TjMeta): Promise<void> {
   await fsp.writeFile(metaPath(fullPath), JSON.stringify(meta, null, 2));
+}
+
+/**
+ * Rewrite a file's sidecar to reflect a resolved HF source — its size, sha256
+ * and (now corrected) source URLs — preserving the previously computed sha256.
+ * A relocation doesn't change the bytes, so the computed hash carries over
+ * without re-hashing; only when no prior sidecar recorded one do we fall back to
+ * hashing. Used by the Fix flow so a relocated file lands with a complete
+ * sidecar even when the original predates a field (e.g. `sourceSize`).
+ */
+export async function refreshMetaSource(
+  fullPath: string,
+  hf: HfFileInfo,
+  signal?: AbortSignal,
+): Promise<void> {
+  const prev = await readMeta(fullPath);
+  const computedSha256 =
+    prev?.computedSha256 || (await localSha256(fullPath, signal));
+  const summary = hfSummary(hf);
+  await writeMeta(fullPath, {
+    modelUrl: summary.modelUrl,
+    originUrl: summary.fileUrl,
+    ...(hf.commit ? {sourceCommit: hf.commit} : {}),
+    sourceSize: hf.size,
+    sourceSha256: hf.sha256,
+    computedSha256,
+  });
 }
 
 export interface FixResult {
@@ -314,6 +361,8 @@ export async function auditFile(
     await writeMeta(fullPath, {
       modelUrl: summary.modelUrl,
       originUrl: summary.fileUrl,
+      ...(hf.commit ? {sourceCommit: hf.commit} : {}),
+      sourceSize: hf.size,
       sourceSha256: hf.sha256,
       computedSha256,
     });

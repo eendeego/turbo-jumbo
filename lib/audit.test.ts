@@ -12,6 +12,7 @@ import {
   hfSummary,
   moveFileWithMeta,
   readMeta,
+  refreshMetaSource,
   resolveSource,
   writeMeta,
   metaPath,
@@ -22,6 +23,7 @@ const hf: HfFileInfo = {
   repoId: 'o/r',
   branch: 'main',
   repoPath: 'M.Q4.gguf',
+  commit: 'deadc0de',
   size: 100,
   sha256: 'deadbeef',
 };
@@ -113,6 +115,7 @@ test('expectedRelPath joins repoId and repoPath', () => {
 const cachedMeta = {
   modelUrl: 'https://huggingface.co/o/r',
   originUrl: 'https://huggingface.co/o/r/blob/main/sub/M.Q4.gguf',
+  sourceSize: 100,
   sourceSha256: 'deadbeef',
   computedSha256: 'deadbeef',
 };
@@ -127,10 +130,22 @@ test('cachedResultFromMeta: pass when shas match and path is correct', () => {
       repoId: 'o/r',
       modelUrl: 'https://huggingface.co/o/r',
       fileUrl: 'https://huggingface.co/o/r/blob/main/sub/M.Q4.gguf',
+      expectedSize: 100,
       expectedSha256: 'deadbeef',
       expectedPath: 'o/r/sub/M.Q4.gguf',
     },
   });
+});
+
+test('cachedResultFromMeta: surfaces a commit permalink when the sidecar pins one', () => {
+  const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', {
+    ...cachedMeta,
+    sourceCommit: 'deadc0de',
+  });
+  expect(r.hf?.commit).toBe('deadc0de');
+  expect(r.hf?.commitUrl).toBe(
+    'https://huggingface.co/o/r/blob/deadc0de/sub/M.Q4.gguf',
+  );
 });
 
 test('cachedResultFromMeta: checksum-mismatch when cached shas differ', () => {
@@ -152,6 +167,7 @@ test('cachedResultFromMeta: unverifiable when the sidecar has no source sha', ()
   const r = cachedResultFromMeta('M.Q4.gguf', {
     modelUrl: '',
     originUrl: '',
+    sourceSize: 0,
     sourceSha256: '',
     computedSha256: '',
   });
@@ -159,15 +175,23 @@ test('cachedResultFromMeta: unverifiable when the sidecar has no source sha', ()
   expect(r.hf).toBeUndefined();
 });
 
-test('hfSummary builds repo/file URLs and expected values', () => {
+test('hfSummary builds repo/file URLs, a commit permalink, and expected values', () => {
   expect(hfSummary(hf)).toEqual({
     repoId: 'o/r',
     modelUrl: 'https://huggingface.co/o/r',
     fileUrl: 'https://huggingface.co/o/r/blob/main/M.Q4.gguf',
+    commit: 'deadc0de',
+    commitUrl: 'https://huggingface.co/o/r/blob/deadc0de/M.Q4.gguf',
     expectedSize: 100,
     expectedSha256: 'deadbeef',
     expectedPath: 'o/r/M.Q4.gguf',
   });
+});
+
+test('hfSummary omits commit fields when the source has no resolved commit', () => {
+  const s = hfSummary({...hf, commit: ''});
+  expect(s.commit).toBeUndefined();
+  expect(s.commitUrl).toBeUndefined();
 });
 
 test('writeMeta/readMeta round-trip and metaPath naming', async () => {
@@ -177,6 +201,7 @@ test('writeMeta/readMeta round-trip and metaPath naming', async () => {
   const meta = {
     modelUrl: 'https://huggingface.co/o/r',
     originUrl: 'https://huggingface.co/o/r/blob/main/M.Q4.gguf',
+    sourceSize: 100,
     sourceSha256: 'deadbeef',
     computedSha256: 'deadbeef',
   };
@@ -203,6 +228,7 @@ test('moveFileWithMeta relocates the file and its sidecar, creating dirs', async
   const meta = {
     modelUrl: 'u',
     originUrl: 'o',
+    sourceSize: 4,
     sourceSha256: 's',
     computedSha256: 'c',
   };
@@ -267,6 +293,7 @@ test('resolveSource falls back to the sidecar source when inference fails', asyn
   await writeMeta(full, {
     modelUrl: 'https://huggingface.co/Hauhau/Repo',
     originUrl: 'https://huggingface.co/Hauhau/Repo/blob/main/GPT.gguf',
+    sourceSize: 7,
     sourceSha256: 'feed',
     computedSha256: 'feed',
   });
@@ -297,6 +324,7 @@ test('resolveSource falls back to the sidecar source when inference fails', asyn
       repoId: 'Hauhau/Repo',
       branch: 'main',
       repoPath: 'GPT.gguf',
+      commit: '', // the revision endpoint isn't mocked here — commit degrades to ''
       size: 7,
       sha256: 'feed',
     });
@@ -308,6 +336,62 @@ test('resolveSource falls back to the sidecar source when inference fails', asyn
   }
 });
 
+test('refreshMetaSource backfills size/sha from the source, keeping the computed sha', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-refresh-'));
+  const full = path.join(dir, 'm.gguf');
+  await fsp.writeFile(full, 'data');
+  // A legacy sidecar without sourceSize, naming a stale source.
+  await writeMeta(full, {
+    modelUrl: 'https://huggingface.co/old/repo',
+    originUrl: 'https://huggingface.co/old/repo/blob/main/m.gguf',
+    sourceSize: 0,
+    sourceSha256: 'stale',
+    computedSha256: 'computed',
+  });
+
+  await refreshMetaSource(full, {
+    repoId: 'o/r',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    commit: 'freshcommit',
+    size: 4,
+    sha256: 'fresh',
+  });
+
+  expect(await readMeta(full)).toEqual({
+    modelUrl: 'https://huggingface.co/o/r',
+    originUrl: 'https://huggingface.co/o/r/blob/main/m.gguf',
+    sourceCommit: 'freshcommit',
+    sourceSize: 4,
+    sourceSha256: 'fresh',
+    computedSha256: 'computed', // preserved — a relocation doesn't change bytes
+  });
+  await fsp.rm(dir, {recursive: true, force: true});
+});
+
+test('refreshMetaSource hashes the file when no prior computed sha exists', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-refresh-'));
+  const full = path.join(dir, 'm.gguf');
+  const content = Buffer.from('hello world');
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+
+  // No sidecar at all: the computed sha must be recomputed from disk.
+  await refreshMetaSource(full, {
+    repoId: 'o/r',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    commit: '',
+    size: content.length,
+    sha256: sha,
+  });
+
+  const meta = await readMeta(full);
+  expect(meta?.sourceSize).toBe(content.length);
+  expect(meta?.computedSha256).toBe(sha);
+  await fsp.rm(dir, {recursive: true, force: true});
+});
+
 test('copyFileWithMeta copies the file and its sidecar, reporting bytes', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-cp-'));
   const src = path.join(base, 'm.gguf');
@@ -315,6 +399,7 @@ test('copyFileWithMeta copies the file and its sidecar, reporting bytes', async 
   await writeMeta(src, {
     modelUrl: 'https://huggingface.co/o/r',
     originUrl: 'https://huggingface.co/o/r/blob/main/m.gguf',
+    sourceSize: 7,
     sourceSha256: 's',
     computedSha256: 'c',
   });
@@ -359,6 +444,7 @@ test('auditFile verifies against an explicit source without any inference', asyn
     repoId: 'o/r',
     branch: 'main',
     repoPath: 'm.gguf',
+    commit: 'srccommit',
     size: content.length,
     sha256: sha,
   };
@@ -372,6 +458,8 @@ test('auditFile verifies against an explicit source without any inference', asyn
     const result = await auditFile(base, rel, '', 'm.gguf', undefined, source);
     expect(result.status).toBe('pass');
     const meta = await readMeta(full);
+    expect(meta?.sourceCommit).toBe('srccommit');
+    expect(meta?.sourceSize).toBe(content.length);
     expect(meta?.sourceSha256).toBe(sha);
     expect(meta?.computedSha256).toBe(sha);
   } finally {
