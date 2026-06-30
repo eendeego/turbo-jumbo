@@ -1,7 +1,7 @@
 'use client';
 
 import {Collapsible} from '@astryxdesign/core/Collapsible';
-import {HStack, VStack} from '@astryxdesign/core/Stack';
+import {HStack, VStack, StackItem} from '@astryxdesign/core/Stack';
 import {Badge} from '@astryxdesign/core/Badge';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
@@ -46,9 +46,17 @@ export function ModelList({models, selected, onToggle}: ModelListProps) {
         const hasMissing = model.files.some((f) =>
           f.isSplit ? f.missingIndices.length > 0 : f.missing,
         );
-        return (
+        const allPaths = model.files.flatMap((f) => filePaths(f));
+        const allSelected =
+          !!selected &&
+          allPaths.length > 0 &&
+          allPaths.every((p) => selected.has(p));
+        const someSelected =
+          !!selected && allPaths.some((p) => selected.has(p));
+        // The Collapsible trigger is a <button>; a select-all checkbox can't
+        // nest inside it, so it sits beside the disclosure as a sibling.
+        const collapsible = (
           <Collapsible
-            key={model.name}
             defaultIsOpen={false}
             trigger={
               <HStack gap={2} vAlign="center">
@@ -113,6 +121,21 @@ export function ModelList({models, selected, onToggle}: ModelListProps) {
               )}
             </VStack>
           </Collapsible>
+        );
+        return (
+          <HStack key={model.name} gap={2} vAlign="start">
+            {onToggle && (
+              <CheckboxInput
+                label={`Select all of ${model.name}`}
+                isLabelHidden
+                value={
+                  allSelected ? true : someSelected ? 'indeterminate' : false
+                }
+                onChange={() => onToggle(allPaths)}
+              />
+            )}
+            <StackItem size="fill">{collapsible}</StackItem>
+          </HStack>
         );
       })}
     </VStack>
