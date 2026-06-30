@@ -73,6 +73,7 @@ function NameCell({
       variant="ghost"
       size="sm"
       icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
+      tooltip={`Quantizations: ${row.quantizations}`}
       onClick={() => onToggle(row.parentName)}
     />
   );
@@ -201,13 +202,6 @@ export function ModelsTableClient({
           onToggle={toggle}
         />
       ),
-    },
-    {
-      key: 'quantizations',
-      header: 'Quantizations',
-      width: proportional(1),
-      renderCell: (item) =>
-        item.isChild ? null : <Text type="body">{item.quantizations}</Text>,
     },
     {
       key: 'peers',
