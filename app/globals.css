@@ -1,0 +1,3 @@
+/* The @stylexjs/postcss-plugin replaces this directive with all compiled
+   StyleX styles during the build. */
+@stylex;
