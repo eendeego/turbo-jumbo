@@ -1,18 +1,9 @@
-'use client';
-
-import {Table, proportional, type TableColumn} from '@astryxdesign/core/Table';
 import type {Model} from '@/lib/models';
-
-interface ModelRow extends Record<string, unknown> {
-  name: string;
-}
-
-const columns: TableColumn<ModelRow>[] = [
-  {key: 'name', header: 'Model', width: proportional(1)},
-];
+import {ModelsTableClient, type ModelRow} from './models-table-client';
 
 // A flat, de-duplicated list of every model name known across local storage and
-// cold storage, sorted alphabetically.
+// cold storage, sorted alphabetically. Data prep runs on the server; the actual
+// table (with its renderCell columns) renders in ModelsTableClient.
 export function ModelsTable({
   coldModels,
   localModels,
@@ -30,5 +21,5 @@ export function ModelsTable({
   }
   models.sort((a, b) => a.name.localeCompare(b.name));
 
-  return <Table data={models} columns={columns} idKey="name" />;
+  return <ModelsTableClient models={models} />;
 }
