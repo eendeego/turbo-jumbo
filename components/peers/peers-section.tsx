@@ -7,6 +7,7 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/models';
+import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
 import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
 import {
@@ -25,6 +26,9 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
   const [peerDeleting, setPeerDeleting] = useState<Record<string, boolean>>({});
   const [confirmingPeer, setConfirmingPeer] = useState<Peer | null>(null);
   const [peerCopying, setPeerCopying] = useState<Record<string, boolean>>({});
+  const [peerCopyProgress, setPeerCopyProgress] = useState<
+    Record<string, CopyProgress | null>
+  >({});
   const [confirmingCopyPeer, setConfirmingCopyPeer] = useState<Peer | null>(
     null,
   );
@@ -89,20 +93,27 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
     setConfirmingCopyPeer(null);
     const sel = peerSelections[peer.address] ?? [];
     setPeerCopying((prev) => ({...prev, [peer.address]: true}));
+    setPeerCopyProgress((prev) => ({...prev, [peer.address]: null}));
     try {
-      await fetch('/api/v1/copy', {
+      const res = await fetch('/api/v1/copy', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({files: sel, from: peer.address, ...destinations}),
       });
+      await readCopyProgress(res, (p) =>
+        setPeerCopyProgress((prev) => ({...prev, [peer.address]: p})),
+      );
       if (destinations.deleteAfterCopy) {
-        const res = await fetch(`http://${peer.address}/api/v1/local-models`);
-        const models: Model[] = await res.json();
+        const refreshed = await fetch(
+          `http://${peer.address}/api/v1/local-models`,
+        );
+        const models: Model[] = await refreshed.json();
         setPeerModels((prev) => new Map(prev).set(peer.address, models));
         setPeerSelections((prev) => ({...prev, [peer.address]: []}));
       }
     } finally {
       setPeerCopying((prev) => ({...prev, [peer.address]: false}));
+      setPeerCopyProgress((prev) => ({...prev, [peer.address]: null}));
     }
   }
 
@@ -151,6 +162,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
         const selected = new Set(peerSelections[peer.address] ?? []);
         const deleting = peerDeleting[peer.address] ?? false;
         const copying = peerCopying[peer.address] ?? false;
+        const copyProgress = peerCopyProgress[peer.address] ?? null;
         return (
           <Section key={peer.address}>
             <VStack gap={3}>
@@ -171,6 +183,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
                     deleting={deleting}
                     onCopy={() => setConfirmingCopyPeer(peer)}
                     copying={copying}
+                    copyProgress={copyProgress}
                   />
                 </VStack>
               )}

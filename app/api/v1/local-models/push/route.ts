@@ -1,7 +1,10 @@
 import {localModelsDir} from '@/lib/config';
 import nodePath from 'path';
+import {promises as fsp} from 'fs';
 import {createReadStream} from 'fs';
 import {Readable} from 'stream';
+
+const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB
 
 type PushRequest = {
   files: string[];
@@ -25,21 +28,43 @@ export async function POST(req: Request) {
     if (!full.startsWith(base + nodePath.sep))
       return new Response('Invalid path', {status: 400});
 
-    const readable = createReadStream(full);
-    const res = await fetch(`http://${toPeer}/api/v1/local-models/upload`, {
-      method: 'POST',
-      headers: {
-        'x-file-path': file,
-        'Content-Type': 'application/octet-stream',
-      },
-      body: Readable.toWeb(readable) as unknown as BodyInit,
-      // @ts-expect-error – duplex required for streaming request bodies in Node fetch
-      duplex: 'half',
-    });
-    if (!res.ok)
-      return new Response(`Upload to peer failed: ${await res.text()}`, {
-        status: 502,
+    const {size: fileSize} = await fsp.stat(full);
+    const uploadUrl = `http://${toPeer}/api/v1/local-models/upload`;
+
+    if (fileSize === 0) {
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {'x-file-path': file, 'x-chunk-offset': '0'},
       });
+      if (!res.ok)
+        return new Response(`Upload to peer failed: ${await res.text()}`, {
+          status: 502,
+        });
+      continue;
+    }
+
+    for (let offset = 0; offset < fileSize; offset += CHUNK_SIZE) {
+      const chunkEnd = Math.min(offset + CHUNK_SIZE, fileSize);
+      const readable = createReadStream(full, {
+        start: offset,
+        end: chunkEnd - 1,
+      });
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          'x-file-path': file,
+          'x-chunk-offset': String(offset),
+          'Content-Type': 'application/octet-stream',
+        },
+        body: Readable.toWeb(readable) as unknown as BodyInit,
+        // @ts-expect-error – duplex required for streaming request bodies in Node fetch
+        duplex: 'half',
+      });
+      if (!res.ok)
+        return new Response(`Upload to peer failed: ${await res.text()}`, {
+          status: 502,
+        });
+    }
   }
 
   return Response.json({ok: true});

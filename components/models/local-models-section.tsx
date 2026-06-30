@@ -3,6 +3,7 @@
 import {useState} from 'react';
 import {VStack} from '@astryxdesign/core/Stack';
 import type {Model} from '@/lib/models';
+import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
 import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
 import {
@@ -25,6 +26,7 @@ export function LocalModelsSection({
   const [confirming, setConfirming] = useState(false);
   const [copying, setCopying] = useState(false);
   const [confirmingCopy, setConfirmingCopy] = useState(false);
+  const [copyProgress, setCopyProgress] = useState<CopyProgress | null>(null);
 
   function onToggle(paths: string[]) {
     setSelected((prev) => {
@@ -56,8 +58,9 @@ export function LocalModelsSection({
   async function onCopy(destinations: CopyDestinations) {
     setConfirmingCopy(false);
     setCopying(true);
+    setCopyProgress(null);
     try {
-      await fetch('/api/v1/copy', {
+      const res = await fetch('/api/v1/copy', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
@@ -66,13 +69,15 @@ export function LocalModelsSection({
           ...destinations,
         }),
       });
+      await readCopyProgress(res, setCopyProgress);
       if (destinations.deleteAfterCopy) {
-        const res = await fetch('/api/v1/local-models');
-        setModels(await res.json());
+        const refreshed = await fetch('/api/v1/local-models');
+        setModels(await refreshed.json());
         setSelected(new Set());
       }
     } finally {
       setCopying(false);
+      setCopyProgress(null);
     }
   }
 
@@ -85,6 +90,7 @@ export function LocalModelsSection({
         deleting={deleting}
         onCopy={() => setConfirmingCopy(true)}
         copying={copying}
+        copyProgress={copyProgress}
       />
       {confirming && (
         <DeleteModal

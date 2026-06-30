@@ -16,10 +16,24 @@ export async function POST(req: Request) {
   if (!full.startsWith(base + nodePath.sep))
     return new Response('Invalid path', {status: 400});
 
-  if (!req.body) return new Response('No body', {status: 400});
+  const offset = parseInt(req.headers.get('x-chunk-offset') ?? '0', 10);
+  if (isNaN(offset) || offset < 0)
+    return new Response('Invalid x-chunk-offset', {status: 400});
 
   await fsp.mkdir(nodePath.dirname(full), {recursive: true});
-  const writer = createWriteStream(full);
+
+  if (!req.body) {
+    // Empty file or missing body — create/truncate when this is the first chunk.
+    if (offset === 0) await fsp.writeFile(full, new Uint8Array(0));
+    return Response.json({ok: true});
+  }
+
+  // offset 0 truncates ('w'); later chunks append ('a' — O_APPEND atomically
+  // seeks to EOF before each write, correct for sequential chunks).
+  const writer = createWriteStream(
+    full,
+    offset === 0 ? undefined : {flags: 'a'},
+  );
   // @ts-expect-error – DOM ReadableStream vs Node ReadableStream type mismatch
   await pipeline(Readable.fromWeb(req.body), writer);
 

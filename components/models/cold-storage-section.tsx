@@ -3,6 +3,7 @@
 import {useState} from 'react';
 import {VStack} from '@astryxdesign/core/Stack';
 import type {Model} from '@/lib/models';
+import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
 import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
 import {DeleteModal, selectedFileInfo} from '@/components/models/delete-modal';
@@ -15,6 +16,7 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
   const [confirming, setConfirming] = useState(false);
   const [copying, setCopying] = useState(false);
   const [confirmingCopy, setConfirmingCopy] = useState(false);
+  const [copyProgress, setCopyProgress] = useState<CopyProgress | null>(null);
 
   function onToggle(paths: string[]) {
     setSelected((prev) => {
@@ -46,8 +48,9 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
   async function onCopy(destinations: CopyDestinations) {
     setConfirmingCopy(false);
     setCopying(true);
+    setCopyProgress(null);
     try {
-      await fetch('/api/v1/copy', {
+      const res = await fetch('/api/v1/copy', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
@@ -56,8 +59,10 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
           ...destinations,
         }),
       });
+      await readCopyProgress(res, setCopyProgress);
     } finally {
       setCopying(false);
+      setCopyProgress(null);
     }
   }
 
@@ -70,6 +75,7 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
         deleting={deleting}
         onCopy={() => setConfirmingCopy(true)}
         copying={copying}
+        copyProgress={copyProgress}
       />
       {confirming && (
         <DeleteModal
