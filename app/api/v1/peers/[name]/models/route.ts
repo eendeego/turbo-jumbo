@@ -50,7 +50,8 @@ export async function DELETE(
   const peer = config.peers.find((p) => p.name === name);
   if (!peer) return new Response('Unknown peer', {status: 404});
 
-  const {files} = (await req.json()) as {files: string[]};
+  const body = (await req.json()) as {files: string[]; dryRun?: boolean};
+  const {files} = body;
   if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
     return new Response('Invalid files', {status: 400});
 
@@ -64,9 +65,13 @@ export async function DELETE(
       const full = nodePath.resolve(base, file);
       if (!full.startsWith(base + nodePath.sep))
         return new Response('Invalid path', {status: 400});
-      await fsp.rm(full, {force: true});
+      if (body.dryRun) {
+        logger.info(`[dry-run] would delete peer ${peer.name}: ${full}`);
+      } else {
+        await fsp.rm(full, {force: true});
+      }
     }
-    return Response.json({ok: true});
+    return Response.json({ok: true, dryRun: body.dryRun ?? false});
   }
 
   logger.debug(
@@ -76,11 +81,11 @@ export async function DELETE(
     const res = await fetch(`http://${peer.address}/api/v1/local-models`, {
       method: 'DELETE',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({files}),
+      body: JSON.stringify({files, dryRun: body.dryRun}),
     });
     if (!res.ok)
       return new Response(`Peer returned ${res.status}`, {status: 502});
-    return Response.json({ok: true});
+    return Response.json({ok: true, dryRun: body.dryRun ?? false});
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     logger.warn(`[peers] failed to delete models from ${peer.name}: ${msg}`);

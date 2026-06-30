@@ -9,6 +9,7 @@ import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Text';
 import {Divider} from '@astryxdesign/core/Divider';
 import {Banner} from '@astryxdesign/core/Banner';
+import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {AsyncState} from '@/lib/async-state';
@@ -88,6 +89,8 @@ export function HomeClient({
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dryRun, setDryRun] = useState(false);
+  const isDev = process.env.NODE_ENV === 'development';
 
   const locations: LocationTab[] = useMemo(
     () =>
@@ -140,7 +143,10 @@ export function HomeClient({
     setError(null);
     try {
       const headers = {'Content-Type': 'application/json'};
-      const body = JSON.stringify({files: Array.from(selected)});
+      const body = JSON.stringify({
+        files: Array.from(selected),
+        ...(dryRun ? {dryRun: true} : {}),
+      });
 
       if (activeLocation === 'all') {
         // Delete from every location in parallel.
@@ -310,6 +316,14 @@ export function HomeClient({
           copyProgress={copyProgress}
           checking={checking}
         />
+        {isDev && selected.size > 0 && (
+          <CheckboxInput
+            label="Dry run (log only, no actual deletion)"
+            value={dryRun}
+            onChange={setDryRun}
+            size="sm"
+          />
+        )}
 
         {confirming && (
           <DeleteModal

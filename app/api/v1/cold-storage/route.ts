@@ -2,6 +2,7 @@ import {NextResponse} from 'next/server';
 import {promises as fsp} from 'fs';
 import nodePath from 'path';
 import {coldStorageDir} from '@/lib/config';
+import {logger} from '@/lib/logger';
 import {scanModels} from '@/lib/models';
 
 export function GET() {
@@ -11,7 +12,8 @@ export function GET() {
 
 export async function DELETE(req: Request) {
   if (!coldStorageDir) return new Response('No cold storage', {status: 400});
-  const {files} = (await req.json()) as {files: string[]};
+  const body = (await req.json()) as {files: string[]; dryRun?: boolean};
+  const {files} = body;
   if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
     return new Response('Invalid files', {status: 400});
   const base = nodePath.resolve(coldStorageDir);
@@ -19,7 +21,11 @@ export async function DELETE(req: Request) {
     const full = nodePath.resolve(base, file);
     if (!full.startsWith(base + nodePath.sep))
       return new Response('Invalid path', {status: 400});
-    await fsp.rm(full, {force: true});
+    if (body.dryRun) {
+      logger.info(`[dry-run] would delete cold-storage: ${full}`);
+    } else {
+      await fsp.rm(full, {force: true});
+    }
   }
-  return Response.json({ok: true});
+  return Response.json({ok: true, dryRun: body.dryRun ?? false});
 }

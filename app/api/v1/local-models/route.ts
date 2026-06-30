@@ -17,7 +17,8 @@ export function GET(req: Request) {
 
 export async function DELETE(req: Request) {
   if (!localModelsDir) return new Response('No local peer', {status: 400});
-  const {files} = (await req.json()) as {files: string[]};
+  const body = (await req.json()) as {files: string[]; dryRun?: boolean};
+  const {files} = body;
   if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
     return new Response('Invalid files', {status: 400});
   const base = nodePath.resolve(localModelsDir);
@@ -25,7 +26,11 @@ export async function DELETE(req: Request) {
     const full = nodePath.resolve(base, file);
     if (!full.startsWith(base + nodePath.sep))
       return new Response('Invalid path', {status: 400});
-    await fsp.rm(full, {force: true});
+    if (body.dryRun) {
+      logger.info(`[dry-run] would delete local: ${full}`);
+    } else {
+      await fsp.rm(full, {force: true});
+    }
   }
-  return Response.json({ok: true});
+  return Response.json({ok: true, dryRun: body.dryRun ?? false});
 }
