@@ -17,6 +17,16 @@ ENV HOSTNAME=0.0.0.0
 # Mount your config.yaml here, or override CONFIG_PATH at runtime
 ENV CONFIG_PATH=/config/config.yaml
 
+# HuggingFace downloads shell out to the `hf` CLI accelerated by hf-transfer.
+RUN apt-get update && apt-get install -y curl python3 python3-venv && \
+    curl -LsSf https://hf.co/cli/install.sh | bash - && \
+    python3 -m venv /venv && \
+    /venv/bin/pip install hf-transfer && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/venv/bin:/root/.local/bin:$PATH"
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
+
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
