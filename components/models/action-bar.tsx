@@ -23,6 +23,9 @@ interface ActionBarProps {
   onAudit?: () => void;
   auditing?: boolean;
   auditSupported?: boolean;
+  onFixMisplaced?: () => void;
+  misplacedCount?: number;
+  fixing?: boolean;
 }
 
 export function ActionBar({
@@ -36,6 +39,9 @@ export function ActionBar({
   onAudit,
   auditing = false,
   auditSupported = false,
+  onFixMisplaced,
+  misplacedCount = 0,
+  fixing = false,
 }: ActionBarProps) {
   // Derive a live transfer speed from successive byte-progress samples. The
   // result lives in a ref (no setState in the effect) and is read during the
@@ -81,7 +87,12 @@ export function ActionBar({
               variant="secondary"
               size="sm"
               isDisabled={
-                noneSelected || copying || deleting || checking || auditing
+                noneSelected ||
+                copying ||
+                deleting ||
+                checking ||
+                auditing ||
+                fixing
               }
               onClick={onCopy}
             />
@@ -89,7 +100,9 @@ export function ActionBar({
               label={deleting ? 'Deleting…' : 'Delete…'}
               variant="destructive"
               size="sm"
-              isDisabled={noneSelected || deleting || copying || auditing}
+              isDisabled={
+                noneSelected || deleting || copying || auditing || fixing
+              }
               onClick={onDelete}
             />
             {onAudit && (
@@ -103,9 +116,21 @@ export function ActionBar({
                   copying ||
                   deleting ||
                   checking ||
+                  fixing ||
                   !auditSupported
                 }
                 onClick={onAudit}
+              />
+            )}
+            {onFixMisplaced && misplacedCount > 0 && (
+              <Button
+                label={fixing ? 'Fixing…' : `Fix misplaced (${misplacedCount})`}
+                variant="secondary"
+                size="sm"
+                isDisabled={
+                  fixing || copying || deleting || auditing || checking
+                }
+                onClick={onFixMisplaced}
               />
             )}
           </HStack>

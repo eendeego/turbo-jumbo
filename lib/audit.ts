@@ -82,6 +82,51 @@ export async function writeMeta(fullPath: string, meta: TjMeta): Promise<void> {
   await fsp.writeFile(metaPath(fullPath), JSON.stringify(meta, null, 2));
 }
 
+export interface FixResult {
+  file: string; // original path relative to the storage root
+  status: 'moved' | 'skipped' | 'error';
+  to?: string; // new relative path, when moved
+  message?: string;
+}
+
+/**
+ * Relocate a model file (and its `.tjmeta.json` sidecar, if any) from `fromRel`
+ * to `toRel`, both relative to `basePath`, creating intermediate directories.
+ * The move within a storage root is a same-filesystem rename. Refuses to escape
+ * the root or to overwrite an existing destination.
+ */
+export async function moveFileWithMeta(
+  basePath: string,
+  fromRel: string,
+  toRel: string,
+): Promise<void> {
+  const fromFull = path.join(basePath, fromRel);
+  const toFull = path.join(basePath, toRel);
+
+  const rel = path.relative(basePath, toFull);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`target escapes storage root: ${toRel}`);
+  }
+
+  const destExists = await fsp
+    .access(toFull)
+    .then(() => true)
+    .catch(() => false);
+  if (destExists) {
+    throw new Error(`destination already exists: ${toRel}`);
+  }
+
+  await fsp.mkdir(path.dirname(toFull), {recursive: true});
+  await fsp.rename(fromFull, toFull);
+
+  // Move the sidecar alongside if it exists; absence is fine.
+  try {
+    await fsp.rename(metaPath(fromFull), metaPath(toFull));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
+}
+
 /**
  * Audit a single physical file: infer HF source, fail-fast on size, then hash,
  * persist the sidecar, and return the verdict.

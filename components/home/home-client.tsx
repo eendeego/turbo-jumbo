@@ -32,7 +32,7 @@ import {
 import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
-import type {AuditResult} from '@/lib/audit';
+import type {AuditResult, FixResult} from '@/lib/audit';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
 
@@ -96,6 +96,7 @@ export function HomeClient({
   );
   const [auditedPaths, setAuditedPaths] = useState<Set<string>>(new Set());
   const [auditing, setAuditing] = useState(false);
+  const [fixing, setFixing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingCopy, setConfirmingCopy] = useState(false);
@@ -198,6 +199,75 @@ export function HomeClient({
     const res = await fetch('/api/v1/models-table');
     if (res.ok) setModels(await res.json());
   }
+
+  // Relocate misplaced files into <repoId>/<repoPath>. The moved files keep
+  // their verified size/sha, so we mark them passing and remap state to the new
+  // paths in place rather than re-hashing.
+  async function onFix(paths: string[]) {
+    if (!auditLocation || paths.length === 0) return;
+    setFixing(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/v1/audit/fix', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({location: auditLocation, files: paths}),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const {results} = (await res.json()) as {results: FixResult[]};
+
+      const moved = results.filter(
+        (r): r is FixResult & {to: string} => r.status === 'moved' && !!r.to,
+      );
+      if (moved.length > 0) {
+        setAuditResults((prev) => {
+          const next = new Map(prev);
+          for (const m of moved) {
+            next.delete(m.file);
+            next.set(m.to, {file: m.to, status: 'pass'});
+          }
+          return next;
+        });
+        setAuditedPaths((prev) => {
+          const next = new Set(prev);
+          for (const m of moved) {
+            next.delete(m.file);
+            next.add(m.to);
+          }
+          return next;
+        });
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const m of moved) {
+            if (next.delete(m.file)) next.add(m.to);
+          }
+          return next;
+        });
+        await refreshModels();
+      }
+
+      const failed = results.filter((r) => r.status === 'error');
+      if (failed.length > 0) {
+        setError(
+          `Fix failed for ${failed.length} file(s): ${failed
+            .map((f) => `${f.file} (${f.message})`)
+            .join('; ')}`,
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFixing(false);
+    }
+  }
+
+  const misplacedPaths = useMemo(
+    () =>
+      [...auditResults.values()]
+        .filter((r) => r.status === 'misplaced')
+        .map((r) => r.file),
+    [auditResults],
+  );
 
   const onToggleSelected = useCallback((paths: string[]) => {
     setSelected((prev) => {
@@ -396,6 +466,8 @@ export function HomeClient({
           auditResults={auditResults}
           auditedPaths={auditedPaths}
           auditing={auditing}
+          onFixMisplaced={onFix}
+          fixing={fixing}
         />
         {error && <Banner status="error" title={`Error: ${error}`} />}
         <ActionBar
@@ -409,6 +481,9 @@ export function HomeClient({
           onAudit={onAudit}
           auditing={auditing}
           auditSupported={auditLocation !== null}
+          onFixMisplaced={() => onFix(misplacedPaths)}
+          misplacedCount={misplacedPaths.length}
+          fixing={fixing}
         />
         {isDev && selected.size > 0 && (
           <CheckboxInput

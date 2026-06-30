@@ -129,21 +129,44 @@ function rowAudit(
   return {kind: 'result', status: worst.status, message: worst.message};
 }
 
-function AuditCell({audit}: {audit: RowAudit}) {
+function AuditCell({
+  audit,
+  onFix,
+  fixing,
+}: {
+  audit: RowAudit;
+  onFix?: () => void;
+  fixing?: boolean;
+}) {
   if (audit == null) return null;
   if (audit.kind === 'pending') {
     return <Badge label="Auditing…" variant="neutral" />;
   }
   const {label, variant} = AUDIT_BADGE[audit.status];
-  const badge = <Badge label={label} variant={variant} />;
-  if (!audit.message) return badge;
-  return (
+  const plainBadge = <Badge label={label} variant={variant} />;
+  const badge = audit.message ? (
     <HoverCard
       placement="above"
       content={<Text type="supporting">{audit.message}</Text>}
     >
-      {badge}
+      {plainBadge}
     </HoverCard>
+  ) : (
+    plainBadge
+  );
+
+  if (audit.status !== 'misplaced' || !onFix) return badge;
+  return (
+    <HStack gap={1} vAlign="center">
+      {badge}
+      <Button
+        label={fixing ? 'Fixing…' : 'Fix'}
+        variant="ghost"
+        size="sm"
+        onClick={onFix}
+        isDisabled={fixing}
+      />
+    </HStack>
   );
 }
 
@@ -271,6 +294,8 @@ export function ModelsTableClient({
   auditResults,
   auditedPaths,
   auditing = false,
+  onFixMisplaced,
+  fixing = false,
 }: {
   models: ModelRow[];
   peers: PeerConfig[];
@@ -282,6 +307,8 @@ export function ModelsTableClient({
   auditResults?: Map<string, AuditResult>;
   auditedPaths?: Set<string>;
   auditing?: boolean;
+  onFixMisplaced?: (paths: string[]) => void;
+  fixing?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -517,16 +544,23 @@ export function ModelsTableClient({
             header: 'Audit',
             width: pixel(140),
             align: 'center' as const,
-            renderCell: (item: DisplayRow) => (
-              <AuditCell
-                audit={rowAudit(
-                  item.paths,
-                  auditedPaths,
-                  auditResults ?? new Map(),
-                  auditing,
-                )}
-              />
-            ),
+            renderCell: (item: DisplayRow) => {
+              const results = auditResults ?? new Map<string, AuditResult>();
+              const misplaced = item.paths.filter(
+                (p) => results.get(p)?.status === 'misplaced',
+              );
+              return (
+                <AuditCell
+                  audit={rowAudit(item.paths, auditedPaths, results, auditing)}
+                  onFix={
+                    onFixMisplaced && misplaced.length > 0
+                      ? () => onFixMisplaced(misplaced)
+                      : undefined
+                  }
+                  fixing={fixing}
+                />
+              );
+            },
           } satisfies TableColumn<DisplayRow>,
         ]
       : []),

@@ -5,6 +5,7 @@ import path from 'path';
 import {
   decideStatus,
   expectedRelPath,
+  moveFileWithMeta,
   readMeta,
   writeMeta,
   metaPath,
@@ -123,4 +124,71 @@ test('readMeta returns null when no sidecar exists', async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-audit-'));
   expect(await readMeta(path.join(dir, 'nope.gguf'))).toBeNull();
   await fsp.rm(dir, {recursive: true, force: true});
+});
+
+const exists = (p: string) =>
+  fsp
+    .access(p)
+    .then(() => true)
+    .catch(() => false);
+
+test('moveFileWithMeta relocates the file and its sidecar, creating dirs', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-move-'));
+  const meta = {
+    modelUrl: 'u',
+    originUrl: 'o',
+    sourceSha256: 's',
+    computedSha256: 'c',
+  };
+  await fsp.writeFile(path.join(base, 'M.Q4.gguf'), 'data');
+  await writeMeta(path.join(base, 'M.Q4.gguf'), meta);
+
+  await moveFileWithMeta(base, 'M.Q4.gguf', 'o/r/M.Q4.gguf');
+
+  expect(await fsp.readFile(path.join(base, 'o/r/M.Q4.gguf'), 'utf8')).toBe(
+    'data',
+  );
+  expect(await readMeta(path.join(base, 'o/r/M.Q4.gguf'))).toEqual(meta);
+  expect(await exists(path.join(base, 'M.Q4.gguf'))).toBe(false);
+  expect(await readMeta(path.join(base, 'M.Q4.gguf'))).toBeNull();
+
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('moveFileWithMeta refuses to overwrite an existing destination', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-move-'));
+  await fsp.writeFile(path.join(base, 'M.Q4.gguf'), 'a');
+  await fsp.mkdir(path.join(base, 'o/r'), {recursive: true});
+  await fsp.writeFile(path.join(base, 'o/r/M.Q4.gguf'), 'b');
+
+  await expect(
+    moveFileWithMeta(base, 'M.Q4.gguf', 'o/r/M.Q4.gguf'),
+  ).rejects.toThrow();
+  // source is left untouched on refusal
+  expect(await fsp.readFile(path.join(base, 'M.Q4.gguf'), 'utf8')).toBe('a');
+
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('moveFileWithMeta works when there is no sidecar', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-move-'));
+  await fsp.writeFile(path.join(base, 'M.Q4.gguf'), 'data');
+
+  await moveFileWithMeta(base, 'M.Q4.gguf', 'sub/M.Q4.gguf');
+
+  expect(await fsp.readFile(path.join(base, 'sub/M.Q4.gguf'), 'utf8')).toBe(
+    'data',
+  );
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('moveFileWithMeta rejects a target that escapes the storage root', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-move-'));
+  await fsp.writeFile(path.join(base, 'M.Q4.gguf'), 'data');
+
+  await expect(
+    moveFileWithMeta(base, 'M.Q4.gguf', '../escape.gguf'),
+  ).rejects.toThrow();
+
+  await fsp.rm(base, {recursive: true, force: true});
 });

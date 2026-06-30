@@ -27,7 +27,8 @@ This first iteration implements the audit for the **locally-reachable tabs**
 - Auditing remote peer tabs (needs a peer sha256 endpoint + remote metadata writes).
 - Recording authoritative provenance at download time (a future iteration writes
   `originUrl` / `sourceSha256` from the actual download).
-- Repairing/re-downloading files that fail the audit.
+- Re-downloading or re-hashing files that fail the audit (the one repair
+  supported is relocating `Misplaced` files — see "Fixing misplaced files").
 - A manual "specify the repo" override when inference fails.
 
 ## Source-of-truth: HuggingFace, inferred from filename
@@ -75,6 +76,25 @@ For each file at the location:
 | `Checksum mismatch` | size matched but computed sha256 ≠ HF sha256 (corruption) |
 | `Misplaced`         | size/sha ok but path ≠ `<repoId>/<repoPath>`              |
 | `Unverifiable`      | could not infer an HF repo containing the exact filename  |
+
+## Fixing misplaced files
+
+A `Misplaced` file has the right size and sha256 but sits at the wrong on-disk
+path. It can be relocated into its HuggingFace layout (`<repoId>/<repoPath>`)
+without re-downloading:
+
+- **UI** — a per-row **Fix** button next to the `Misplaced` badge moves that
+  row's misplaced file(s); a bulk **Fix misplaced (N)** button in the action bar
+  moves every misplaced file from the run.
+- **Endpoint** — `POST /api/v1/audit/fix { location, files }`. For each selected
+  path the server re-infers the HF source and recomputes the target
+  `<repoId>/<repoPath>`; it never trusts a client-supplied destination. It then
+  renames the file (and its `.tjmeta.json` sidecar) into place, creating
+  intermediate directories. It refuses to escape the storage root or overwrite an
+  existing destination, and returns a per-file `{moved | skipped | error}` result.
+- **Client state** — a moved file keeps its verified size/sha, so the UI marks it
+  `Pass` and remaps the audit/selection state to the new path in place rather than
+  re-hashing.
 
 ## Per-file sidecar metadata
 
