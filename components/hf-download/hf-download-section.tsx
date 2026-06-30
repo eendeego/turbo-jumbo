@@ -6,6 +6,7 @@ import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Button} from '@astryxdesign/core/Button';
+import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 
 function parseHfUrl(
@@ -69,6 +70,8 @@ export function HfDownloadSection({
   localModelsPath: string;
 }) {
   const [url, setUrl] = useState('');
+  const [sendToCold, setSendToCold] = useState(false);
+  const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
   const [running, setRunning] = useState(false);
   const [term, setTerm] = useState<TermState | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -97,7 +100,12 @@ export function HfDownloadSection({
         method: 'POST',
         signal: abort.signal,
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({repoId: parsed.repoId, folder: parsed.folder}),
+        body: JSON.stringify({
+          repoId: parsed.repoId,
+          folder: parsed.folder,
+          sendToCold,
+          deleteAfterTransfer,
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -160,6 +168,27 @@ export function HfDownloadSection({
                 <Button label="Run" variant="primary" onClick={handleRun} />
               )}
             </HStack>
+          </VStack>
+        )}
+        {parsed?.folder && (
+          <VStack gap={2}>
+            <CheckboxInput
+              label="Copy to cold storage when done"
+              value={sendToCold}
+              onChange={(checked) => {
+                setSendToCold(checked);
+                if (!checked) setDeleteAfterTransfer(false);
+              }}
+              isDisabled={running}
+            />
+            {sendToCold && (
+              <CheckboxInput
+                label="Delete from local storage after transfer"
+                value={deleteAfterTransfer}
+                onChange={setDeleteAfterTransfer}
+                isDisabled={running}
+              />
+            )}
           </VStack>
         )}
         {term !== null && (
