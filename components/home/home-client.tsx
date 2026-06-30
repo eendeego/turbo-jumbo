@@ -1,13 +1,11 @@
 'use client';
 
 import {useState, useMemo, useCallback} from 'react';
-import * as stylex from '@stylexjs/stylex';
 import {useRouter} from 'next/navigation';
 import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Text';
-import {Divider} from '@astryxdesign/core/Divider';
 import {Banner} from '@astryxdesign/core/Banner';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
@@ -33,16 +31,9 @@ import {
 } from '@/components/models/conflicts-modal';
 import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
-import {Peers} from '@/components/peers/peers';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
-
-const styles = stylex.create({
-  // The models table spans the full content width; the sections below it sit in
-  // a narrower reading column.
-  narrow: {maxWidth: '42rem', width: '100%'},
-});
 
 function selectedFileInfo(
   models: ModelRow[],
@@ -96,7 +87,7 @@ export function HomeClient({
   localPeerModels: Model[];
 }) {
   const router = useRouter();
-  const {peers, peerModels, handleModelsRefreshed} = usePeerModels();
+  const {peerModels} = usePeerModels();
   const [models, setModels] = useState(modelsTableData);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
@@ -392,17 +383,6 @@ export function HomeClient({
             }}
           />
         )}
-
-        <Divider />
-
-        <VStack gap={6} xstyle={styles.narrow}>
-          <Peers
-            peers={peers}
-            peerModels={seededPeerModels}
-            coldModels={coldModels}
-            onModelsRefreshed={handleModelsRefreshed}
-          />
-        </VStack>
       </VStack>
 
       <Log logLevel={logLevel} />
