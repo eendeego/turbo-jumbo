@@ -7,7 +7,7 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import type {Peer} from '@/lib/config';
-import type {Model} from '@/lib/models';
+import type {Model} from '@/lib/model-types';
 import {
   type CopyProgress,
   readCopyProgress,

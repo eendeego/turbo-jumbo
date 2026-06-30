@@ -9,7 +9,7 @@ import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import type {Peer} from '@/lib/config';
-import type {Model} from '@/lib/models';
+import type {Model} from '@/lib/model-types';
 import type {FileInfo} from '@/components/models/delete-modal';
 
 export interface CopyDestinations {

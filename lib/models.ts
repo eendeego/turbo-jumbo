@@ -1,5 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import type {Model, ModelFile, Shard, SingleFile, SplitGroup} from '@/lib/model-types';
+
+export type {Model, ModelFile, Shard, SingleFile, SplitGroup} from '@/lib/model-types';
+export {shardPath, shardSize} from '@/lib/model-types';
 
 const QUANT_RE =
   /[-_.](?:UD-)?(?:IQ\d+_(?:XXS|XS|NL|[SML])|Q\d+(?:_K(?:_(?:XL|XS|[SML]))?|_[01])?|BF16|F16|F32)$/i;
@@ -19,33 +23,6 @@ function extractQuant(filename: string): string {
   return m ? m[1].toUpperCase() : 'unknown';
 }
 
-export interface SingleFile {
-  isSplit: false;
-  filename: string;
-  path: string; // relative from storage root, for API calls
-  quant: string;
-  size: number;
-  missing: boolean;
-}
-
-export interface SplitGroup {
-  isSplit: true;
-  representativeFilename: string;
-  files: string[]; // relative paths of present shards, for API calls
-  quant: string;
-  totalShards: number;
-  presentShards: number;
-  missingIndices: number[];
-  totalSize: number;
-}
-
-export type ModelFile = SingleFile | SplitGroup;
-
-export interface Model {
-  name: string;
-  files: ModelFile[];
-}
-
 export function scanModels(storagePath: string | undefined): Model[] {
   if (!storagePath) return [];
   const root = storagePath;
@@ -56,7 +33,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
     quant: string;
     totalShards: number;
     presentIndices: Set<number>;
-    presentPaths: string[];
+    presentPaths: Shard[];
     totalSize: number;
     representativeFilename: string;
   }
@@ -107,7 +84,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
         }
         const accum = splitMap.get(key)!;
         accum.presentIndices.add(index);
-        accum.presentPaths.push(relPath);
+        accum.presentPaths.push({path: relPath, size});
         accum.totalSize += size;
       } else if (/\.(gguf|safetensors|bin)$/i.test(entry.name)) {
         let size = 0;

@@ -2,7 +2,7 @@
 
 import {useState} from 'react';
 import {VStack} from '@astryxdesign/core/Stack';
-import type {Model} from '@/lib/models';
+import type {Model} from '@/lib/model-types';
 import {
   type CopyProgress,
   readCopyProgress,

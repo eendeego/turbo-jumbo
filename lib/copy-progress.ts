@@ -1,7 +1,8 @@
 // Shared client helper for reading the /api/v1/copy NDJSON progress stream.
 // The copy route streams one JSON object per line as work advances.
 
-import type {Model} from '@/lib/models';
+import type {Model} from '@/lib/model-types';
+import {shardPath, shardSize} from '@/lib/model-types';
 
 export interface CopyProgress {
   filesDone: number;
@@ -14,17 +15,16 @@ export interface CopyProgress {
 
 // Map each file's storage-relative path to its byte size, so the copy route
 // can report byte-level progress even when the source is a remote peer (whose
-// files this server can't stat). Split shards share the group's average size.
+// files this server can't stat). Split shards report their individual sizes.
 export function buildFileSizes(models: Model[]): Record<string, number> {
   const sizes: Record<string, number> = {};
   for (const model of models) {
     for (const mf of model.files) {
       if (mf.isSplit) {
-        const perShard =
-          mf.presentShards > 0
-            ? Math.floor(mf.totalSize / mf.presentShards)
-            : 0;
-        for (const p of mf.files) sizes[p] = perShard;
+        for (const f of mf.files) {
+          const p = shardPath(f);
+          if (p) sizes[p] = shardSize(f);
+        }
       } else {
         sizes[mf.path] = mf.size;
       }

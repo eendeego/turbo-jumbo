@@ -6,7 +6,8 @@ import {Badge} from '@astryxdesign/core/Badge';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Text} from '@astryxdesign/core/Text';
-import type {Model, ModelFile} from '@/lib/models';
+import type {Model, ModelFile} from '@/lib/model-types';
+import {shardPath, shardSize} from '@/lib/model-types';
 
 export function formatBytes(bytes: number): string {
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
@@ -17,8 +18,8 @@ export function formatBytes(bytes: number): string {
 
 export function filePaths(file: ModelFile): string[] {
   if (file.isSplit) {
-    const files = file.files as string[] | undefined;
-    return files?.length ? files : [file.representativeFilename];
+    const paths = file.files.map(shardPath).filter(Boolean);
+    return paths.length ? paths : [file.representativeFilename];
   }
   return [file.path ?? file.filename];
 }
@@ -72,8 +73,8 @@ export function ModelList({models, selected, onToggle}: ModelListProps) {
                 file.isSplit ? (
                   <HStack
                     key={file.representativeFilename}
-                    gap={3}
-                    vAlign="center"
+                    gap={2}
+                    vAlign="start"
                   >
                     {onToggle && (
                       <CheckboxInput
@@ -83,17 +84,48 @@ export function ModelList({models, selected, onToggle}: ModelListProps) {
                         onChange={() => onToggle(filePaths(file))}
                       />
                     )}
-                    <Text type="label">{file.quant}</Text>
-                    <Text type="code" color="secondary">
-                      {file.presentShards}/{file.totalShards} files
-                    </Text>
-                    <Text type="supporting">{formatBytes(file.totalSize)}</Text>
-                    {file.missingIndices.length > 0 && (
-                      <Badge
-                        variant="warning"
-                        label={`missing shards: ${file.missingIndices.join(', ')}`}
-                      />
-                    )}
+                    <StackItem size="fill">
+                      <Collapsible
+                        defaultIsOpen={false}
+                        trigger={
+                          <HStack gap={3} vAlign="center">
+                            <Text type="label">{file.quant}</Text>
+                            <Text type="code" color="secondary">
+                              {file.presentShards}/{file.totalShards} files
+                            </Text>
+                            <Text type="supporting">
+                              {formatBytes(file.totalSize)}
+                            </Text>
+                            {file.missingIndices.length > 0 && (
+                              <Badge
+                                variant="warning"
+                                label={`missing shards: ${file.missingIndices.join(', ')}`}
+                              />
+                            )}
+                          </HStack>
+                        }
+                      >
+                        <VStack gap={1}>
+                          {[...file.files]
+                            .sort((a, b) =>
+                              shardPath(a).localeCompare(shardPath(b)),
+                            )
+                            .map((shard, i) => {
+                              const p = shardPath(shard);
+                              return (
+                                <HStack key={p || i} gap={3} vAlign="center">
+                                  <Text type="code" color="secondary">
+                                    {p.split('/').pop()}
+                                  </Text>
+                                  <Text type="supporting">
+                                    {formatBytes(shardSize(shard))}
+                                  </Text>
+                                </HStack>
+                              );
+                            })}
+                        </VStack>
+                      </Collapsible>
+                    </StackItem>
                   </HStack>
                 ) : (
                   <HStack key={file.filename} gap={3} vAlign="center">

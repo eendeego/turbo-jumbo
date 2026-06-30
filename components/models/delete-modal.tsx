@@ -6,7 +6,7 @@ import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {List, ListItem} from '@astryxdesign/core/List';
-import type {Model} from '@/lib/models';
+import type {Model} from '@/lib/model-types';
 import {filePaths} from '@/components/models/model-list';
 
 export interface FileInfo {
