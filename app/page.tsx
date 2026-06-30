@@ -3,15 +3,16 @@ import {AppShell} from '@astryxdesign/core/AppShell';
 import {Section} from '@astryxdesign/core/Section';
 import {VStack} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Text';
-import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
+import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {scanModels} from '@/lib/models';
+import {ColdStorageSection} from '@/components/models/cold-storage-section';
+import {PeersSection} from '@/components/peers/peers-section';
+import {HfDownloadSection} from '@/components/hf-download/hf-download-section';
+import {LogSection} from '@/components/log/log-section';
 
 export function generateMetadata(): Metadata {
   return {title: `Turbo Jumbo - ${localPeer?.name ?? 'unknown'}`};
 }
-import {ColdStorageSection} from '@/components/models/cold-storage-section';
-import {PeersSection} from '@/components/peers/peers-section';
-import {HfDownloadSection} from '@/components/hf-download/hf-download-section';
 
 // Reads the live filesystem (local + cold storage), so render per-request
 // rather than prerendering at build time.
@@ -38,6 +39,8 @@ export default function Home() {
             <ColdStorageSection initialModels={coldModels} />
           </VStack>
         </Section>
+
+        <LogSection logLevel={config.log_level ?? 'info'} />
       </VStack>
     </AppShell>
   );

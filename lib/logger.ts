@@ -13,16 +13,23 @@ function effectiveLevel(): Level {
   return 'info';
 }
 
+function argToString(a: unknown): string {
+  if (typeof a === 'string') return a;
+  if (a instanceof Error) return a.stack ?? a.message;
+  return JSON.stringify(a);
+}
+
 function log(level: Level, ...args: unknown[]): void {
   if (LEVELS[level] > LEVELS[effectiveLevel()]) return;
   const ts = new Date().toISOString();
+  const msg = args.map(argToString).join(' ');
   const fn =
     level === 'error'
       ? console.error
       : level === 'warn'
         ? console.warn
         : console.log;
-  fn(`[${ts}] [${level.toUpperCase()}]`, ...args);
+  fn(`[${ts}] [${level.toUpperCase()}]`, msg);
 }
 
 export const logger = {

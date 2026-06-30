@@ -7,6 +7,7 @@ import type {WsMessage} from '@/lib/ws-messages';
 import {Banner} from '@astryxdesign/core/Banner';
 import {PeerSection, type PeerModels} from '@/components/peers/peer-section';
 import {AsyncState} from '@/lib/async-state';
+import {clientLog} from '@/lib/client-log';
 
 export function PeersSection({coldModels}: {coldModels: Model[]}) {
   const [peers, setPeers] = useState<AsyncState<Peer[]>>(
@@ -17,18 +18,23 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
   );
 
   useEffect(() => {
+    clientLog('debug', '[http] GET /api/v1/peers');
     fetch('/api/v1/peers')
       .then((r) => {
         if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
         return r.json();
       })
       .then((data: Peer[]) => {
+        clientLog('debug', `[http] GET /api/v1/peers → ${data.length} peer(s)`);
         setPeers(AsyncState.value(data));
         setPeerModels(
           new Map(data.map((p) => [p.address, AsyncState.empty()])),
         );
       })
-      .catch((e: Error) => setPeers(AsyncState.error(e.message)));
+      .catch((e: Error) => {
+        clientLog('debug', `[http] GET /api/v1/peers → error: ${e.message}`);
+        setPeers(AsyncState.error(e.message));
+      });
   }, []);
 
   const peerList = peers.type === 'value' ? peers.value : null;
@@ -40,17 +46,26 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
     if (!local) return;
 
     const fetchLocal = () => {
+      clientLog('trace', '[http] GET /api/v1/local-models (poll)');
       fetch('/api/v1/local-models')
         .then((r) => {
           if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
           return r.json();
         })
         .then((models: Model[]) => {
+          clientLog(
+            'trace',
+            `[http] GET /api/v1/local-models → ${models.length} model(s)`,
+          );
           setPeerModels((prev) =>
             new Map(prev).set(local.address, AsyncState.value(models)),
           );
         })
         .catch((e: Error) => {
+          clientLog(
+            'trace',
+            `[http] GET /api/v1/local-models → error: ${e.message}`,
+          );
           setPeerModels((prev) =>
             new Map(prev).set(local.address, AsyncState.error(e.message)),
           );
@@ -72,13 +87,20 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
+      socket.onopen = () => clientLog('info', '[ws] connected');
+
       socket.onmessage = (e: MessageEvent) => {
         const msg = JSON.parse(e.data as string) as WsMessage;
         if (msg.type === 'peer-up') {
+          clientLog(
+            'info',
+            `[ws] peer-up: ${msg.address} (${msg.models.length} model(s))`,
+          );
           setPeerModels((prev) =>
             new Map(prev).set(msg.address, AsyncState.value(msg.models)),
           );
         } else if (msg.type === 'peer-down') {
+          clientLog('info', `[ws] peer-down: ${msg.address}`);
           setPeerModels((prev) =>
             new Map(prev).set(msg.address, AsyncState.error('Host is down')),
           );
@@ -86,9 +108,13 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
       };
 
       socket.onclose = () => {
+        clientLog('info', '[ws] disconnected, reconnecting in 3s');
         if (!cancelled) setTimeout(connect, 3000);
       };
-      socket.onerror = () => socket.close();
+      socket.onerror = () => {
+        clientLog('warn', '[ws] connection error');
+        socket.close();
+      };
     }
 
     connect();
