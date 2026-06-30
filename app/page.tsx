@@ -6,6 +6,7 @@ import {Heading} from '@astryxdesign/core/Text';
 import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {scanModels} from '@/lib/models';
 import {ColdStorage} from '@/components/models/cold-storage';
+import {ModelsTable} from '@/components/models/models-table';
 import {Peers} from '@/components/peers/peers';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
 import {Log} from '@/components/log/log';
@@ -21,6 +22,7 @@ export const dynamic = 'force-dynamic';
 
 export default function Home() {
   const coldModels = scanModels(coldStorageDir);
+  const localModels = scanModels(localModelsDir);
 
   return (
     <AppShell contentPadding={6} height="auto">
@@ -31,6 +33,8 @@ export default function Home() {
           </StackItem>
           <ThemeToggle />
         </HStack>
+
+        <ModelsTable coldModels={coldModels} localModels={localModels} />
 
         {/* The local machine appears here as a peer marked "— local". */}
         <Peers coldModels={coldModels} />
