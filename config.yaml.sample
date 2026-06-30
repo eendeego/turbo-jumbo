@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=./config.schema.json
+#
+# Sample configuration. Copy to config.yaml and edit to match your setup:
+#
+#   cp config.yaml.sample config.yaml
+#
+# The app reads ./config.yaml from the working directory by default. Set the
+# CONFIG_PATH environment variable to load it from somewhere else.
+
+# The machines that share models, including this one. The local peer is the one
+# whose address host matches this machine's own IP; it must set base_path and
+# cold_storage_path. Remote peers only need a name and address.
+peers:
+  # This machine.
+  - name: this-machine
+    address: 192.168.1.10:3000
+    base_path: /mnt/models
+    cold_storage_path: /mnt/cold-storage
+
+  # A remote peer — only name and address are needed.
+  - name: my-server
+    address: 192.168.1.11:3000

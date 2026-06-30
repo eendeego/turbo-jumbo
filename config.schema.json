@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://turbo-jumbo/config.schema.json",
+  "title": "Turbo Jumbo configuration",
+  "description": "Configuration for the Turbo Jumbo model manager (config.yaml).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["peers"],
+  "properties": {
+    "log_level": {
+      "type": "string",
+      "enum": ["error", "warn", "info", "debug", "trace"],
+      "default": "info",
+      "description": "Logging verbosity. Optional; defaults to \"info\"."
+    },
+    "peers": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Machines that share models, including this one. The local peer is the one whose address host matches this machine's IP.",
+      "items": {"$ref": "#/$defs/peer"}
+    }
+  },
+  "$defs": {
+    "peer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "address"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display name for the peer."
+        },
+        "address": {
+          "type": "string",
+          "pattern": "^.+:[0-9]+$",
+          "description": "host:port the peer serves on. For IPv6, bracket the host, e.g. \"[2001:db8::1]:3000\"."
+        },
+        "base_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Directory containing the model subdirectories. Required for the local peer."
+        },
+        "cold_storage_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Cold-storage (archival) model directory. Required for the local peer."
+        }
+      }
+    }
+  }
+}
