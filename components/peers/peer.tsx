@@ -70,15 +70,15 @@ export function Peer({
     setConfirmingDelete(false);
     setDeleting(true);
     setError(null);
-    const base = peer.isLocal ? '' : `http://${peer.address}`;
+    const url = `/api/v1/peers/${encodeURIComponent(peer.name)}/models`;
     try {
-      const del = await fetch(`${base}/api/v1/local-models`, {
+      const del = await fetch(url, {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({files: selections}),
       });
       if (!del.ok) throw new Error(`${del.status} ${del.statusText}`);
-      const res = await fetch(`${base}/api/v1/local-models`);
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       onModelsRefreshed(peer.address, await res.json());
       setSelections([]);
