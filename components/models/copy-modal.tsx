@@ -29,9 +29,13 @@ function allPresent(files: FileInfo[], destModels: Model[]): boolean {
   const destFilenames = new Set<string>();
   for (const model of destModels) {
     for (const file of model.files) {
-      destFilenames.add(
-        file.isSplit ? file.representativeFilename : file.filename,
-      );
+      if (file.isSplit) {
+        for (const shard of file.files) {
+          destFilenames.add(shard.path.split('/').pop() ?? shard.path);
+        }
+      } else {
+        destFilenames.add(file.filename);
+      }
     }
   }
   return files.every((f) => destFilenames.has(f.filename));
