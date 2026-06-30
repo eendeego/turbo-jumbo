@@ -9,14 +9,20 @@ import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
+import {
+  DeleteModal,
+  selectedFileInfo,
+  anyMissingFromColdStorage,
+} from '@/components/models/delete-modal';
 
-export function PeersSection() {
+export function PeersSection({coldModels}: {coldModels: Model[]}) {
   const [peers, setPeers] = useState<Peer[] | null>(null);
   const [peerModels, setPeerModels] = useState<Map<string, Model[]>>(new Map());
   const [peerSelections, setPeerSelections] = useState<
     Record<string, string[]>
   >({});
   const [peerDeleting, setPeerDeleting] = useState<Record<string, boolean>>({});
+  const [confirmingPeer, setConfirmingPeer] = useState<Peer | null>(null);
 
   useEffect(() => {
     fetch('/api/v1/peers')
@@ -56,6 +62,7 @@ export function PeersSection() {
   }
 
   async function onDeletePeer(peer: Peer) {
+    setConfirmingPeer(null);
     const sel = peerSelections[peer.address] ?? [];
     setPeerDeleting((prev) => ({...prev, [peer.address]: true}));
     try {
@@ -75,8 +82,27 @@ export function PeersSection() {
 
   if (!peers || peers.length === 0) return null;
 
+  const confirmingModels = confirmingPeer
+    ? (peerModels.get(confirmingPeer.address) ?? [])
+    : [];
+  const confirmingSelected = confirmingPeer
+    ? new Set(peerSelections[confirmingPeer.address] ?? [])
+    : new Set<string>();
+
   return (
     <>
+      {confirmingPeer && (
+        <DeleteModal
+          files={selectedFileInfo(confirmingModels, confirmingSelected)}
+          from={confirmingPeer.name}
+          requireDoubleConfirm={anyMissingFromColdStorage(
+            selectedFileInfo(confirmingModels, confirmingSelected),
+            coldModels,
+          )}
+          onConfirm={() => onDeletePeer(confirmingPeer)}
+          onCancel={() => setConfirmingPeer(null)}
+        />
+      )}
       {peers.map((peer) => {
         const models = peerModels.get(peer.address);
         const selected = new Set(peerSelections[peer.address] ?? []);
@@ -97,7 +123,7 @@ export function PeersSection() {
                   />
                   <ActionBar
                     selected={selected}
-                    onDelete={() => onDeletePeer(peer)}
+                    onDelete={() => setConfirmingPeer(peer)}
                     deleting={deleting}
                   />
                 </VStack>

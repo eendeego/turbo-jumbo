@@ -22,7 +22,7 @@ export default function Home() {
       <VStack gap={6}>
         <Heading level={1}>Turbo Jumbo</Heading>
 
-        <PeersSection />
+        <PeersSection coldModels={coldModels} />
 
         <Section>
           <VStack gap={3}>
@@ -30,7 +30,10 @@ export default function Home() {
             <Text type="supporting">
               {localModelsDir ?? 'No local peer matches this machine'}
             </Text>
-            <LocalModelsSection initialModels={localModels} />
+            <LocalModelsSection
+              initialModels={localModels}
+              coldModels={coldModels}
+            />
           </VStack>
         </Section>
 
