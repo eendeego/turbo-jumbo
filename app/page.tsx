@@ -183,12 +183,7 @@ function scanModels(storagePath: string | undefined): Model[] {
 
 function ModelList({models}: {models: Model[]}) {
   if (models.length === 0) {
-    return (
-      <EmptyState
-        title="No models found"
-        description="Nothing in this peer's cold storage yet."
-      />
-    );
+    return <EmptyState title="No models found" />;
   }
   return (
     <VStack gap={1}>
@@ -253,8 +248,17 @@ function ModelList({models}: {models: Model[]}) {
   );
 }
 
+// Local models live under <base_path>/turbo-jumbo for the local peer.
+function localModelsPath(): string | undefined {
+  return localPeer?.base_path
+    ? path.join(localPeer.base_path, 'turbo-jumbo')
+    : undefined;
+}
+
 export default function Home() {
-  const models = scanModels(localPeer?.cold_storage_path);
+  const localPath = localModelsPath();
+  const localModels = scanModels(localPath);
+  const coldModels = scanModels(localPeer?.cold_storage_path);
 
   return (
     <AppShell contentPadding={6} height="auto">
@@ -285,12 +289,22 @@ export default function Home() {
 
         <Section>
           <VStack gap={3}>
+            <Heading level={2}>Local models</Heading>
+            <Text type="supporting">
+              {localPath ?? 'No local peer matches this machine'}
+            </Text>
+            <ModelList models={localModels} />
+          </VStack>
+        </Section>
+
+        <Section>
+          <VStack gap={3}>
             <Heading level={2}>Models in cold storage</Heading>
             <Text type="supporting">
               {localPeer?.cold_storage_path ??
                 'No local peer matches this machine'}
             </Text>
-            <ModelList models={models} />
+            <ModelList models={coldModels} />
           </VStack>
         </Section>
       </VStack>
