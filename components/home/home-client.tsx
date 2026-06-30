@@ -99,6 +99,7 @@ export function HomeClient({
 }) {
   const router = useRouter();
   const {peers, peerModels, handleModelsRefreshed} = usePeerModels();
+  const [models, setModels] = useState(modelsTableData);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -137,7 +138,15 @@ export function HomeClient({
   if (prevLocation !== activeLocation || prevModels !== modelsTableData) {
     setPrevLocation(activeLocation);
     setPrevModels(modelsTableData);
+    setModels(modelsTableData);
     setSelected(new Set());
+  }
+
+  // Re-fetch the table data after a mutation (e.g. copy) without a full
+  // server round-trip / page reload.
+  async function refreshModels() {
+    const res = await fetch('/api/v1/models-table');
+    if (res.ok) setModels(await res.json());
   }
 
   const onToggleSelected = useCallback((paths: string[]) => {
@@ -282,7 +291,7 @@ export function HomeClient({
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       await readCopyProgress(res, setCopyProgress);
       setSelected(new Set());
-      router.refresh();
+      await refreshModels();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -303,8 +312,8 @@ export function HomeClient({
   }, [peerModels, localPeerAddress, localPeerModels]);
 
   const fileInfo = useMemo(
-    () => selectedFileInfo(modelsTableData, selected),
-    [modelsTableData, selected],
+    () => selectedFileInfo(models, selected),
+    [models, selected],
   );
 
   return (
@@ -326,7 +335,7 @@ export function HomeClient({
           <HuggingFaceDownload localModelsPath={localModelsPath} />
         )}
         <ModelsTableClient
-          models={modelsTableData}
+          models={models}
           peers={peerConfigs}
           peerModels={seededPeerModels}
           selected={selected}
