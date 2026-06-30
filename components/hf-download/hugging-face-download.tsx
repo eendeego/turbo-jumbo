@@ -13,6 +13,7 @@ import {List, ListItem} from '@astryxdesign/core/List';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {Dialog} from '@astryxdesign/core/Dialog';
+import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 
 type ParsedUrl = {
   repoId: string;
@@ -132,6 +133,73 @@ function applyChunk(state: TermState, chunk: string): TermState {
   return {lines, col};
 }
 
+type DownloadProgress = {
+  percent: number;
+  downloaded: string;
+  total: string;
+  speed: string | null;
+  eta: string | null;
+  filesDone: number;
+  filesTotal: number;
+};
+
+const SIZE_UNITS: Record<string, number> = {
+  B: 1,
+  KB: 1e3,
+  K: 1e3,
+  MB: 1e6,
+  M: 1e6,
+  GB: 1e9,
+  G: 1e9,
+  TB: 1e12,
+  T: 1e12,
+};
+
+function parseSize(s: string): number {
+  const m = s.match(/^([\d.]+)\s*([A-Za-z]+)$/);
+  if (!m) return 0;
+  return parseFloat(m[1]) * (SIZE_UNITS[m[2].toUpperCase()] ?? 1);
+}
+
+function parseProgress(lines: string[]): DownloadProgress | null {
+  let percent = 0;
+  let downloaded = '';
+  let total = '';
+  let speed: string | null = null;
+  let eta: string | null = null;
+  let filesDone = 0;
+  let filesTotal = 0;
+  let hasDownload = false;
+
+  for (const line of lines) {
+    // "Downloading ...:   5% 523M/9.97G [00:12<04:39, 33.8MB/s]"
+    const dl = line.match(
+      /Downloading[^:]*:\s+(\d+)%\s+([\d.]+\s*\S+)\/([\d.]+\s*\S+)\s+\[([^\]]*)\]/,
+    );
+    if (dl) {
+      hasDownload = true;
+      percent = parseInt(dl[1], 10);
+      downloaded = dl[2];
+      total = dl[3];
+      const meta = dl[4];
+      const speedMatch = meta.match(/([\d.]+\s*\S+\/s)/);
+      if (speedMatch) speed = speedMatch[1];
+      const etaMatch = meta.match(/<([\d:]+)/);
+      if (etaMatch) eta = etaMatch[1];
+    }
+
+    // "Fetching 1 files:   0% 0/1 [00:00<?, ?it/s]"
+    const ft = line.match(/Fetching\s+\d+\s+files?:\s+\d+%\s+(\d+)\/(\d+)/);
+    if (ft) {
+      filesDone = parseInt(ft[1], 10);
+      filesTotal = parseInt(ft[2], 10);
+    }
+  }
+
+  if (!hasDownload) return null;
+  return {percent, downloaded, total, speed, eta, filesDone, filesTotal};
+}
+
 function formatBytes(bytes: number): string {
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
@@ -154,6 +222,7 @@ export function HuggingFaceDownload({
   const [running, setRunning] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [term, setTerm] = useState<TermState | null>(null);
+  const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [files, setFiles] = useState<HfFile[] | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
@@ -261,6 +330,7 @@ export function HuggingFaceDownload({
     setRunning(true);
     setShowModal(true);
     setTerm({lines: [''], col: 0});
+    setProgress(null);
 
     try {
       const res = await fetch('/api/v1/hf-download', {
@@ -290,6 +360,8 @@ export function HuggingFaceDownload({
         if (done) break;
         state = applyChunk(state, decoder.decode(value, {stream: true}));
         setTerm({...state});
+        const p = parseProgress(state.lines);
+        if (p) setProgress(p);
       }
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {
@@ -305,6 +377,7 @@ export function HuggingFaceDownload({
     if (running) abortRef.current?.abort();
     setShowModal(false);
     setTerm(null);
+    setProgress(null);
   };
 
   const hasFiles = files !== null && files.length > 0;
@@ -422,6 +495,33 @@ export function HuggingFaceDownload({
         <Dialog isOpen onOpenChange={(open) => !open && handleCloseModal()}>
           <VStack gap={4}>
             <Heading level={3}>Downloading…</Heading>
+            {progress && (
+              <VStack gap={2}>
+                <ProgressBar
+                  label="Download"
+                  value={parseSize(progress.downloaded)}
+                  max={parseSize(progress.total)}
+                  hasValueLabel
+                  formatValueLabel={() => {
+                    const parts = [
+                      `${progress.downloaded} / ${progress.total}`,
+                    ];
+                    if (progress.speed) parts.push(progress.speed);
+                    if (progress.eta) parts.push(`${progress.eta} remaining`);
+                    return parts.join('  ·  ');
+                  }}
+                />
+                {progress.filesTotal > 1 && (
+                  <ProgressBar
+                    label="Files"
+                    value={progress.filesDone}
+                    max={progress.filesTotal}
+                    hasValueLabel
+                    formatValueLabel={(v, m) => `${v} / ${m}`}
+                  />
+                )}
+              </VStack>
+            )}
             <CodeBlock
               code={term?.lines.join('\n') || ' '}
               language="plaintext"
