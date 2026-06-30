@@ -43,6 +43,9 @@ next-env.d.ts
 # runtime storage / data
 /runtime
 
+# container image artifact from `bun docker:build`
+*.tar.gz
+
 # local config (copy config.yaml.sample to config.yaml and edit)
 /config.yaml
 

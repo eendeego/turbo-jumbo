@@ -1,0 +1,7 @@
+node_modules
+.next
+config.yaml
+*.tar.gz
+.git
+.jj
+runtime

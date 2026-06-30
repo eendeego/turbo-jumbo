@@ -10,7 +10,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "typecheck:watch": "tsc --noEmit --watch"
+    "typecheck:watch": "tsc --noEmit --watch",
+    "docker:build": "podman build -t turbo-jumbo . && podman save turbo-jumbo | gzip > turbo-jumbo.tar.gz"
   },
   "dependencies": {
     "@astryxdesign/cli": "^0.1.2",
