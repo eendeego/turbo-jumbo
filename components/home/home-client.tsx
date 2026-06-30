@@ -156,8 +156,14 @@ export function HomeClient({
     const paths = Array.from(selected);
     setAuditing(true);
     setError(null);
-    setAuditedPaths(new Set(paths));
-    setAuditResults(new Map());
+    // Accumulate across runs: keep prior verdicts and merge in the new paths,
+    // clearing only the in-flight paths so they show "Auditing…" as they stream.
+    setAuditedPaths((prev) => new Set([...prev, ...paths]));
+    setAuditResults((prev) => {
+      const next = new Map(prev);
+      for (const p of paths) next.delete(p);
+      return next;
+    });
     try {
       const res = await fetch('/api/v1/audit', {
         method: 'POST',
