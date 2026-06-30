@@ -39,46 +39,38 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
 
   const peerList = peers.type === 'value' ? peers.value : null;
 
-  // Poll the local peer's models over HTTP.
+  // Poll every peer's models through the same-origin proxy.
   useEffect(() => {
     if (!peerList) return;
-    const local = peerList.find((p) => p.isLocal);
-    if (!local) return;
 
-    const fetchLocal = () => {
-      clientLog('trace', '[http] GET /api/v1/local-models (poll)');
-      fetch('/api/v1/local-models')
+    const fetchPeer = (peer: Peer) => {
+      const url = `/api/v1/peers/${encodeURIComponent(peer.name)}/models`;
+      clientLog('trace', `[http] GET ${url} (poll)`);
+      fetch(url)
         .then((r) => {
           if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
           return r.json();
         })
         .then((models: Model[]) => {
-          clientLog(
-            'trace',
-            `[http] GET /api/v1/local-models → ${models.length} model(s)`,
-          );
+          clientLog('trace', `[http] GET ${url} → ${models.length} model(s)`);
           setPeerModels((prev) =>
-            new Map(prev).set(local.address, AsyncState.value(models)),
+            new Map(prev).set(peer.address, AsyncState.value(models)),
           );
         })
         .catch((e: Error) => {
-          clientLog(
-            'trace',
-            `[http] GET /api/v1/local-models → error: ${e.message}`,
-          );
+          clientLog('trace', `[http] GET ${url} → error: ${e.message}`);
           setPeerModels((prev) =>
-            new Map(prev).set(local.address, AsyncState.error(e.message)),
+            new Map(prev).set(peer.address, AsyncState.error(e.message)),
           );
         });
     };
 
-    fetchLocal();
-    const id = setInterval(fetchLocal, 5000);
+    peerList.forEach(fetchPeer);
+    const id = setInterval(() => peerList.forEach(fetchPeer), 5000);
     return () => clearInterval(id);
   }, [peerList]);
 
-  // Receive remote peer reachability and models live over the WebSocket, fed by
-  // the server-side peer monitor. Reconnects automatically if the socket drops.
+  // WebSocket: peer-down notifications give instant down detection between polls.
   useEffect(() => {
     let cancelled = false;
 
@@ -91,15 +83,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
 
       socket.onmessage = (e: MessageEvent) => {
         const msg = JSON.parse(e.data as string) as WsMessage;
-        if (msg.type === 'peer-up') {
-          clientLog(
-            'info',
-            `[ws] peer-up: ${msg.address} (${msg.models.length} model(s))`,
-          );
-          setPeerModels((prev) =>
-            new Map(prev).set(msg.address, AsyncState.value(msg.models)),
-          );
-        } else if (msg.type === 'peer-down') {
+        if (msg.type === 'peer-down') {
           clientLog('info', `[ws] peer-down: ${msg.address}`);
           setPeerModels((prev) =>
             new Map(prev).set(msg.address, AsyncState.error('Host is down')),
