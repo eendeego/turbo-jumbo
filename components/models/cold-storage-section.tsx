@@ -12,6 +12,10 @@ import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
 import {DeleteModal, selectedFileInfo} from '@/components/models/delete-modal';
 import {CopyModal, type CopyDestinations} from '@/components/models/copy-modal';
+import {
+  ConflictsModal,
+  type ConflictItem,
+} from '@/components/models/conflicts-modal';
 
 export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
   const [models, setModels] = useState(initialModels);
@@ -21,6 +25,10 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
   const [copying, setCopying] = useState(false);
   const [confirmingCopy, setConfirmingCopy] = useState(false);
   const [copyProgress, setCopyProgress] = useState<CopyProgress | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [pendingConflicts, setPendingConflicts] = useState<ConflictItem[]>([]);
+  const [pendingDestinations, setPendingDestinations] =
+    useState<CopyDestinations | null>(null);
 
   function onToggle(paths: string[]) {
     setSelected((prev) => {
@@ -51,6 +59,46 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
 
   async function onCopy(destinations: CopyDestinations) {
     setConfirmingCopy(false);
+    setChecking(true);
+    let hasConflicts = false;
+    try {
+      const res = await fetch('/api/v1/copy/check', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          files: Array.from(selected),
+          from: 'cold-storage',
+          toColdStorage: destinations.toColdStorage,
+          toPeers: destinations.toPeers,
+          fileSizes: buildFileSizes(models),
+        }),
+      });
+      const {conflicts} = (await res.json()) as {conflicts: ConflictItem[]};
+      if (conflicts.length > 0) {
+        hasConflicts = true;
+        setPendingConflicts(conflicts);
+        setPendingDestinations(destinations);
+      }
+    } finally {
+      setChecking(false);
+    }
+    if (!hasConflicts) await doCopy(destinations, []);
+  }
+
+  async function onConflictsConfirm(
+    skip: Array<{file: string; destination: string}>,
+  ) {
+    if (!pendingDestinations) return;
+    const dest = pendingDestinations;
+    setPendingConflicts([]);
+    setPendingDestinations(null);
+    await doCopy(dest, skip);
+  }
+
+  async function doCopy(
+    destinations: CopyDestinations,
+    skip: Array<{file: string; destination: string}>,
+  ) {
     setCopying(true);
     setCopyProgress(null);
     try {
@@ -62,6 +110,7 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
           from: 'cold-storage',
           ...destinations,
           fileSizes: buildFileSizes(models),
+          skip,
         }),
       });
       await readCopyProgress(res, setCopyProgress);
@@ -81,6 +130,7 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
         onCopy={() => setConfirmingCopy(true)}
         copying={copying}
         copyProgress={copyProgress}
+        checking={checking}
       />
       {confirming && (
         <DeleteModal
@@ -96,6 +146,16 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
           from="cold-storage"
           onCopy={onCopy}
           onCancel={() => setConfirmingCopy(false)}
+        />
+      )}
+      {pendingConflicts.length > 0 && (
+        <ConflictsModal
+          conflicts={pendingConflicts}
+          onConfirm={onConflictsConfirm}
+          onCancel={() => {
+            setPendingConflicts([]);
+            setPendingDestinations(null);
+          }}
         />
       )}
     </VStack>

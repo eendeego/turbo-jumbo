@@ -16,6 +16,7 @@ type CopyRequest = {
   toPeers: string[];
   deleteAfterCopy: boolean;
   fileSizes?: Record<string, number>; // caller-supplied sizes for peer sources
+  skip?: Array<{file: string; destination: string}>; // file+destination pairs to skip
 };
 
 function resolveLocal(basePath: string, file: string): string | null {
@@ -37,6 +38,13 @@ function makeCounter(onBytes: (n: number) => void): Transform {
 export async function POST(req: Request) {
   const body = (await req.json()) as CopyRequest;
   const {files, from, toColdStorage, toPeers, deleteAfterCopy} = body;
+
+  // file+destination pairs the user chose not to overwrite (see /api/v1/copy/check).
+  const skipSet = new Set(
+    (body.skip ?? []).map((s) => `${s.file}\0${s.destination}`),
+  );
+  const shouldSkip = (file: string, dest: string) =>
+    skipSet.has(`${file}\0${dest}`);
 
   if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
     return new Response('Invalid files', {status: 400});
@@ -76,12 +84,32 @@ export async function POST(req: Request) {
     Object.assign(fileSizeMap, body.fileSizes);
   }
 
-  const totalFileBytes = files.reduce((s, f) => s + (fileSizeMap[f] ?? 0), 0);
-  const coldOps = toColdStorage ? files.length : 0;
-  const peerOps = toPeers.length * (isPeerSource ? 1 : files.length);
-  const filesTotal = coldOps + peerOps;
-  const numDestinations = (toColdStorage ? 1 : 0) + toPeers.length;
-  const bytesTotal = totalFileBytes * numDestinations;
+  let filesTotal = 0;
+  let bytesTotal = 0;
+  if (toColdStorage) {
+    for (const file of files) {
+      if (!shouldSkip(file, 'cold-storage')) {
+        filesTotal++;
+        bytesTotal += fileSizeMap[file] ?? 0;
+      }
+    }
+  }
+  for (const peerAddr of toPeers) {
+    if (isPeerSource) {
+      const nonSkipped = files.filter((f) => !shouldSkip(f, peerAddr));
+      if (nonSkipped.length > 0) {
+        filesTotal++;
+        bytesTotal += nonSkipped.reduce((s, f) => s + (fileSizeMap[f] ?? 0), 0);
+      }
+    } else {
+      for (const file of files) {
+        if (!shouldSkip(file, peerAddr)) {
+          filesTotal++;
+          bytesTotal += fileSizeMap[file] ?? 0;
+        }
+      }
+    }
+  }
 
   const enc = new TextEncoder();
 
@@ -129,6 +157,7 @@ export async function POST(req: Request) {
         // ── Copy to cold storage ──────────────────────────────────────────
         if (toColdStorage) {
           for (const file of files) {
+            if (shouldSkip(file, 'cold-storage')) continue;
             const dst = nodePath.resolve(coldBase, file);
             if (!dst.startsWith(coldBase + nodePath.sep)) {
               safeClose();
@@ -201,7 +230,11 @@ export async function POST(req: Request) {
           if (isPeerSource) {
             // Tell the source peer to push directly — no per-byte visibility
             // here, so report the whole file in one step.
-            const pushBytes = files.reduce(
+            const nonSkippedFiles = files.filter(
+              (f) => !shouldSkip(f, peerAddr),
+            );
+            if (nonSkippedFiles.length === 0) continue;
+            const pushBytes = nonSkippedFiles.reduce(
               (s, f) => s + (fileSizeMap[f] ?? 0),
               0,
             );
@@ -212,7 +245,7 @@ export async function POST(req: Request) {
             const res = await fetch(`http://${from}/api/v1/local-models/push`, {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({files, toPeer: peerAddr}),
+              body: JSON.stringify({files: nonSkippedFiles, toPeer: peerAddr}),
             });
             if (!res.ok) {
               safeClose();
@@ -225,6 +258,7 @@ export async function POST(req: Request) {
             emit();
           } else {
             for (const file of files) {
+              if (shouldSkip(file, peerAddr)) continue;
               const uploadUrl = `http://${peerAddr}/api/v1/local-models/upload`;
               const src = resolveLocal(sourceBasePath!, file)!;
               const fileSize = fileSizeMap[file] ?? 0;
@@ -270,15 +304,22 @@ export async function POST(req: Request) {
 
         // ── Delete source after successful copy to cold storage ───────────
         if (deleteAfterCopy && toColdStorage) {
-          if (isPeerSource) {
-            await fetch(`http://${from}/api/v1/local-models`, {
-              method: 'DELETE',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({files}),
-            });
-          } else {
-            for (const file of files) {
-              await fsp.rm(resolveLocal(sourceBasePath!, file)!, {force: true});
+          const filesToDelete = files.filter(
+            (f) => !shouldSkip(f, 'cold-storage'),
+          );
+          if (filesToDelete.length > 0) {
+            if (isPeerSource) {
+              await fetch(`http://${from}/api/v1/local-models`, {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({files: filesToDelete}),
+              });
+            } else {
+              for (const file of filesToDelete) {
+                await fsp.rm(resolveLocal(sourceBasePath!, file)!, {
+                  force: true,
+                });
+              }
             }
           }
         }

@@ -20,6 +20,10 @@ import {
   anyMissingFromColdStorage,
 } from '@/components/models/delete-modal';
 import {CopyModal, type CopyDestinations} from '@/components/models/copy-modal';
+import {
+  ConflictsModal,
+  type ConflictItem,
+} from '@/components/models/conflicts-modal';
 
 export function PeersSection({coldModels}: {coldModels: Model[]}) {
   const [peers, setPeers] = useState<Peer[] | null>(null);
@@ -36,6 +40,13 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
   const [confirmingCopyPeer, setConfirmingCopyPeer] = useState<Peer | null>(
     null,
   );
+  const [checkingCopyPeer, setCheckingCopyPeer] = useState<Peer | null>(null);
+  const [pendingConflictsPeer, setPendingConflictsPeer] = useState<Peer | null>(
+    null,
+  );
+  const [pendingConflicts, setPendingConflicts] = useState<ConflictItem[]>([]);
+  const [pendingDestinations, setPendingDestinations] =
+    useState<CopyDestinations | null>(null);
 
   useEffect(() => {
     fetch('/api/v1/peers')
@@ -95,6 +106,50 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
 
   async function onCopyPeer(peer: Peer, destinations: CopyDestinations) {
     setConfirmingCopyPeer(null);
+    setCheckingCopyPeer(peer);
+    let hasConflicts = false;
+    try {
+      const res = await fetch('/api/v1/copy/check', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          files: peerSelections[peer.address] ?? [],
+          from: peer.address,
+          toColdStorage: destinations.toColdStorage,
+          toPeers: destinations.toPeers,
+          fileSizes: buildFileSizes(peerModels.get(peer.address) ?? []),
+        }),
+      });
+      const {conflicts} = (await res.json()) as {conflicts: ConflictItem[]};
+      if (conflicts.length > 0) {
+        hasConflicts = true;
+        setPendingConflictsPeer(peer);
+        setPendingConflicts(conflicts);
+        setPendingDestinations(destinations);
+      }
+    } finally {
+      setCheckingCopyPeer(null);
+    }
+    if (!hasConflicts) await doCopyPeer(peer, destinations, []);
+  }
+
+  async function onConflictsPeerConfirm(
+    skip: Array<{file: string; destination: string}>,
+  ) {
+    if (!pendingConflictsPeer || !pendingDestinations) return;
+    const peer = pendingConflictsPeer;
+    const destinations = pendingDestinations;
+    setPendingConflictsPeer(null);
+    setPendingConflicts([]);
+    setPendingDestinations(null);
+    await doCopyPeer(peer, destinations, skip);
+  }
+
+  async function doCopyPeer(
+    peer: Peer,
+    destinations: CopyDestinations,
+    skip: Array<{file: string; destination: string}>,
+  ) {
     const sel = peerSelections[peer.address] ?? [];
     setPeerCopying((prev) => ({...prev, [peer.address]: true}));
     setPeerCopyProgress((prev) => ({...prev, [peer.address]: null}));
@@ -107,6 +162,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
           from: peer.address,
           ...destinations,
           fileSizes: buildFileSizes(peerModels.get(peer.address) ?? []),
+          skip,
         }),
       });
       await readCopyProgress(res, (p) =>
@@ -166,12 +222,24 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
           onCancel={() => setConfirmingCopyPeer(null)}
         />
       )}
+      {pendingConflicts.length > 0 && (
+        <ConflictsModal
+          conflicts={pendingConflicts}
+          onConfirm={onConflictsPeerConfirm}
+          onCancel={() => {
+            setPendingConflictsPeer(null);
+            setPendingConflicts([]);
+            setPendingDestinations(null);
+          }}
+        />
+      )}
       {peers.map((peer) => {
         const models = peerModels.get(peer.address);
         const selected = new Set(peerSelections[peer.address] ?? []);
         const deleting = peerDeleting[peer.address] ?? false;
         const copying = peerCopying[peer.address] ?? false;
         const copyProgress = peerCopyProgress[peer.address] ?? null;
+        const checking = checkingCopyPeer?.address === peer.address;
         return (
           <Section key={peer.address}>
             <VStack gap={3}>
@@ -193,6 +261,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
                     onCopy={() => setConfirmingCopyPeer(peer)}
                     copying={copying}
                     copyProgress={copyProgress}
+                    checking={checking}
                   />
                 </VStack>
               )}

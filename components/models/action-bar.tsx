@@ -18,6 +18,7 @@ interface ActionBarProps {
   onCopy: () => void;
   copying: boolean;
   copyProgress?: CopyProgress | null;
+  checking?: boolean;
 }
 
 export function ActionBar({
@@ -27,6 +28,7 @@ export function ActionBar({
   onCopy,
   copying,
   copyProgress,
+  checking,
 }: ActionBarProps) {
   if (selected.size === 0) return null;
 
@@ -42,10 +44,10 @@ export function ActionBar({
           </Text>
           <HStack gap={2}>
             <Button
-              label={copying ? 'Copying…' : 'Copy to…'}
+              label={copying ? 'Copying…' : checking ? 'Checking…' : 'Copy to…'}
               variant="secondary"
               size="sm"
-              isDisabled={copying || deleting}
+              isDisabled={copying || deleting || checking}
               onClick={onCopy}
             />
             <Button
