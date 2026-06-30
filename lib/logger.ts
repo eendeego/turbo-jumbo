@@ -1,6 +1,6 @@
 import {config} from './config';
 
-const LEVELS = {error: 0, warn: 1, info: 2, debug: 3} as const;
+const LEVELS = {error: 0, warn: 1, info: 2, debug: 3, trace: 4} as const;
 type Level = keyof typeof LEVELS;
 
 function effectiveLevel(): Level {
@@ -30,4 +30,5 @@ export const logger = {
   warn: (...args: unknown[]) => log('warn', ...args),
   info: (...args: unknown[]) => log('info', ...args),
   debug: (...args: unknown[]) => log('debug', ...args),
+  trace: (...args: unknown[]) => log('trace', ...args),
 };

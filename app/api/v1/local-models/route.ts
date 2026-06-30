@@ -2,10 +2,13 @@ import {NextResponse} from 'next/server';
 import {promises as fsp} from 'fs';
 import nodePath from 'path';
 import {localModelsDir} from '@/lib/config';
+import {logger} from '@/lib/logger';
 import {scanModels} from '@/lib/models';
 
 export function GET() {
+  logger.trace('[models] list requested');
   const models = scanModels(localModelsDir);
+  logger.trace(`[models] list received: ${models.length} model(s)`);
   return NextResponse.json(models);
 }
 
