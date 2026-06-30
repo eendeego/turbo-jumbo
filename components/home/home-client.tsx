@@ -402,10 +402,10 @@ export function HomeClient({
               <ColdStorage initialModels={coldModels} />
             </VStack>
           </Section>
-
-          <Log logLevel={logLevel} />
         </VStack>
       </VStack>
+
+      <Log logLevel={logLevel} />
     </AppShell>
   );
 }
