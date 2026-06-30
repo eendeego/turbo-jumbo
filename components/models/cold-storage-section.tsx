@@ -6,12 +6,15 @@ import type {Model} from '@/lib/models';
 import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
 import {DeleteModal, selectedFileInfo} from '@/components/models/delete-modal';
+import {CopyModal, type CopyDestinations} from '@/components/models/copy-modal';
 
 export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
   const [models, setModels] = useState(initialModels);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [confirmingCopy, setConfirmingCopy] = useState(false);
 
   function onToggle(paths: string[]) {
     setSelected((prev) => {
@@ -40,6 +43,24 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
     }
   }
 
+  async function onCopy(destinations: CopyDestinations) {
+    setConfirmingCopy(false);
+    setCopying(true);
+    try {
+      await fetch('/api/v1/copy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          files: Array.from(selected),
+          from: 'cold-storage',
+          ...destinations,
+        }),
+      });
+    } finally {
+      setCopying(false);
+    }
+  }
+
   return (
     <VStack gap={1}>
       <ModelList models={models} selected={selected} onToggle={onToggle} />
@@ -47,6 +68,8 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
         selected={selected}
         onDelete={() => setConfirming(true)}
         deleting={deleting}
+        onCopy={() => setConfirmingCopy(true)}
+        copying={copying}
       />
       {confirming && (
         <DeleteModal
@@ -54,6 +77,14 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
           requireDoubleConfirm={false}
           onConfirm={onDelete}
           onCancel={() => setConfirming(false)}
+        />
+      )}
+      {confirmingCopy && (
+        <CopyModal
+          files={selectedFileInfo(models, selected)}
+          from="cold-storage"
+          onCopy={onCopy}
+          onCancel={() => setConfirmingCopy(false)}
         />
       )}
     </VStack>

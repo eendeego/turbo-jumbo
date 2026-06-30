@@ -9,9 +9,17 @@ interface ActionBarProps {
   selected: Set<string>;
   onDelete: () => void;
   deleting: boolean;
+  onCopy: () => void;
+  copying: boolean;
 }
 
-export function ActionBar({selected, onDelete, deleting}: ActionBarProps) {
+export function ActionBar({
+  selected,
+  onDelete,
+  deleting,
+  onCopy,
+  copying,
+}: ActionBarProps) {
   if (selected.size === 0) return null;
   return (
     <Card padding={2}>
@@ -19,13 +27,22 @@ export function ActionBar({selected, onDelete, deleting}: ActionBarProps) {
         <Text type="supporting">
           {selected.size} file{selected.size !== 1 ? 's' : ''} selected
         </Text>
-        <Button
-          label={deleting ? 'Deleting…' : 'Delete…'}
-          variant="destructive"
-          size="sm"
-          isDisabled={deleting}
-          onClick={onDelete}
-        />
+        <HStack gap={2}>
+          <Button
+            label={copying ? 'Copying…' : 'Copy to…'}
+            variant="secondary"
+            size="sm"
+            isDisabled={copying || deleting}
+            onClick={onCopy}
+          />
+          <Button
+            label={deleting ? 'Deleting…' : 'Delete…'}
+            variant="destructive"
+            size="sm"
+            isDisabled={deleting || copying}
+            onClick={onDelete}
+          />
+        </HStack>
       </HStack>
     </Card>
   );

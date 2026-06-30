@@ -10,6 +10,7 @@ import {
   selectedFileInfo,
   anyMissingFromColdStorage,
 } from '@/components/models/delete-modal';
+import {CopyModal, type CopyDestinations} from '@/components/models/copy-modal';
 
 export function LocalModelsSection({
   initialModels,
@@ -22,6 +23,8 @@ export function LocalModelsSection({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [confirmingCopy, setConfirmingCopy] = useState(false);
 
   function onToggle(paths: string[]) {
     setSelected((prev) => {
@@ -50,6 +53,29 @@ export function LocalModelsSection({
     }
   }
 
+  async function onCopy(destinations: CopyDestinations) {
+    setConfirmingCopy(false);
+    setCopying(true);
+    try {
+      await fetch('/api/v1/copy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          files: Array.from(selected),
+          from: 'local',
+          ...destinations,
+        }),
+      });
+      if (destinations.deleteAfterCopy) {
+        const res = await fetch('/api/v1/local-models');
+        setModels(await res.json());
+        setSelected(new Set());
+      }
+    } finally {
+      setCopying(false);
+    }
+  }
+
   return (
     <VStack gap={1}>
       <ModelList models={models} selected={selected} onToggle={onToggle} />
@@ -57,6 +83,8 @@ export function LocalModelsSection({
         selected={selected}
         onDelete={() => setConfirming(true)}
         deleting={deleting}
+        onCopy={() => setConfirmingCopy(true)}
+        copying={copying}
       />
       {confirming && (
         <DeleteModal
@@ -67,6 +95,14 @@ export function LocalModelsSection({
           )}
           onConfirm={onDelete}
           onCancel={() => setConfirming(false)}
+        />
+      )}
+      {confirmingCopy && (
+        <CopyModal
+          files={selectedFileInfo(models, selected)}
+          from="local"
+          onCopy={onCopy}
+          onCancel={() => setConfirmingCopy(false)}
         />
       )}
     </VStack>

@@ -168,7 +168,9 @@ export function HfDownloadSection({
   const isInvalid =
     url.trim() !== '' && url === debouncedUrl && parsed === null;
 
-  // Fetch file list from HF API whenever parsed URL changes
+  // Fetch file list from HF API whenever parsed URL changes. Resetting state
+  // synchronously here is the intended "re-sync to the new URL" behaviour.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!parsed) {
       setFiles(null);
@@ -210,6 +212,7 @@ export function HfDownloadSection({
       cancelled = true;
     };
   }, [parsed]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const selectedFiles = useMemo(
     () => files?.filter((f) => selectedPaths.has(f.path)) ?? [],

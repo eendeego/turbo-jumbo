@@ -14,6 +14,7 @@ import {
   selectedFileInfo,
   anyMissingFromColdStorage,
 } from '@/components/models/delete-modal';
+import {CopyModal, type CopyDestinations} from '@/components/models/copy-modal';
 
 export function PeersSection({coldModels}: {coldModels: Model[]}) {
   const [peers, setPeers] = useState<Peer[] | null>(null);
@@ -23,6 +24,10 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
   >({});
   const [peerDeleting, setPeerDeleting] = useState<Record<string, boolean>>({});
   const [confirmingPeer, setConfirmingPeer] = useState<Peer | null>(null);
+  const [peerCopying, setPeerCopying] = useState<Record<string, boolean>>({});
+  const [confirmingCopyPeer, setConfirmingCopyPeer] = useState<Peer | null>(
+    null,
+  );
 
   useEffect(() => {
     fetch('/api/v1/peers')
@@ -80,6 +85,27 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
     }
   }
 
+  async function onCopyPeer(peer: Peer, destinations: CopyDestinations) {
+    setConfirmingCopyPeer(null);
+    const sel = peerSelections[peer.address] ?? [];
+    setPeerCopying((prev) => ({...prev, [peer.address]: true}));
+    try {
+      await fetch('/api/v1/copy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({files: sel, from: peer.address, ...destinations}),
+      });
+      if (destinations.deleteAfterCopy) {
+        const res = await fetch(`http://${peer.address}/api/v1/local-models`);
+        const models: Model[] = await res.json();
+        setPeerModels((prev) => new Map(prev).set(peer.address, models));
+        setPeerSelections((prev) => ({...prev, [peer.address]: []}));
+      }
+    } finally {
+      setPeerCopying((prev) => ({...prev, [peer.address]: false}));
+    }
+  }
+
   if (!peers || peers.length === 0) return null;
 
   const confirmingModels = confirmingPeer
@@ -87,6 +113,13 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
     : [];
   const confirmingSelected = confirmingPeer
     ? new Set(peerSelections[confirmingPeer.address] ?? [])
+    : new Set<string>();
+
+  const confirmingCopyModels = confirmingCopyPeer
+    ? (peerModels.get(confirmingCopyPeer.address) ?? [])
+    : [];
+  const confirmingCopySelected = confirmingCopyPeer
+    ? new Set(peerSelections[confirmingCopyPeer.address] ?? [])
     : new Set<string>();
 
   return (
@@ -103,10 +136,21 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
           onCancel={() => setConfirmingPeer(null)}
         />
       )}
+      {confirmingCopyPeer && (
+        <CopyModal
+          files={selectedFileInfo(confirmingCopyModels, confirmingCopySelected)}
+          from={confirmingCopyPeer.address}
+          onCopy={(destinations) =>
+            onCopyPeer(confirmingCopyPeer, destinations)
+          }
+          onCancel={() => setConfirmingCopyPeer(null)}
+        />
+      )}
       {peers.map((peer) => {
         const models = peerModels.get(peer.address);
         const selected = new Set(peerSelections[peer.address] ?? []);
         const deleting = peerDeleting[peer.address] ?? false;
+        const copying = peerCopying[peer.address] ?? false;
         return (
           <Section key={peer.address}>
             <VStack gap={3}>
@@ -125,6 +169,8 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
                     selected={selected}
                     onDelete={() => setConfirmingPeer(peer)}
                     deleting={deleting}
+                    onCopy={() => setConfirmingCopyPeer(peer)}
+                    copying={copying}
                   />
                 </VStack>
               )}
