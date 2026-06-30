@@ -349,6 +349,7 @@ export function HomeClient({
         {pendingConflicts.length > 0 && (
           <ConflictsModal
             conflicts={pendingConflicts}
+            peers={peerConfigs}
             onConfirm={onConflictsConfirm}
             onCancel={() => {
               setPendingConflicts([]);

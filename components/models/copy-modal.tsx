@@ -157,9 +157,7 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
               return (
                 <CheckboxInput
                   key={peer.address}
-                  label={
-                    peer.isLocal ? peer.name : `${peer.name} (${peer.address})`
-                  }
+                  label={peer.name}
                   description={note}
                   value={selectedPeers.has(peer.address)}
                   isDisabled={alreadyPresent}

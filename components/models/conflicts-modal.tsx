@@ -9,6 +9,7 @@ import {Card} from '@astryxdesign/core/Card';
 import {Badge} from '@astryxdesign/core/Badge';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {formatBytes} from '@/components/models/model-list';
+import type {Peer} from '@/lib/config';
 
 export interface ConflictItem {
   file: string;
@@ -23,6 +24,7 @@ export interface ConflictItem {
 
 interface ConflictsModalProps {
   conflicts: ConflictItem[];
+  peers?: Peer[];
   onConfirm: (skipList: Array<{file: string; destination: string}>) => void;
   onCancel: () => void;
 }
@@ -32,9 +34,11 @@ const key = (c: {file: string; destination: string}) =>
 
 export function ConflictsModal({
   conflicts,
+  peers,
   onConfirm,
   onCancel,
 }: ConflictsModalProps) {
+  const peerNameMap = new Map((peers ?? []).map((p) => [p.address, p.name]));
   // Checked = overwrite. Default to overwriting anything that isn't byte-identical.
   const [overwrite, setOverwrite] = useState<Set<string>>(
     new Set(conflicts.filter((c) => c.md5Match !== true).map(key)),
@@ -84,7 +88,8 @@ export function ConflictsModal({
             const destLabel =
               conflict.destination === 'cold-storage'
                 ? 'cold storage'
-                : conflict.destination;
+                : (peerNameMap.get(conflict.destination) ??
+                  conflict.destination);
             const status =
               conflict.md5Match === true
                 ? {label: 'identical', variant: 'success' as const}
