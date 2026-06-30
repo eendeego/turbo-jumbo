@@ -10,6 +10,7 @@ import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {Spinner} from '@astryxdesign/core/Spinner';
+import {HoverCard} from '@astryxdesign/core/HoverCard';
 
 type ParsedUrl = {
   repoId: string;
@@ -288,111 +289,127 @@ export function HuggingFaceDownload({
 
   const hasFiles = files !== null && files.length > 0;
 
+  const hasPickerContent =
+    filesLoading || !!filesError || hasFiles || term !== null;
+
+  const pickerContent = (
+    <VStack gap={2}>
+      {filesLoading && <Spinner label="Fetching file list…" />}
+
+      {filesError && (
+        <Text type="supporting" color="accent">
+          Error: {filesError}
+        </Text>
+      )}
+
+      {hasFiles && (
+        <VStack gap={1}>
+          <List hasDividers>
+            {files!.map((f) => (
+              <ListItem
+                key={f.path}
+                startContent={
+                  <CheckboxInput
+                    label={f.path}
+                    isLabelHidden
+                    value={selectedPaths.has(f.path)}
+                    onChange={(checked) => toggleFile(f.path, checked)}
+                    isDisabled={running}
+                  />
+                }
+                label={f.path.split('/').pop()}
+                description={formatBytes(f.size)}
+              />
+            ))}
+          </List>
+          <HStack gap={2} hAlign="between">
+            <Text type="supporting">
+              {selectedFiles.length} / {files!.length} selected
+            </Text>
+            <Text type="label">{formatBytes(totalSize)}</Text>
+          </HStack>
+        </VStack>
+      )}
+
+      {command && (
+        <VStack gap={2}>
+          <CodeBlock code={command} language="bash" isWrapped width="100%" />
+          <HStack gap={2}>
+            {running ? (
+              <Button
+                label="Cancel"
+                variant="destructive"
+                onClick={handleCancel}
+              />
+            ) : (
+              <Button label="Run" variant="primary" onClick={handleRun} />
+            )}
+          </HStack>
+        </VStack>
+      )}
+
+      {hasFiles && (
+        <VStack gap={2}>
+          <CheckboxInput
+            label="Copy to cold storage when done"
+            value={sendToCold}
+            onChange={(checked) => {
+              setSendToCold(checked);
+              if (!checked) setDeleteAfterTransfer(false);
+            }}
+            isDisabled={running}
+          />
+          {sendToCold && (
+            <CheckboxInput
+              label="Delete from local storage after transfer"
+              value={deleteAfterTransfer}
+              onChange={setDeleteAfterTransfer}
+              isDisabled={running}
+            />
+          )}
+        </VStack>
+      )}
+
+      {term !== null && (
+        <CodeBlock
+          code={term.lines.join('\n') || ' '}
+          language="plaintext"
+          hasCopyButton={false}
+          isWrapped
+          width="100%"
+          maxHeight={256}
+        />
+      )}
+    </VStack>
+  );
+
   return (
     <Section>
       <VStack gap={3}>
         <Heading level={2}>Download model</Heading>
-        <TextInput
-          label="Hugging Face URL"
-          value={url}
-          onChange={(value) => {
-            setUrl(value);
-            setTerm(null);
-          }}
-          placeholder="https://huggingface.co/org/repo/blob/main/quant-folder/file.gguf"
-          status={
-            isInvalid
-              ? {type: 'error', message: 'Not a valid Hugging Face file URL.'}
-              : undefined
-          }
-        />
-
-        {filesLoading && <Spinner label="Fetching file list…" />}
-
-        {filesError && (
-          <Text type="supporting" color="accent">
-            Error: {filesError}
-          </Text>
-        )}
-
-        {hasFiles && (
-          <VStack gap={1}>
-            <List hasDividers>
-              {files!.map((f) => (
-                <ListItem
-                  key={f.path}
-                  startContent={
-                    <CheckboxInput
-                      label={f.path}
-                      isLabelHidden
-                      value={selectedPaths.has(f.path)}
-                      onChange={(checked) => toggleFile(f.path, checked)}
-                      isDisabled={running}
-                    />
-                  }
-                  label={f.path.split('/').pop()}
-                  description={formatBytes(f.size)}
-                />
-              ))}
-            </List>
-            <HStack gap={2} hAlign="between">
-              <Text type="supporting">
-                {selectedFiles.length} / {files!.length} selected
-              </Text>
-              <Text type="label">{formatBytes(totalSize)}</Text>
-            </HStack>
-          </VStack>
-        )}
-
-        {command && (
-          <VStack gap={2}>
-            <CodeBlock code={command} language="bash" isWrapped width="100%" />
-            <HStack gap={2}>
-              {running ? (
-                <Button
-                  label="Cancel"
-                  variant="destructive"
-                  onClick={handleCancel}
-                />
-              ) : (
-                <Button label="Run" variant="primary" onClick={handleRun} />
-              )}
-            </HStack>
-          </VStack>
-        )}
-
-        {hasFiles && (
-          <VStack gap={2}>
-            <CheckboxInput
-              label="Copy to cold storage when done"
-              value={sendToCold}
-              onChange={(checked) => {
-                setSendToCold(checked);
-                if (!checked) setDeleteAfterTransfer(false);
-              }}
-              isDisabled={running}
-            />
-            {sendToCold && (
-              <CheckboxInput
-                label="Delete from local storage after transfer"
-                value={deleteAfterTransfer}
-                onChange={setDeleteAfterTransfer}
-                isDisabled={running}
-              />
-            )}
-          </VStack>
-        )}
-
-        {term !== null && (
-          <CodeBlock
-            code={term.lines.join('\n') || ' '}
-            language="plaintext"
-            hasCopyButton={false}
-            isWrapped
-            width="100%"
-            maxHeight={256}
+        <HoverCard
+          placement="below"
+          alignment="start"
+          hasHoverIndication={false}
+          focusTrigger="always"
+          isEnabled={hasPickerContent}
+          content={pickerContent}
+        >
+          <TextInput
+            label="Hugging Face URL"
+            value={url}
+            onChange={(value) => {
+              setUrl(value);
+              setTerm(null);
+            }}
+            placeholder="https://huggingface.co/org/repo/blob/main/quant-folder/file.gguf"
+            status={
+              isInvalid
+                ? {type: 'error', message: 'Not a valid Hugging Face file URL.'}
+                : undefined
+            }
           />
-        )}
+        </HoverCard>
       </VStack>
     </Section>
   );

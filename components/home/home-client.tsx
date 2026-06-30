@@ -322,6 +322,9 @@ export function HomeClient({
           activeLocation={activeLocation}
           onLocationChange={handleLocationChange}
         />
+        {localModelsPath && (
+          <HuggingFaceDownload localModelsPath={localModelsPath} />
+        )}
         <ModelsTableClient
           models={modelsTableData}
           peers={peerConfigs}
@@ -392,10 +395,6 @@ export function HomeClient({
             coldModels={coldModels}
             onModelsRefreshed={handleModelsRefreshed}
           />
-
-          {localModelsPath && (
-            <HuggingFaceDownload localModelsPath={localModelsPath} />
-          )}
 
           <Section>
             <VStack gap={3}>
