@@ -12,6 +12,7 @@ import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
+import {Dialog} from '@astryxdesign/core/Dialog';
 
 type ParsedUrl = {
   repoId: string;
@@ -151,6 +152,7 @@ export function HuggingFaceDownload({
   const [sendToCold, setSendToCold] = useState(false);
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
   const [running, setRunning] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [term, setTerm] = useState<TermState | null>(null);
   const [files, setFiles] = useState<HfFile[] | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
@@ -252,13 +254,12 @@ export function HuggingFaceDownload({
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const handleCancel = () => abortRef.current?.abort();
-
-  const handleRun = async () => {
+  const startDownload = async () => {
     if (!parsed || selectedFiles.length === 0 || running) return;
     const abort = new AbortController();
     abortRef.current = abort;
     setRunning(true);
+    setShowModal(true);
     setTerm({lines: [''], col: 0});
 
     try {
@@ -300,10 +301,15 @@ export function HuggingFaceDownload({
     }
   };
 
+  const handleCloseModal = () => {
+    if (running) abortRef.current?.abort();
+    setShowModal(false);
+    setTerm(null);
+  };
+
   const hasFiles = files !== null && files.length > 0;
 
-  const hasPickerContent =
-    filesLoading || !!filesError || hasFiles || term !== null;
+  const hasPickerContent = filesLoading || !!filesError || hasFiles;
 
   const pickerContent = (
     <VStack gap={2} xstyle={styles.picker}>
@@ -352,22 +358,13 @@ export function HuggingFaceDownload({
             size="sm"
             onClick={handleCopy}
           />
-          {running ? (
-            <Button
-              label="Cancel"
-              variant="destructive"
-              size="sm"
-              onClick={handleCancel}
-            />
-          ) : (
-            <Button
-              label="Run"
-              variant="primary"
-              size="sm"
-              onClick={handleRun}
-              isDisabled={selectedFiles.length === 0}
-            />
-          )}
+          <Button
+            label="Run"
+            variant="primary"
+            size="sm"
+            onClick={startDownload}
+            isDisabled={selectedFiles.length === 0 || running}
+          />
         </HStack>
       )}
 
@@ -392,17 +389,6 @@ export function HuggingFaceDownload({
           )}
         </VStack>
       )}
-
-      {term !== null && (
-        <CodeBlock
-          code={term.lines.join('\n') || ' '}
-          language="plaintext"
-          hasCopyButton={false}
-          isWrapped
-          width="100%"
-          maxHeight={256}
-        />
-      )}
     </VStack>
   );
 
@@ -421,10 +407,7 @@ export function HuggingFaceDownload({
           <TextInput
             label="Hugging Face URL"
             value={url}
-            onChange={(value) => {
-              setUrl(value);
-              setTerm(null);
-            }}
+            onChange={setUrl}
             placeholder="https://huggingface.co/org/repo/blob/main/quant-folder/file.gguf"
             status={
               isInvalid
@@ -434,6 +417,37 @@ export function HuggingFaceDownload({
           />
         </HoverCard>
       </VStack>
+
+      {showModal && (
+        <Dialog isOpen onOpenChange={(open) => !open && handleCloseModal()}>
+          <VStack gap={4}>
+            <Heading level={3}>Downloading…</Heading>
+            <CodeBlock
+              code={term?.lines.join('\n') || ' '}
+              language="plaintext"
+              hasCopyButton={false}
+              isWrapped
+              width="100%"
+              maxHeight={384}
+            />
+            <HStack gap={2} hAlign="end">
+              {running ? (
+                <Button
+                  label="Cancel"
+                  variant="destructive"
+                  onClick={handleCloseModal}
+                />
+              ) : (
+                <Button
+                  label="Close"
+                  variant="secondary"
+                  onClick={handleCloseModal}
+                />
+              )}
+            </HStack>
+          </VStack>
+        </Dialog>
+      )}
     </Section>
   );
 }
