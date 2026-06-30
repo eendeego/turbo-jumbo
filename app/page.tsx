@@ -1,7 +1,7 @@
 import type {Metadata} from 'next';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Section} from '@astryxdesign/core/Section';
-import {VStack} from '@astryxdesign/core/Stack';
+import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Text';
 import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {scanModels} from '@/lib/models';
@@ -9,6 +9,7 @@ import {ColdStorage} from '@/components/models/cold-storage';
 import {Peers} from '@/components/peers/peers';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
 import {Log} from '@/components/log/log';
+import {ThemeToggle} from '@/components/theme/theme-toggle';
 
 export function generateMetadata(): Metadata {
   return {title: `Turbo Jumbo - ${localPeer?.name ?? 'unknown'}`};
@@ -24,7 +25,12 @@ export default function Home() {
   return (
     <AppShell contentPadding={6} height="auto">
       <VStack gap={6}>
-        <Heading level={1}>Turbo Jumbo</Heading>
+        <HStack vAlign="center">
+          <StackItem size="fill">
+            <Heading level={1}>Turbo Jumbo</Heading>
+          </StackItem>
+          <ThemeToggle />
+        </HStack>
 
         {/* The local machine appears here as a peer marked "— local". */}
         <Peers coldModels={coldModels} />
