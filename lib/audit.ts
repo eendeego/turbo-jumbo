@@ -21,7 +21,8 @@ export interface AuditResult {
 }
 
 export interface TjMeta {
-  originUrl: string;
+  modelUrl: string; // HF model/repo URL, e.g. https://huggingface.co/unsloth/GLM-4.7-GGUF
+  originUrl: string; // HF file URL within the repo
   sourceSha256: string;
   computedSha256: string;
 }
@@ -103,11 +104,13 @@ export async function auditFile(
     return {file: relPath, status: 'error', message: 'sha256sum failed'};
   }
 
-  // Cache the inferred source sha into the sidecar (originUrl stays empty,
-  // reserved for a future download-time provenance flow).
+  // Record the inferred HF source URL and cache its sha into the sidecar.
+  // Note: the URL is inferred from the filename, so it is a best guess until a
+  // future download-time flow records an authoritative origin.
   try {
     await writeMeta(fullPath, {
-      originUrl: '',
+      modelUrl: `https://huggingface.co/${hf.repoId}`,
+      originUrl: `https://huggingface.co/${hf.repoId}/blob/${hf.branch}/${hf.repoPath}`,
       sourceSha256: hf.sha256,
       computedSha256,
     });

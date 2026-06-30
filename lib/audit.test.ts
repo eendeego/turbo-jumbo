@@ -84,7 +84,8 @@ test('writeMeta/readMeta round-trip and metaPath naming', async () => {
   const f = path.join(dir, 'M.Q4.gguf');
   await fsp.writeFile(f, 'x');
   const meta = {
-    originUrl: '',
+    modelUrl: 'https://huggingface.co/o/r',
+    originUrl: 'https://huggingface.co/o/r/blob/main/M.Q4.gguf',
     sourceSha256: 'deadbeef',
     computedSha256: 'deadbeef',
   };

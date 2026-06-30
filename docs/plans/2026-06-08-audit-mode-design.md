@@ -80,14 +80,18 @@ named `<filename>.tjmeta.json`:
 
 ```json
 {
-  "originUrl": "",
+  "modelUrl": "https://huggingface.co/<repoId>",
+  "originUrl": "https://huggingface.co/<repoId>/blob/<branch>/<repoPath>",
   "sourceSha256": "<inferred HF sha256>",
   "computedSha256": "<computed sha256>"
 }
 ```
 
-- `originUrl` — **starts empty**; reserved for a future download flow to record the
-  authoritative source URL.
+- `modelUrl` — the inferred HF model/repo URL (e.g.
+  `https://huggingface.co/unsloth/GLM-4.7-GGUF`).
+- `originUrl` — the inferred HF file URL within the repo. Both URLs are derived
+  from the filename inference, so they are best guesses until a future
+  download-time flow records authoritative provenance.
 - `sourceSha256` — cached from the inferred HF LFS oid during audit (per the
   approved decision to cache it).
 - `computedSha256` — the local file's computed sha256.
