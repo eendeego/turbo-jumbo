@@ -4,6 +4,11 @@ import {scanModels} from '@/lib/models';
 import {auditFile, type AuditResult} from '@/lib/audit';
 import {clearHfCache} from '@/lib/hf-infer';
 
+// How many files to audit at once. Each job reads an entire (multi-GB) file to
+// hash it, so this is capped low: too high thrashes a single disk and the runs
+// get slower, not faster. Override with AUDIT_CONCURRENCY for faster storage.
+const CONCURRENCY = Number(process.env.AUDIT_CONCURRENCY) || 4;
+
 export async function POST(req: Request) {
   const {location, files} = (await req.json()) as {
     location?: string;
@@ -51,25 +56,28 @@ export async function POST(req: Request) {
       }
     };
 
-    outer: for (const model of models) {
+    // Collect one job per selected file. A job yields that file's verdict, so
+    // they can be run concurrently and emitted in completion order — results are
+    // keyed by path, so order doesn't matter to the client.
+    const jobs: Array<() => Promise<AuditResult>> = [];
+    for (const model of models) {
       for (const file of model.files) {
-        if (signal.aborted) break outer;
         if (file.isSplit) {
           // A split with missing shards fails fast: every selected shard of it
           // is reported incomplete (keyed by its own path so the row matches).
           const incomplete = file.missingIndices.length > 0;
           for (const shard of file.files) {
-            if (signal.aborted) break outer;
             if (!selected.has(shard.path)) continue;
             if (incomplete) {
-              await emit({
+              const result: AuditResult = {
                 file: shard.path,
                 status: 'incomplete',
                 message: `missing shards: ${file.missingIndices.join(', ')}`,
-              });
+              };
+              jobs.push(() => Promise.resolve(result));
             } else {
-              await emit(
-                await auditFile(
+              jobs.push(() =>
+                auditFile(
                   root,
                   shard.path,
                   model.name,
@@ -81,12 +89,28 @@ export async function POST(req: Request) {
           }
         } else {
           if (!selected.has(file.path)) continue;
-          await emit(
-            await auditFile(root, file.path, model.name, file.filename, signal),
+          jobs.push(() =>
+            auditFile(root, file.path, model.name, file.filename, signal),
           );
         }
       }
     }
+
+    // Bounded worker pool: each worker pulls the next job until they run out or
+    // the client disconnects, emitting verdicts as they complete.
+    let next = 0;
+    const worker = async () => {
+      while (!signal.aborted) {
+        const i = next++;
+        if (i >= jobs.length) return;
+        const result = await jobs[i]();
+        if (signal.aborted) return;
+        await emit(result);
+      }
+    };
+    await Promise.all(
+      Array.from({length: Math.min(CONCURRENCY, jobs.length)}, worker),
+    );
 
     try {
       await writer.close();
