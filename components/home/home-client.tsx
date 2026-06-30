@@ -174,26 +174,24 @@ export function HomeClient({
           <ThemeToggle />
         </HStack>
 
-        <VStack gap={2}>
-          <ModelsTableClient
-            models={modelsTableData}
-            peers={peerConfigs}
-            peerModels={seededPeerModels}
-            selected={selected}
-            onToggleSelected={onToggleSelected}
-            locations={locations}
-            activeLocation={activeLocation}
-            onLocationChange={handleLocationChange}
-          />
-          {error && <Banner status="error" title={`Error: ${error}`} />}
-          <ActionBar
-            selected={selected}
-            onDelete={() => setConfirming(true)}
-            deleting={deleting}
-            onCopy={() => {}}
-            copying={false}
-          />
-        </VStack>
+        <ModelsTableClient
+          models={modelsTableData}
+          peers={peerConfigs}
+          peerModels={seededPeerModels}
+          selected={selected}
+          onToggleSelected={onToggleSelected}
+          locations={locations}
+          activeLocation={activeLocation}
+          onLocationChange={handleLocationChange}
+        />
+        {error && <Banner status="error" title={`Error: ${error}`} />}
+        <ActionBar
+          selected={selected}
+          onDelete={() => setConfirming(true)}
+          deleting={deleting}
+          onCopy={() => {}}
+          copying={false}
+        />
 
         {confirming && (
           <DeleteModal
