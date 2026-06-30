@@ -11,6 +11,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "typecheck:watch": "tsc --noEmit --watch",
+    "test": "bun test",
     "docker:build": "podman build -t turbo-jumbo . && podman save turbo-jumbo | gzip > turbo-jumbo.tar.gz"
   },
   "dependencies": {
