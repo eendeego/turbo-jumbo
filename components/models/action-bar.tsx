@@ -53,7 +53,7 @@ export function ActionBar({
     sampleRef.current = {bytes: bytesDone, time: now};
   }, [bytesDone, copying]);
 
-  if (selected.size === 0) return null;
+  const noneSelected = selected.size === 0;
 
   const speed = copying ? speedRef.current : null;
 
@@ -65,21 +65,23 @@ export function ActionBar({
       <VStack gap={2}>
         <HStack gap={3} hAlign="between" vAlign="center">
           <Text type="supporting">
-            {selected.size} file{selected.size !== 1 ? 's' : ''} selected
+            {noneSelected
+              ? 'No files selected'
+              : `${selected.size} file${selected.size !== 1 ? 's' : ''} selected`}
           </Text>
           <HStack gap={2}>
             <Button
               label={copying ? 'Copying…' : checking ? 'Checking…' : 'Copy to…'}
               variant="secondary"
               size="sm"
-              isDisabled={copying || deleting || checking}
+              isDisabled={noneSelected || copying || deleting || checking}
               onClick={onCopy}
             />
             <Button
               label={deleting ? 'Deleting…' : 'Delete…'}
               variant="destructive"
               size="sm"
-              isDisabled={deleting || copying}
+              isDisabled={noneSelected || deleting || copying}
               onClick={onDelete}
             />
           </HStack>
