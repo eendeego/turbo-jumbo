@@ -1,6 +1,7 @@
 'use client';
 
 import {useState, useMemo, useCallback} from 'react';
+import * as stylex from '@stylexjs/stylex';
 import {useRouter} from 'next/navigation';
 import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
@@ -37,6 +38,12 @@ import {ColdStorage} from '@/components/models/cold-storage';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
+
+const styles = stylex.create({
+  // The models table spans the full content width; the sections below it sit in
+  // a narrower reading column.
+  narrow: {maxWidth: '42rem', width: '100%'},
+});
 
 function selectedFileInfo(
   models: ModelRow[],
@@ -373,25 +380,27 @@ export function HomeClient({
 
         <Divider />
 
-        <Peers
-          peers={peers}
-          peerModels={seededPeerModels}
-          coldModels={coldModels}
-          onModelsRefreshed={handleModelsRefreshed}
-        />
+        <VStack gap={6} xstyle={styles.narrow}>
+          <Peers
+            peers={peers}
+            peerModels={seededPeerModels}
+            coldModels={coldModels}
+            onModelsRefreshed={handleModelsRefreshed}
+          />
 
-        {localModelsPath && (
-          <HuggingFaceDownload localModelsPath={localModelsPath} />
-        )}
+          {localModelsPath && (
+            <HuggingFaceDownload localModelsPath={localModelsPath} />
+          )}
 
-        <Section>
-          <VStack gap={3}>
-            <Heading level={2}>Models in cold storage</Heading>
-            <ColdStorage initialModels={coldModels} />
-          </VStack>
-        </Section>
+          <Section>
+            <VStack gap={3}>
+              <Heading level={2}>Models in cold storage</Heading>
+              <ColdStorage initialModels={coldModels} />
+            </VStack>
+          </Section>
 
-        <Log logLevel={logLevel} />
+          <Log logLevel={logLevel} />
+        </VStack>
       </VStack>
     </AppShell>
   );
