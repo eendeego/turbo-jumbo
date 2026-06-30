@@ -1,4 +1,5 @@
 import {localModelsDir} from '@/lib/config';
+import {logger} from '@/lib/logger';
 import nodePath from 'path';
 import {promises as fsp} from 'fs';
 import {createReadStream} from 'fs';
@@ -23,6 +24,8 @@ export async function POST(req: Request) {
 
   const base = nodePath.resolve(localModelsDir);
 
+  logger.info(`[push] start: ${files.length} file(s) → ${toPeer}`);
+
   for (const file of files) {
     const full = nodePath.resolve(base, file);
     if (!full.startsWith(base + nodePath.sep))
@@ -31,20 +34,26 @@ export async function POST(req: Request) {
     const {size: fileSize} = await fsp.stat(full);
     const uploadUrl = `http://${toPeer}/api/v1/local-models/upload`;
 
+    logger.info(`[push] upload ${file} → ${toPeer}`);
     if (fileSize === 0) {
       const res = await fetch(uploadUrl, {
         method: 'POST',
         headers: {'x-file-path': file, 'x-chunk-offset': '0'},
       });
-      if (!res.ok)
+      if (!res.ok) {
+        logger.error(
+          `[push] upload failed for ${file} → ${toPeer}: ${res.status}`,
+        );
         return new Response(`Upload to peer failed: ${await res.text()}`, {
           status: 502,
         });
+      }
       continue;
     }
 
     for (let offset = 0; offset < fileSize; offset += CHUNK_SIZE) {
       const chunkEnd = Math.min(offset + CHUNK_SIZE, fileSize);
+      logger.debug(`[push] upload chunk ${file} offset=${offset} → ${toPeer}`);
       const readable = createReadStream(full, {
         start: offset,
         end: chunkEnd - 1,
@@ -60,12 +69,18 @@ export async function POST(req: Request) {
         // @ts-expect-error – duplex required for streaming request bodies in Node fetch
         duplex: 'half',
       });
-      if (!res.ok)
+      if (!res.ok) {
+        logger.error(
+          `[push] upload failed for ${file} offset=${offset} → ${toPeer}: ${res.status}`,
+        );
         return new Response(`Upload to peer failed: ${await res.text()}`, {
           status: 502,
         });
+      }
     }
   }
+
+  logger.info(`[push] done: ${files.length} file(s) → ${toPeer}`);
 
   return Response.json({ok: true});
 }

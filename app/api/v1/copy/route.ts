@@ -1,4 +1,5 @@
 import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
+import {logger} from '@/lib/logger';
 import {promises as fsp} from 'fs';
 import {createReadStream, createWriteStream} from 'fs';
 import nodePath from 'path';
@@ -158,6 +159,14 @@ export async function POST(req: Request) {
 
       emit(); // initial event
 
+      const destinations = [
+        ...(toColdStorage ? ['cold-storage'] : []),
+        ...toPeers,
+      ];
+      logger.info(
+        `[copy] start: ${files.length} file(s) from ${from} → ${destinations.join(', ')}`,
+      );
+
       // Copy one file (from the local/cold/peer source) into a local directory
       // tree, streaming byte progress. Returns false on an invalid or failed
       // destination so the caller can abort. Used for both cold storage and the
@@ -181,6 +190,7 @@ export async function POST(req: Request) {
         });
 
         if (isPeerSource) {
+          logger.info(`[copy] fetch ${file} from ${from} → ${destBaseDir}`);
           const res = await fetch(
             `http://${from}/api/v1/local-models/download?file=${encodeURIComponent(file)}`,
           );
@@ -256,6 +266,9 @@ export async function POST(req: Request) {
             fileDone = 0;
             emit();
 
+            logger.info(
+              `[copy] push ${nonSkippedFiles.length} file(s) from ${from} → ${peerAddr}`,
+            );
             const res = await fetch(`http://${from}/api/v1/local-models/push`, {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
@@ -280,6 +293,7 @@ export async function POST(req: Request) {
               fileDone = 0;
               emit();
 
+              logger.info(`[copy] upload ${file} → ${peerAddr}`);
               if (fileSize === 0) {
                 await fetch(uploadUrl, {
                   method: 'POST',
@@ -288,6 +302,9 @@ export async function POST(req: Request) {
               } else {
                 for (let offset = 0; offset < fileSize; offset += CHUNK_SIZE) {
                   const chunkEnd = Math.min(offset + CHUNK_SIZE, fileSize);
+                  logger.debug(
+                    `[copy] upload chunk ${file} offset=${offset} → ${peerAddr}`,
+                  );
                   const readable = createReadStream(src, {
                     start: offset,
                     end: chunkEnd - 1,
@@ -323,6 +340,9 @@ export async function POST(req: Request) {
           );
           if (filesToDelete.length > 0) {
             if (isPeerSource) {
+              logger.info(
+                `[copy] delete ${filesToDelete.length} file(s) from ${from}`,
+              );
               await fetch(`http://${from}/api/v1/local-models`, {
                 method: 'DELETE',
                 headers: {'Content-Type': 'application/json'},
@@ -338,8 +358,13 @@ export async function POST(req: Request) {
           }
         }
 
+        logger.info(`[copy] done: ${files.length} file(s) from ${from}`);
         safeClose();
-      } catch {
+      } catch (err) {
+        logger.error(
+          `[copy] error: ${files.length} file(s) from ${from}:`,
+          err,
+        );
         safeClose();
       }
     },

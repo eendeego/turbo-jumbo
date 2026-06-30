@@ -1,4 +1,5 @@
 import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
+import {logger} from '@/lib/logger';
 import nodePath from 'path';
 import {promises as fsp} from 'fs';
 import {execFile} from 'child_process';
@@ -16,6 +17,7 @@ async function peerChecksumData(
   file: string,
 ): Promise<{size: number; md5: string} | null> {
   try {
+    logger.debug(`[check] fetch checksum ${file} from ${peerAddr}`);
     const res = await fetch(
       `http://${peerAddr}/api/v1/local-models/checksum?file=${encodeURIComponent(file)}`,
     );
@@ -159,6 +161,7 @@ export async function POST(req: Request) {
         continue;
       }
       try {
+        logger.debug(`[check] head ${file} @ ${peerAddr}`);
         const headRes = await fetch(
           `http://${peerAddr}/api/v1/local-models/download?file=${encodeURIComponent(file)}`,
           {method: 'HEAD'},

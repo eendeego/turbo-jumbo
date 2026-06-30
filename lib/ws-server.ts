@@ -1,6 +1,7 @@
 import type {Server} from 'node:http';
 import type {IncomingMessage} from 'node:http';
 import {WebSocketServer, type WebSocket} from 'ws';
+import {logger} from './logger';
 
 let wss: WebSocketServer | null = null;
 
@@ -11,14 +12,14 @@ export function initWsServer(httpServer: Server): void {
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const addr = req.socket.remoteAddress ?? 'unknown';
-    console.log(`[ws] peer connected: ${addr}`);
+    logger.info(`[ws] peer connected: ${addr}`);
 
     ws.on('close', () => {
-      console.log(`[ws] peer disconnected: ${addr}`);
+      logger.info(`[ws] peer disconnected: ${addr}`);
     });
 
     ws.on('error', (err: Error) => {
-      console.error(`[ws] error (${addr}):`, err.message);
+      logger.error(`[ws] error (${addr}):`, err.message);
     });
   });
 }
