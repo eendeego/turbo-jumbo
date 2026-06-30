@@ -126,22 +126,41 @@ export function HomeClient({
     setDeleting(true);
     setError(null);
     try {
-      let url: string;
-      if (activeLocation === 'cold-storage') {
-        url = '/api/v1/cold-storage';
-      } else if (activeLocation === 'all') {
-        url = '/api/v1/local-models';
+      const headers = {'Content-Type': 'application/json'};
+      const body = JSON.stringify({files: Array.from(selected)});
+
+      if (activeLocation === 'all') {
+        // Delete from every location in parallel.
+        const requests: Promise<Response>[] = [
+          fetch('/api/v1/local-models', {method: 'DELETE', headers, body}),
+          fetch('/api/v1/cold-storage', {method: 'DELETE', headers, body}),
+          ...peerConfigs
+            .filter((p) => !p.isLocal)
+            .map((p) =>
+              fetch(`/api/v1/peers/${encodeURIComponent(p.name)}/models`, {
+                method: 'DELETE',
+                headers,
+                body,
+              }),
+            ),
+        ];
+        const results = await Promise.allSettled(requests);
+        const failed = results.filter((r) => r.status === 'rejected');
+        if (failed.length > 0)
+          throw new Error(`${failed.length} delete request(s) failed`);
       } else {
-        const peer = peerConfigs.find((p) => p.address === activeLocation);
-        if (!peer) throw new Error('Unknown location');
-        url = `/api/v1/peers/${encodeURIComponent(peer.name)}/models`;
+        let url: string;
+        if (activeLocation === 'cold-storage') {
+          url = '/api/v1/cold-storage';
+        } else {
+          const peer = peerConfigs.find((p) => p.address === activeLocation);
+          if (!peer) throw new Error('Unknown location');
+          url = `/api/v1/peers/${encodeURIComponent(peer.name)}/models`;
+        }
+        const del = await fetch(url, {method: 'DELETE', headers, body});
+        if (!del.ok) throw new Error(`${del.status} ${del.statusText}`);
       }
-      const del = await fetch(url, {
-        method: 'DELETE',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({files: Array.from(selected)}),
-      });
-      if (!del.ok) throw new Error(`${del.status} ${del.statusText}`);
+
       setSelected(new Set());
       router.refresh();
     } catch (e) {
