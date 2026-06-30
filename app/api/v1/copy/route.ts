@@ -259,57 +259,83 @@ export async function POST(req: Request) {
 
         // ── Copy to peers (the local peer is just another address here) ────
         for (const peerAddr of toPeers) {
-          if (peerAddr === localPeerAddr) {
-            // Local-peer destination: copy straight into local storage. The
-            // copyToDir helper handles both a peer source (download) and a
-            // local/cold source (direct read).
-            for (const file of files) {
-              if (shouldSkip(file, peerAddr)) continue;
-              if (!(await copyToDir(file, localBase))) {
+          if (isPeerSource) {
+            if (peerAddr === localPeerAddr) {
+              // Remote source → local destination: download each file.
+              for (const file of files) {
+                if (shouldSkip(file, peerAddr)) continue;
+                if (!(await copyToDir(file, localBase))) {
+                  safeClose();
+                  return;
+                }
+              }
+            } else {
+              // Remote source → remote destination: tell the source peer to
+              // push directly — no per-byte visibility, so report in one step.
+              const nonSkippedFiles = files.filter(
+                (f) => !shouldSkip(f, peerAddr),
+              );
+              if (nonSkippedFiles.length === 0) continue;
+              const pushBytes = nonSkippedFiles.reduce(
+                (s, f) => s + (fileSizeMap[f] ?? 0),
+                0,
+              );
+              fileTotal = pushBytes;
+              fileDone = 0;
+              emit();
+
+              logger.info(
+                `[copy] push ${nonSkippedFiles.length} file(s) from ${from} → ${peerAddr}`,
+              );
+              const res = await fetch(
+                `http://${from}/api/v1/local-models/push`,
+                {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({
+                    files: nonSkippedFiles,
+                    toPeer: peerAddr,
+                  }),
+                  signal,
+                },
+              );
+              if (!res.ok) {
                 safeClose();
                 return;
               }
+
+              filesDone++;
+              bytesDone += pushBytes;
+              fileDone = pushBytes;
+              emit();
             }
-          } else if (isPeerSource) {
-            // Tell the source peer to push directly — no per-byte visibility
-            // here, so report the whole file in one step.
+          } else if (peerAddr !== localPeerAddr) {
+            // Local/cold source → remote destination.
             const nonSkippedFiles = files.filter(
               (f) => !shouldSkip(f, peerAddr),
             );
             if (nonSkippedFiles.length === 0) continue;
-            const pushBytes = nonSkippedFiles.reduce(
-              (s, f) => s + (fileSizeMap[f] ?? 0),
-              0,
-            );
-            fileTotal = pushBytes;
-            fileDone = 0;
-            emit();
 
-            logger.info(
-              `[copy] push ${nonSkippedFiles.length} file(s) from ${from} → ${peerAddr}`,
-            );
-            const res = await fetch(`http://${from}/api/v1/local-models/push`, {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({files: nonSkippedFiles, toPeer: peerAddr}),
-              signal,
-            });
-            if (!res.ok) {
-              safeClose();
-              return;
+            // If the source is cold storage — or the files only exist in cold
+            // storage, not locally — have the remote peer copy from its own
+            // cold storage instead of uploading bytes through this host.
+            let allInCold = from === 'cold-storage';
+            if (!allInCold) {
+              allInCold = true;
+              for (const f of nonSkippedFiles) {
+                const local = resolveLocal(localBase, f);
+                if (!local) continue;
+                try {
+                  await fsp.access(local);
+                  allInCold = false;
+                  break;
+                } catch {
+                  /* not present locally */
+                }
+              }
             }
 
-            filesDone++;
-            bytesDone += pushBytes;
-            fileDone = pushBytes;
-            emit();
-          } else if (from === 'cold-storage' && peerAddr !== localPeerAddr) {
-            // Tell the remote peer to copy from its own cold storage, streaming
-            // progress back rather than routing bytes through this host.
-            const nonSkippedFiles = files.filter(
-              (f) => !shouldSkip(f, peerAddr),
-            );
-            if (nonSkippedFiles.length > 0) {
+            if (allInCold) {
               const peerBytes = nonSkippedFiles.reduce(
                 (s, f) => s + (fileSizeMap[f] ?? 0),
                 0,
@@ -361,55 +387,119 @@ export async function POST(req: Request) {
                   emit();
                 }
               }
+            } else {
+              // Upload from our local source to the remote peer.
+              for (const file of nonSkippedFiles) {
+                const uploadUrl = `http://${peerAddr}/api/v1/local-models/upload`;
+                const src = resolveLocal(sourceBasePath!, file)!;
+                const fileSize = fileSizeMap[file] ?? 0;
+                fileTotal = fileSize;
+                fileDone = 0;
+                emit();
+
+                logger.info(`[copy] upload ${file} → ${peerAddr}`);
+                if (fileSize === 0) {
+                  await fetch(uploadUrl, {
+                    method: 'POST',
+                    headers: {'x-file-path': file, 'x-chunk-offset': '0'},
+                    signal,
+                  });
+                } else {
+                  for (
+                    let offset = 0;
+                    offset < fileSize;
+                    offset += CHUNK_SIZE
+                  ) {
+                    signal.throwIfAborted();
+                    const chunkEnd = Math.min(offset + CHUNK_SIZE, fileSize);
+                    const readable = createReadStream(src, {
+                      start: offset,
+                      end: chunkEnd - 1,
+                    });
+                    await fetch(uploadUrl, {
+                      method: 'POST',
+                      headers: {
+                        'x-file-path': file,
+                        'x-chunk-offset': String(offset),
+                        'Content-Type': 'application/octet-stream',
+                      },
+                      body: Readable.toWeb(readable) as unknown as BodyInit,
+                      // @ts-expect-error – duplex required for streaming request bodies in Node fetch
+                      duplex: 'half',
+                      signal,
+                    });
+                    fileDone = chunkEnd;
+                    bytesDone += chunkEnd - offset;
+                    emit();
+                  }
+                }
+
+                filesDone++;
+                fileDone = fileSize;
+                emit();
+              }
             }
           } else {
+            // Local destination: copy each file, trying the source base first,
+            // then falling back to cold storage.
             for (const file of files) {
               if (shouldSkip(file, peerAddr)) continue;
-              const uploadUrl = `http://${peerAddr}/api/v1/local-models/upload`;
-              const src = resolveLocal(sourceBasePath!, file)!;
-              const fileSize = fileSizeMap[file] ?? 0;
-              fileTotal = fileSize;
+              const dst = resolveLocal(localBase, file);
+              if (!dst) {
+                logger.error(`[copy] invalid dst path: ${file}`);
+                continue;
+              }
+
+              let src = sourceBasePath
+                ? resolveLocal(sourceBasePath, file)
+                : null;
+              if (src) {
+                try {
+                  await fsp.access(src);
+                } catch {
+                  src = null;
+                }
+              }
+              if (!src) {
+                src = resolveLocal(coldBase, file);
+                if (src) {
+                  try {
+                    await fsp.access(src);
+                  } catch {
+                    src = null;
+                  }
+                }
+              }
+              if (!src) {
+                logger.error(`[copy] file not found in local or cold: ${file}`);
+                continue;
+              }
+
+              await fsp.mkdir(nodePath.dirname(dst), {recursive: true});
+              fileTotal = fileSizeMap[file] ?? 0;
               fileDone = 0;
               emit();
 
-              logger.info(`[copy] upload ${file} → ${peerAddr}`);
-              if (fileSize === 0) {
-                await fetch(uploadUrl, {
-                  method: 'POST',
-                  headers: {'x-file-path': file, 'x-chunk-offset': '0'},
-                  signal,
-                });
-              } else {
-                for (let offset = 0; offset < fileSize; offset += CHUNK_SIZE) {
-                  signal.throwIfAborted();
-                  const chunkEnd = Math.min(offset + CHUNK_SIZE, fileSize);
-                  logger.debug(
-                    `[copy] upload chunk ${file} offset=${offset} → ${peerAddr}`,
-                  );
-                  const readable = createReadStream(src, {
-                    start: offset,
-                    end: chunkEnd - 1,
-                  });
-                  await fetch(uploadUrl, {
-                    method: 'POST',
-                    headers: {
-                      'x-file-path': file,
-                      'x-chunk-offset': String(offset),
-                      'Content-Type': 'application/octet-stream',
-                    },
-                    body: Readable.toWeb(readable) as unknown as BodyInit,
-                    // @ts-expect-error – duplex required for streaming request bodies in Node fetch
-                    duplex: 'half',
-                    signal,
-                  });
-                  fileDone = chunkEnd;
-                  bytesDone += chunkEnd - offset;
+              let nextEmitAt = EMIT_INTERVAL;
+              const counter = makeCounter((n) => {
+                fileDone += n;
+                bytesDone += n;
+                if (fileDone >= nextEmitAt) {
+                  nextEmitAt = fileDone + EMIT_INTERVAL;
                   emit();
                 }
-              }
+              });
+              await pipeline(
+                createReadStream(src),
+                counter,
+                createWriteStream(dst),
+                {
+                  signal,
+                },
+              );
 
               filesDone++;
-              fileDone = fileSize;
+              fileDone = fileTotal;
               emit();
             }
           }
