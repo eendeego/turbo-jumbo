@@ -308,7 +308,7 @@ export function HomeClient({
   );
 
   return (
-    <AppShell contentPadding={6} height="auto">
+    <AppShell contentPadding={5} height="auto">
       <VStack gap={6}>
         <HStack vAlign="center">
           <StackItem size="fill">
