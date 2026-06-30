@@ -75,6 +75,8 @@ interface DisplayRow extends Record<string, unknown> {
 const styles = stylex.create({
   indent1: {paddingInlineStart: '1.5rem'},
   indent2: {paddingInlineStart: '3rem'},
+  // Cached (sidecar-derived) audit verdicts are toned down vs fresh results.
+  dimmed: {opacity: 0.6},
 });
 
 function formatSize(bytes: number): string {
@@ -108,7 +110,7 @@ const AUDIT_SEVERITY: Record<AuditStatus, number> = {
 
 type RowAudit =
   | {kind: 'pending'}
-  | {kind: 'result'; status: AuditStatus; message?: string}
+  | {kind: 'result'; status: AuditStatus; message?: string; cached: boolean}
   | null;
 
 function rowAudit(
@@ -127,7 +129,12 @@ function rowAudit(
   const worst = results.reduce((a, b) =>
     AUDIT_SEVERITY[b.status] > AUDIT_SEVERITY[a.status] ? b : a,
   );
-  return {kind: 'result', status: worst.status, message: worst.message};
+  return {
+    kind: 'result',
+    status: worst.status,
+    message: worst.message,
+    cached: !!worst.cached,
+  };
 }
 
 // The expected value most relevant to a given failure, drawn from the HF source.
@@ -135,7 +142,9 @@ function expectedDetail(f: AuditResult): string | null {
   if (!f.hf) return null;
   switch (f.status) {
     case 'incomplete':
-      return `Expected size: ${formatSize(f.hf.expectedSize)}`;
+      return f.hf.expectedSize == null
+        ? null
+        : `Expected size: ${formatSize(f.hf.expectedSize)}`;
     case 'checksum-mismatch':
       return `Expected sha256: ${f.hf.expectedSha256}`;
     case 'misplaced':
@@ -153,8 +162,15 @@ function AuditFailureContent({failures}: {failures: AuditResult[]}) {
         const detail = expectedDetail(f);
         const {label, variant} = AUDIT_BADGE[f.status];
         return (
-          <VStack key={f.file} gap={1}>
-            <Text type="body">{name}</Text>
+          <VStack
+            key={f.file}
+            gap={1}
+            xstyle={f.cached ? styles.dimmed : undefined}
+          >
+            <Text type="body">
+              {name}
+              {f.cached ? ' (cached)' : ''}
+            </Text>
             <HStack gap={2} vAlign="center">
               <Badge label={label} variant={variant} />
               {f.message && <Text type="supporting">{f.message}</Text>}
@@ -193,7 +209,15 @@ function AuditCell({
     return <Badge label="Auditing…" variant="neutral" />;
   }
   const {label, variant} = AUDIT_BADGE[audit.status];
-  const plainBadge = <Badge label={label} variant={variant} />;
+  // Cached (metadata-derived) verdicts are toned down to contrast with fresh
+  // results.
+  const plainBadge = (
+    <Badge
+      label={audit.cached ? `${label} (cached)` : label}
+      variant={variant}
+      xstyle={audit.cached ? styles.dimmed : undefined}
+    />
+  );
   const hasFailures =
     audit.status !== 'pass' && failures != null && failures.length > 0;
   const badge = hasFailures ? (
@@ -598,9 +622,10 @@ export function ModelsTableClient({
             align: 'center' as const,
             renderCell: (item: DisplayRow) => {
               const results = auditResults ?? new Map<string, AuditResult>();
-              const misplaced = item.paths.filter(
-                (p) => results.get(p)?.status === 'misplaced',
-              );
+              const misplaced = item.paths.filter((p) => {
+                const r = results.get(p);
+                return r?.status === 'misplaced' && !r.cached;
+              });
               const failures = item.paths
                 .map((p) => results.get(p))
                 .filter(

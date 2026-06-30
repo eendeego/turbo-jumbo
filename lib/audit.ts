@@ -20,7 +20,7 @@ export interface HfSummary {
   repoId: string;
   modelUrl: string; // repo page, e.g. https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF
   fileUrl: string; // file blob page within the repo
-  expectedSize: number;
+  expectedSize?: number; // omitted for cached results (size isn't in the sidecar)
   expectedSha256: string;
   expectedPath: string; // <repoId>/<repoPath>
 }
@@ -30,6 +30,7 @@ export interface AuditResult {
   status: AuditStatus;
   message?: string;
   hf?: HfSummary; // present whenever an HF source was inferred
+  cached?: boolean; // derived from a sidecar (a prior run), not freshly computed
 }
 
 export interface TjMeta {
@@ -58,6 +59,55 @@ export function hfSummary(hf: HfFileInfo): HfSummary {
     expectedSize: hf.size,
     expectedSha256: hf.sha256,
     expectedPath: expectedRelPath(hf),
+  };
+}
+
+/**
+ * Reconstruct a best-effort verdict from a previously written sidecar, without
+ * re-hashing or hitting the network. The sidecar lacks an expected size, so the
+ * size check is skipped (it passed when the sidecar was written): only the
+ * cached sha comparison and the current placement are evaluated. Marked
+ * `cached` so the UI can tone it down against a fresh result.
+ */
+export function cachedResultFromMeta(
+  relPath: string,
+  meta: TjMeta,
+): AuditResult {
+  const repoId = meta.modelUrl.replace(/^https:\/\/huggingface\.co\//, '');
+  const pathMatch = meta.originUrl.match(
+    /^https:\/\/huggingface\.co\/[^/]+\/[^/]+\/blob\/[^/]+\/(.+)$/,
+  );
+  const repoPath = pathMatch?.[1] ?? '';
+  const hf: HfSummary | undefined =
+    repoId && repoPath
+      ? {
+          repoId,
+          modelUrl: meta.modelUrl,
+          fileUrl: meta.originUrl,
+          expectedSha256: meta.sourceSha256,
+          expectedPath: `${repoId}/${repoPath}`,
+        }
+      : undefined;
+
+  let status: AuditStatus;
+  let message: string | undefined;
+  if (!meta.sourceSha256) {
+    status = 'unverifiable';
+  } else if (meta.computedSha256 !== meta.sourceSha256) {
+    status = 'checksum-mismatch';
+  } else if (hf && relPath !== hf.expectedPath) {
+    status = 'misplaced';
+    message = `expected path ${hf.expectedPath}`;
+  } else {
+    status = 'pass';
+  }
+
+  return {
+    file: relPath,
+    status,
+    ...(message ? {message} : {}),
+    hf,
+    cached: true,
   };
 }
 

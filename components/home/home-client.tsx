@@ -1,6 +1,6 @@
 'use client';
 
-import {useState, useMemo, useCallback} from 'react';
+import {useState, useMemo, useCallback, useEffect} from 'react';
 import {useRouter} from 'next/navigation';
 import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
@@ -267,13 +267,48 @@ export function HomeClient({
     }
   }
 
+  // Only freshly-audited misplaced files are fixable; cached verdicts are
+  // tentative until re-audited.
   const misplacedPaths = useMemo(
     () =>
       [...auditResults.values()]
-        .filter((r) => r.status === 'misplaced')
+        .filter((r) => r.status === 'misplaced' && !r.cached)
         .map((r) => r.file),
     [auditResults],
   );
+
+  // Pre-fill the Audit column from sidecar metadata so the last-known verdicts
+  // show (toned down) before a fresh run. Seeds without clobbering fresh
+  // results, and reloads when switching to a different local/cold tab.
+  useEffect(() => {
+    if (!auditLocation) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/v1/audit/cached', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({location: auditLocation}),
+        });
+        if (!res.ok) return;
+        const {results} = (await res.json()) as {results: AuditResult[]};
+        if (cancelled || results.length === 0) return;
+        setAuditResults((prev) => {
+          const next = new Map(prev);
+          for (const r of results) if (!next.has(r.file)) next.set(r.file, r);
+          return next;
+        });
+        setAuditedPaths(
+          (prev) => new Set([...prev, ...results.map((r) => r.file)]),
+        );
+      } catch {
+        /* best-effort pre-fill */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auditLocation]);
 
   const onToggleSelected = useCallback((paths: string[]) => {
     setSelected((prev) => {

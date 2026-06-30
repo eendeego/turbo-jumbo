@@ -3,6 +3,7 @@ import {promises as fsp} from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  cachedResultFromMeta,
   decideStatus,
   expectedRelPath,
   hfSummary,
@@ -103,6 +104,55 @@ test('error when sha could not be computed despite matching size', () => {
 
 test('expectedRelPath joins repoId and repoPath', () => {
   expect(expectedRelPath(hf)).toBe('o/r/M.Q4.gguf');
+});
+
+const cachedMeta = {
+  modelUrl: 'https://huggingface.co/o/r',
+  originUrl: 'https://huggingface.co/o/r/blob/main/sub/M.Q4.gguf',
+  sourceSha256: 'deadbeef',
+  computedSha256: 'deadbeef',
+};
+
+test('cachedResultFromMeta: pass when shas match and path is correct', () => {
+  const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', cachedMeta);
+  expect(r).toEqual({
+    file: 'o/r/sub/M.Q4.gguf',
+    status: 'pass',
+    cached: true,
+    hf: {
+      repoId: 'o/r',
+      modelUrl: 'https://huggingface.co/o/r',
+      fileUrl: 'https://huggingface.co/o/r/blob/main/sub/M.Q4.gguf',
+      expectedSha256: 'deadbeef',
+      expectedPath: 'o/r/sub/M.Q4.gguf',
+    },
+  });
+});
+
+test('cachedResultFromMeta: checksum-mismatch when cached shas differ', () => {
+  const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', {
+    ...cachedMeta,
+    computedSha256: 'other',
+  });
+  expect(r.status).toBe('checksum-mismatch');
+  expect(r.cached).toBe(true);
+});
+
+test('cachedResultFromMeta: misplaced when current path differs from expected', () => {
+  const r = cachedResultFromMeta('M.Q4.gguf', cachedMeta);
+  expect(r.status).toBe('misplaced');
+  expect(r.message).toBe('expected path o/r/sub/M.Q4.gguf');
+});
+
+test('cachedResultFromMeta: unverifiable when the sidecar has no source sha', () => {
+  const r = cachedResultFromMeta('M.Q4.gguf', {
+    modelUrl: '',
+    originUrl: '',
+    sourceSha256: '',
+    computedSha256: '',
+  });
+  expect(r.status).toBe('unverifiable');
+  expect(r.hf).toBeUndefined();
 });
 
 test('hfSummary builds repo/file URLs and expected values', () => {
