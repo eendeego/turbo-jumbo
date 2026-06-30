@@ -13,7 +13,9 @@ test('accepts a minimal valid config', () => {
 });
 
 test('accepts an optional log_level', () => {
-  expect(validateRawConfig({log_level: 'debug', peers: [validPeer]})).toBeNull();
+  expect(
+    validateRawConfig({log_level: 'debug', peers: [validPeer]}),
+  ).toBeNull();
 });
 
 test('rejects a missing peers array', () => {

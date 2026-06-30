@@ -49,7 +49,7 @@ Models are discovered by **synchronously scanning the filesystem** (`lib/models.
 - **`<file>.tjmeta.json`** (`lib/tjmeta.ts`) — per-file record: the HF `modelUrl`/`originUrl` it came from, expected vs. computed size and SHA256, and the resolved source commit.
 - **`tjmodel.json`** (`lib/model-sidecar.ts`) — per-model sidecar in the model directory: shared identity (`repoId`, `repoCommit`) plus one entry per file. A model's revision is derived from its files' commits (`MIXED_COMMIT` when they disagree).
 
-A model's **name** comes from its sidecar's `org/repo` when present, otherwise the filename — so the *same* file can be named differently on two peers. Cross-peer matching therefore joins on **file basename**, not model name (`lib/peer-paths.ts`): specific basenames (GGUF, dtype-tagged) join on their own; generic weight names (`model.safetensors`, etc.) and mmproj files are qualified by model name to avoid conflating different repos.
+A model's **name** comes from its sidecar's `org/repo` when present, otherwise the filename — so the _same_ file can be named differently on two peers. Cross-peer matching therefore joins on **file basename**, not model name (`lib/peer-paths.ts`): specific basenames (GGUF, dtype-tagged) join on their own; generic weight names (`model.safetensors`, etc.) and mmproj files are qualified by model name to avoid conflating different repos.
 
 ### Audit (`lib/audit.ts` and friends)
 
@@ -64,28 +64,31 @@ HuggingFace downloads shell out to the `hf` CLI with `hf-transfer` (see `Dockerf
 - Buttons that open a modal or dialog end their label with an ellipsis (`…`) — e.g. `"Delete…"`, `"Copy to…"`.
 
 <!-- ASTRYX:START -->
+
 Astryx v0.1.2 · 148 components
 CLI: run every command as `bunx astryx <cmd>` (shown below as `astryx ...`).
 
 SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
-  import "@astryxdesign/core/reset.css";
-  import "@astryxdesign/core/astryx.css";
+import "@astryxdesign/core/reset.css";
+import "@astryxdesign/core/astryx.css";
 
 WORKFLOW — discover, don't guess. Before writing UI:
+
 1. `astryx build "<idea>"` — START HERE: returns a kit (closest [page] + [block]s + [component]s). No args = full playbook.
 2. `astryx template <name> [--skeleton]` — scaffold the [page]/[block]s it named, or study their layout. Templates are reference code.
 3. `astryx component <Name>` — props + examples for every component you use.
 
 RULES:
+
 - No <div> — components do all layout/spacing. Full page → AppShell; sidebar nav → SideNav.
 - Custom styling: component props first; else the xstyle prop / StyleX tokens (@astryxdesign/core/theme/tokens.stylex). No raw hex/px.
 - Tokens for every value (`astryx docs tokens`). Brand/accent via `astryx theme` — never override --color-* in :root.
 
 MORE CLI:
-  search "<query>"   find any component / hook / doc / template / block
-  component --list   148 components by category
-  template --list    page + block recipes
-  docs <topic>       color, elevation, icons, illustrations, migration, motion, principles, shape, spacing, styling, theme, tokens, typography
-  swizzle <Name>     eject component source (--gap reports why)
-  upgrade --apply    run after any @astryxdesign/core bump
+search "<query>" find any component / hook / doc / template / block
+component --list 148 components by category
+template --list page + block recipes
+docs <topic> color, elevation, icons, illustrations, migration, motion, principles, shape, spacing, styling, theme, tokens, typography
+swizzle <Name> eject component source (--gap reports why)
+upgrade --apply run after any @astryxdesign/core bump
 <!-- ASTRYX:END -->
