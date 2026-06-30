@@ -154,13 +154,23 @@ function expectedDetail(f: AuditResult): string | null {
   }
 }
 
-function AuditFailureContent({failures}: {failures: AuditResult[]}) {
+function AuditFailureContent({
+  failures,
+  onFix,
+  fixing,
+}: {
+  failures: AuditResult[];
+  onFix?: (path: string) => void;
+  fixing?: boolean;
+}) {
   return (
     <VStack gap={3}>
       {failures.map((f) => {
         const name = f.file.split('/').pop() ?? f.file;
         const detail = expectedDetail(f);
         const {label, variant} = AUDIT_BADGE[f.status];
+        // Only non-cached misplaced files can be relocated server-side.
+        const canFix = f.status === 'misplaced' && !f.cached && onFix != null;
         return (
           <VStack
             key={f.file}
@@ -186,6 +196,17 @@ function AuditFailureContent({failures}: {failures: AuditResult[]}) {
                 </Link>
               </VStack>
             )}
+            {canFix && (
+              <HStack>
+                <Button
+                  label={fixing ? 'Fixing…' : 'Fix'}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onFix?.(f.file)}
+                  isDisabled={fixing}
+                />
+              </HStack>
+            )}
           </VStack>
         );
       })}
@@ -201,7 +222,7 @@ function AuditCell({
 }: {
   audit: RowAudit;
   failures?: AuditResult[];
-  onFix?: () => void;
+  onFix?: (path: string) => void;
   fixing?: boolean;
 }) {
   if (audit == null) return null;
@@ -220,29 +241,20 @@ function AuditCell({
   );
   const hasFailures =
     audit.status !== 'pass' && failures != null && failures.length > 0;
-  const badge = hasFailures ? (
+  if (!hasFailures) return plainBadge;
+  return (
     <HoverCard
       placement="above"
-      content={<AuditFailureContent failures={failures} />}
+      content={
+        <AuditFailureContent
+          failures={failures ?? []}
+          onFix={onFix}
+          fixing={fixing}
+        />
+      }
     >
       {plainBadge}
     </HoverCard>
-  ) : (
-    plainBadge
-  );
-
-  if (audit.status !== 'misplaced' || !onFix) return badge;
-  return (
-    <HStack gap={1} vAlign="center">
-      {badge}
-      <Button
-        label={fixing ? 'Fixing…' : 'Fix'}
-        variant="ghost"
-        size="sm"
-        onClick={onFix}
-        isDisabled={fixing}
-      />
-    </HStack>
   );
 }
 
@@ -622,10 +634,6 @@ export function ModelsTableClient({
             align: 'center' as const,
             renderCell: (item: DisplayRow) => {
               const results = auditResults ?? new Map<string, AuditResult>();
-              const misplaced = item.paths.filter((p) => {
-                const r = results.get(p);
-                return r?.status === 'misplaced' && !r.cached;
-              });
               const failures = item.paths
                 .map((p) => results.get(p))
                 .filter(
@@ -636,8 +644,8 @@ export function ModelsTableClient({
                   audit={rowAudit(item.paths, auditedPaths, results, auditing)}
                   failures={failures}
                   onFix={
-                    onFixMisplaced && misplaced.length > 0
-                      ? () => onFixMisplaced(misplaced)
+                    onFixMisplaced
+                      ? (path) => onFixMisplaced([path])
                       : undefined
                   }
                   fixing={fixing}
