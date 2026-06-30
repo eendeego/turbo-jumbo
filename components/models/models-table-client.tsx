@@ -3,20 +3,29 @@
 import {useState, useCallback} from 'react';
 import * as stylex from '@stylexjs/stylex';
 import {Table, proportional, type TableColumn} from '@astryxdesign/core/Table';
+import {HStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
 import {Button} from '@astryxdesign/core/Button';
 
+export interface QuantInfo {
+  label: string;
+  filename: string | null;
+  isSingleFile: boolean;
+}
+
 export interface ModelRow extends Record<string, unknown> {
   name: string;
   quantizations: string;
-  quants: string[];
+  quants: QuantInfo[];
 }
 
 interface DisplayRow extends Record<string, unknown> {
   key: string;
   label: string;
   quantizations: string;
+  isSingleFile: boolean;
+  filename: string | null;
   isChild: boolean;
   parentName: string;
 }
@@ -35,6 +44,14 @@ function NameCell({
   onToggle: (name: string) => void;
 }) {
   if (row.isChild) {
+    if (row.isSingleFile) {
+      return (
+        <HStack gap={2} vAlign="center" xstyle={styles.indent}>
+          <Text type="body">{row.label}</Text>
+          <Text type="supporting">{row.filename}</Text>
+        </HStack>
+      );
+    }
     return (
       <Text type="body" color="secondary" xstyle={styles.indent}>
         {row.label}
@@ -70,15 +87,19 @@ export function ModelsTableClient({models}: {models: ModelRow[]}) {
       key: m.name,
       label: m.name,
       quantizations: m.quantizations,
+      isSingleFile: false,
+      filename: null,
       isChild: false,
       parentName: m.name,
     });
     if (expanded.has(m.name)) {
       for (const q of m.quants) {
         rows.push({
-          key: `${m.name}::${q}`,
-          label: q,
+          key: `${m.name}::${q.label}`,
+          label: q.label,
           quantizations: '',
+          isSingleFile: q.isSingleFile,
+          filename: q.filename,
           isChild: true,
           parentName: m.name,
         });
