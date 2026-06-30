@@ -58,9 +58,7 @@ const styles = stylex.create({
   },
   panelOpen: {height: '50vh'},
   panelClosed: {height: 0},
-  scroll: {height: '100%', overflowY: 'auto'},
-  scrollOpen: {padding: '8px 16px'},
-  scrollClosed: {padding: '0 16px'},
+  scroll: {height: '100%', overflowY: 'auto', padding: '8px 16px'},
   empty: {color: '#3a6a3a'},
   list: {display: 'flex', flexDirection: 'column', gap: '1px'},
   row: {display: 'flex', gap: '8px', lineHeight: '20px', fontSize: '12px'},
@@ -121,6 +119,7 @@ export function Log({logLevel}: {logLevel: string}) {
       {/* Handle tab */}
       <button
         onClick={toggle}
+        aria-expanded={open}
         {...stylex.props(
           styles.handle,
           open ? styles.handleBorderOpen : styles.handleBorderClosed,
@@ -140,17 +139,14 @@ export function Log({logLevel}: {logLevel: string}) {
         <div
           ref={containerRef}
           onScroll={onScroll}
-          {...stylex.props(
-            styles.scroll,
-            open ? styles.scrollOpen : styles.scrollClosed,
-          )}
+          {...stylex.props(styles.scroll)}
         >
           {visible.length === 0 ? (
             <p {...stylex.props(styles.empty)}>No log entries yet.</p>
           ) : (
             <div {...stylex.props(styles.list)}>
               {visible.map((e, i) => (
-                <div key={i} {...stylex.props(styles.row)}>
+                <div key={`${e.ts}-${i}`} {...stylex.props(styles.row)}>
                   <span {...stylex.props(styles.ts)}>{e.ts.slice(11, 19)}</span>
                   <span
                     {...stylex.props(styles.level)}
