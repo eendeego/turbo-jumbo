@@ -1,8 +1,15 @@
 import type {Model} from '@/lib/models';
 import {ModelsTableClient, type ModelRow} from './models-table-client';
 
-// A flat, de-duplicated list of every model name known across local storage and
-// cold storage, sorted alphabetically. Data prep runs on the server; the actual
+// Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",
+// "BF16" → "16"); falls back to the raw token when there's no number.
+function quantBits(quant: string): string {
+  const m = quant.match(/\d+/);
+  return m ? m[0] : quant;
+}
+
+// One row per model (across local + cold storage), with the distinct
+// quantization bit sizes it's available in. Data prep runs on the server; the
 // table (with its renderCell columns) renders in ModelsTableClient.
 export function ModelsTable({
   coldModels,
@@ -11,15 +18,22 @@ export function ModelsTable({
   coldModels: Model[];
   localModels: Model[];
 }) {
-  const seen = new Set<string>();
-  const models: ModelRow[] = [];
+  const bitsByModel = new Map<string, Set<string>>();
   for (const m of [...localModels, ...coldModels]) {
-    if (!seen.has(m.name)) {
-      seen.add(m.name);
-      models.push({name: m.name});
+    let bits = bitsByModel.get(m.name);
+    if (!bits) {
+      bits = new Set();
+      bitsByModel.set(m.name, bits);
     }
+    for (const f of m.files) bits.add(quantBits(f.quant));
   }
-  models.sort((a, b) => a.name.localeCompare(b.name));
+
+  const models: ModelRow[] = [...bitsByModel.entries()]
+    .map(([name, bits]) => ({
+      name,
+      quantizations: [...bits].sort((a, b) => Number(a) - Number(b)).join(', '),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return <ModelsTableClient models={models} />;
 }

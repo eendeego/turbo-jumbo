@@ -5,6 +5,7 @@ import {Text} from '@astryxdesign/core/Text';
 
 export interface ModelRow extends Record<string, unknown> {
   name: string;
+  quantizations: string;
 }
 
 // Columns carry a renderCell function, which can't cross the server/client
@@ -16,6 +17,12 @@ const columns: TableColumn<ModelRow>[] = [
     header: 'Model',
     width: proportional(1),
     renderCell: (item) => <Text type="body">{item.name}</Text>,
+  },
+  {
+    key: 'quantizations',
+    header: 'Quantizations',
+    width: proportional(1),
+    renderCell: (item) => <Text type="body">{item.quantizations}</Text>,
   },
 ];
 
