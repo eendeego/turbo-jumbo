@@ -59,10 +59,7 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
   useEffect(() => {
     if (!peers) return;
     peers.forEach((peer) => {
-      const url = peer.isLocal
-        ? '/api/v1/local-models'
-        : `http://${peer.address}/api/v1/local-models`;
-      fetch(url)
+      fetch(`/api/v1/peers/${encodeURIComponent(peer.name)}/models`)
         .then((r) => r.json())
         .then((models: Model[]) =>
           setPeerModelsMap((prev) => new Map(prev).set(peer.address, models)),

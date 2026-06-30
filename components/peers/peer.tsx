@@ -155,8 +155,9 @@ export function Peer({
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       await readCopyProgress(res, setCopyProgress);
       if (destinations.deleteAfterCopy) {
-        const base = peer.isLocal ? '' : `http://${peer.address}`;
-        const refreshed = await fetch(`${base}/api/v1/local-models`);
+        const refreshed = await fetch(
+          `/api/v1/peers/${encodeURIComponent(peer.name)}/models`,
+        );
         if (!refreshed.ok)
           throw new Error(`${refreshed.status} ${refreshed.statusText}`);
         onModelsRefreshed(peer.address, await refreshed.json());
