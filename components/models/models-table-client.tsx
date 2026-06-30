@@ -158,10 +158,12 @@ function AuditFailureContent({
   failures,
   onFix,
   fixing,
+  onSetSource,
 }: {
   failures: AuditResult[];
   onFix?: (path: string) => void;
   fixing?: boolean;
+  onSetSource?: (path: string) => void;
 }) {
   return (
     <VStack gap={3}>
@@ -171,6 +173,8 @@ function AuditFailureContent({
         const {label, variant} = AUDIT_BADGE[f.status];
         // Only non-cached misplaced files can be relocated server-side.
         const canFix = f.status === 'misplaced' && !f.cached && onFix != null;
+        // Unverifiable files have no inferred source — let the user supply one.
+        const canSetSource = f.status === 'unverifiable' && onSetSource != null;
         return (
           <VStack
             key={f.file}
@@ -207,6 +211,16 @@ function AuditFailureContent({
                 />
               </HStack>
             )}
+            {canSetSource && (
+              <HStack>
+                <Button
+                  label="Set source…"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onSetSource?.(f.file)}
+                />
+              </HStack>
+            )}
           </VStack>
         );
       })}
@@ -219,11 +233,13 @@ function AuditCell({
   failures,
   onFix,
   fixing,
+  onSetSource,
 }: {
   audit: RowAudit;
   failures?: AuditResult[];
   onFix?: (path: string) => void;
   fixing?: boolean;
+  onSetSource?: (path: string) => void;
 }) {
   if (audit == null) return null;
   if (audit.kind === 'pending') {
@@ -250,6 +266,7 @@ function AuditCell({
           failures={failures ?? []}
           onFix={onFix}
           fixing={fixing}
+          onSetSource={onSetSource}
         />
       }
     >
@@ -384,6 +401,7 @@ export function ModelsTableClient({
   auditing = false,
   onFixMisplaced,
   fixing = false,
+  onSetSource,
 }: {
   models: ModelRow[];
   peers: PeerConfig[];
@@ -397,6 +415,7 @@ export function ModelsTableClient({
   auditing?: boolean;
   onFixMisplaced?: (paths: string[]) => void;
   fixing?: boolean;
+  onSetSource?: (path: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -649,6 +668,7 @@ export function ModelsTableClient({
                       : undefined
                   }
                   fixing={fixing}
+                  onSetSource={onSetSource}
                 />
               );
             },

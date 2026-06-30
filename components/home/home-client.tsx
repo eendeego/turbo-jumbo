@@ -32,6 +32,7 @@ import {
 import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
+import {SetSourceModal} from '@/components/models/set-source-modal';
 import type {AuditResult, FixResult} from '@/lib/audit';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
@@ -97,6 +98,11 @@ export function HomeClient({
   const [auditedPaths, setAuditedPaths] = useState<Set<string>>(new Set());
   const [auditing, setAuditing] = useState(false);
   const [fixing, setFixing] = useState(false);
+  // The file whose HF source is being set (relative path), plus the request
+  // state for the modal.
+  const [sourceTarget, setSourceTarget] = useState<string | null>(null);
+  const [settingSource, setSettingSource] = useState(false);
+  const [sourceError, setSourceError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingCopy, setConfirmingCopy] = useState(false);
@@ -264,6 +270,49 @@ export function HomeClient({
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setFixing(false);
+    }
+  }
+
+  // Open the "set source" modal for an unverifiable file.
+  const onSetSource = useCallback((path: string) => {
+    setSourceError(null);
+    setSourceTarget(path);
+  }, []);
+
+  // Resolve a manually-supplied HF URL, verify the file against it, and fold the
+  // resulting verdict back into the audit state (same shape as a fresh audit).
+  async function submitSource(url: string) {
+    if (!auditLocation || !sourceTarget) return;
+    setSettingSource(true);
+    setSourceError(null);
+    try {
+      const res = await fetch('/api/v1/audit/set-source', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          location: auditLocation,
+          file: sourceTarget,
+          url,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        result?: AuditResult;
+        error?: string;
+      } | null;
+      if (!res.ok) {
+        setSourceError(data?.error ?? `${res.status} ${res.statusText}`);
+        return;
+      }
+      const result = data?.result;
+      if (result) {
+        setAuditedPaths((prev) => new Set(prev).add(result.file));
+        setAuditResults((prev) => new Map(prev).set(result.file, result));
+      }
+      setSourceTarget(null);
+    } catch (e) {
+      setSourceError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSettingSource(false);
     }
   }
 
@@ -509,6 +558,7 @@ export function HomeClient({
           auditing={auditing}
           onFixMisplaced={onFix}
           fixing={fixing}
+          onSetSource={onSetSource}
         />
         {error && <Banner status="error" title={`Error: ${error}`} />}
         <ActionBar
@@ -564,6 +614,18 @@ export function HomeClient({
             onCancel={() => {
               setPendingConflicts([]);
               setPendingDestinations(null);
+            }}
+          />
+        )}
+        {sourceTarget && (
+          <SetSourceModal
+            filename={sourceTarget.split('/').pop() ?? sourceTarget}
+            busy={settingSource}
+            error={sourceError}
+            onSubmit={submitSource}
+            onCancel={() => {
+              setSourceTarget(null);
+              setSourceError(null);
             }}
           />
         )}
