@@ -2,6 +2,7 @@
 
 import {useState, useMemo, useCallback} from 'react';
 import {useRouter} from 'next/navigation';
+import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Section} from '@astryxdesign/core/Section';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
@@ -50,6 +51,7 @@ function selectedFileInfo(
 }
 
 export function HomeClient({
+  activeLocation,
   coldModels,
   localModelsPath,
   logLevel,
@@ -58,6 +60,7 @@ export function HomeClient({
   localPeerAddress,
   localPeerModels,
 }: {
+  activeLocation: string;
   coldModels: Model[];
   localModelsPath: string | null;
   logLevel: string;
@@ -69,7 +72,6 @@ export function HomeClient({
   const router = useRouter();
   const {peers, peerModels, handleModelsRefreshed} = usePeerModels();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [activeLocation, setActiveLocation] = useState('all');
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,10 +86,20 @@ export function HomeClient({
     [peerConfigs],
   );
 
-  const handleLocationChange = useCallback((id: string) => {
-    setActiveLocation(id);
+  const handleLocationChange = useCallback(
+    (id: string) => {
+      router.push(locationHref(id, peerConfigs));
+    },
+    [router, peerConfigs],
+  );
+
+  // The selected tab lives in the URL; clear any selection whenever it changes
+  // (including browser back/forward) using a render-phase reset, not an effect.
+  const [prevLocation, setPrevLocation] = useState(activeLocation);
+  if (prevLocation !== activeLocation) {
+    setPrevLocation(activeLocation);
     setSelected(new Set());
-  }, []);
+  }
 
   const onToggleSelected = useCallback((paths: string[]) => {
     setSelected((prev) => {
