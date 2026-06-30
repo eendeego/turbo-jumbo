@@ -118,10 +118,19 @@ export async function POST(req: Request) {
   }
 
   const enc = new TextEncoder();
+  const abortController = new AbortController();
+
+  // Abort in-flight transfers when the client disconnects. req.signal fires on
+  // disconnect in Next.js/Bun; the stream's cancel() is a fallback for runtimes
+  // that surface cancellation that way instead.
+  req.signal.addEventListener('abort', () => abortController.abort(), {
+    once: true,
+  });
 
   // Stream newline-delimited progress so the browser can render a live bar.
   const stream = new ReadableStream({
     async start(controller) {
+      const {signal} = abortController;
       let closed = false;
       const safeEnqueue = (data: Uint8Array) => {
         if (closed) return;
@@ -129,6 +138,7 @@ export async function POST(req: Request) {
           controller.enqueue(data);
         } catch {
           closed = true;
+          abortController.abort();
         }
       };
       const safeClose = () => {
@@ -193,6 +203,7 @@ export async function POST(req: Request) {
           logger.info(`[copy] fetch ${file} from ${from} → ${destBaseDir}`);
           const res = await fetch(
             `http://${from}/api/v1/local-models/download?file=${encodeURIComponent(file)}`,
+            {signal},
           );
           if (!res.ok || !res.body) return false;
           const contentLen = parseInt(
@@ -207,6 +218,7 @@ export async function POST(req: Request) {
             Readable.fromWeb(res.body),
             counter,
             createWriteStream(dst),
+            {signal},
           );
         } else {
           const src = resolveLocal(sourceBasePath!, file)!;
@@ -217,6 +229,9 @@ export async function POST(req: Request) {
             createReadStream(src),
             counter,
             createWriteStream(dst),
+            {
+              signal,
+            },
           );
         }
 
@@ -273,6 +288,7 @@ export async function POST(req: Request) {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({files: nonSkippedFiles, toPeer: peerAddr}),
+              signal,
             });
             if (!res.ok) {
               safeClose();
@@ -298,9 +314,11 @@ export async function POST(req: Request) {
                 await fetch(uploadUrl, {
                   method: 'POST',
                   headers: {'x-file-path': file, 'x-chunk-offset': '0'},
+                  signal,
                 });
               } else {
                 for (let offset = 0; offset < fileSize; offset += CHUNK_SIZE) {
+                  signal.throwIfAborted();
                   const chunkEnd = Math.min(offset + CHUNK_SIZE, fileSize);
                   logger.debug(
                     `[copy] upload chunk ${file} offset=${offset} → ${peerAddr}`,
@@ -319,6 +337,7 @@ export async function POST(req: Request) {
                     body: Readable.toWeb(readable) as unknown as BodyInit,
                     // @ts-expect-error – duplex required for streaming request bodies in Node fetch
                     duplex: 'half',
+                    signal,
                   });
                   fileDone = chunkEnd;
                   bytesDone += chunkEnd - offset;
@@ -361,12 +380,19 @@ export async function POST(req: Request) {
         logger.info(`[copy] done: ${files.length} file(s) from ${from}`);
         safeClose();
       } catch (err) {
-        logger.error(
-          `[copy] error: ${files.length} file(s) from ${from}:`,
-          err,
-        );
+        if (signal.aborted) {
+          logger.info(`[copy] cancelled: ${files.length} file(s) from ${from}`);
+        } else {
+          logger.error(
+            `[copy] error: ${files.length} file(s) from ${from}:`,
+            err,
+          );
+        }
         safeClose();
       }
+    },
+    cancel() {
+      abortController.abort();
     },
   });
 

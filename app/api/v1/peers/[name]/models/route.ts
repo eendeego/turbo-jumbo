@@ -1,6 +1,6 @@
-import {config, localPeer, localModelsDir} from '@/lib/config';
+import {config, localPeer, localModelsDir, coldStorageDir} from '@/lib/config';
 import {logger} from '@/lib/logger';
-import {scanModels} from '@/lib/models';
+import {scanModels, annotateColdStorage} from '@/lib/models';
 import {promises as fsp} from 'fs';
 import nodePath from 'path';
 
@@ -18,14 +18,17 @@ export async function GET(
 
   if (peer === localPeer) {
     logger.debug(`[peers] fetch models from ${peer.name} (local)`);
-    const models = scanModels(localModelsDir);
+    let models = scanModels(localModelsDir);
+    if (coldStorageDir) models = annotateColdStorage(models, coldStorageDir);
     logger.debug(`[peers] ${peer.name} returned ${models.length} model(s)`);
     return Response.json(models);
   }
 
   logger.debug(`[peers] fetch models from ${peer.name} (${peer.address})`);
   try {
-    const res = await fetch(`http://${peer.address}/api/v1/local-models`);
+    const res = await fetch(
+      `http://${peer.address}/api/v1/local-models?checkColdStorage=true`,
+    );
     if (!res.ok)
       return new Response(`Peer returned ${res.status}`, {status: 502});
     const models = await res.json();

@@ -151,3 +151,30 @@ export function scanModels(storagePath: string | undefined): Model[] {
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+// Flag each file that has no matching copy in cold storage, so the UI can warn
+// that it isn't backed up. A split group counts as present if any shard is.
+export function annotateColdStorage(
+  models: Model[],
+  coldPath: string,
+): Model[] {
+  const coldBase = path.resolve(coldPath);
+  const existsInCold = (rel: string): boolean => {
+    try {
+      fs.statSync(path.join(coldBase, rel));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return models.map((model) => ({
+    ...model,
+    files: model.files.map((file): ModelFile => {
+      if (file.isSplit) {
+        const inCold = file.files.some((shard) => existsInCold(shard.path));
+        return {...file, notInColdStorage: !inCold};
+      }
+      return {...file, notInColdStorage: !existsInCold(file.path)};
+    }),
+  }));
+}

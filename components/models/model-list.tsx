@@ -108,6 +108,12 @@ export function ModelList({models, selected, onToggle}: ModelListProps) {
                                 label={`missing shards: ${file.missingIndices.join(', ')}`}
                               />
                             )}
+                            {file.notInColdStorage && (
+                              <Badge
+                                variant="warning"
+                                label="not in cold storage"
+                              />
+                            )}
                           </HStack>
                         }
                       >
@@ -153,6 +159,9 @@ export function ModelList({models, selected, onToggle}: ModelListProps) {
                     <Text type="supporting">{formatBytes(file.size)}</Text>
                     {file.missing && (
                       <Badge variant="warning" label="missing" />
+                    )}
+                    {file.notInColdStorage && (
+                      <Badge variant="warning" label="not in cold storage" />
                     )}
                   </HStack>
                 ),

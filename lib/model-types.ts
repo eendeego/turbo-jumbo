@@ -9,6 +9,7 @@ export interface SingleFile {
   quant: string;
   size: number;
   missing: boolean;
+  notInColdStorage?: boolean;
 }
 
 // One shard of a split (sharded) quantization.
@@ -36,6 +37,7 @@ export interface SplitGroup {
   presentShards: number;
   missingIndices: number[];
   totalSize: number;
+  notInColdStorage?: boolean;
 }
 
 export type ModelFile = SingleFile | SplitGroup;

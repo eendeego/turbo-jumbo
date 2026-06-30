@@ -1,13 +1,16 @@
 import {NextResponse} from 'next/server';
 import {promises as fsp} from 'fs';
 import nodePath from 'path';
-import {localModelsDir} from '@/lib/config';
+import {localModelsDir, coldStorageDir} from '@/lib/config';
 import {logger} from '@/lib/logger';
-import {scanModels} from '@/lib/models';
+import {scanModels, annotateColdStorage} from '@/lib/models';
 
-export function GET() {
+export function GET(req: Request) {
   logger.trace('[models] list requested');
-  const models = scanModels(localModelsDir);
+  let models = scanModels(localModelsDir);
+  const url = new URL(req.url);
+  if (url.searchParams.get('checkColdStorage') === 'true' && coldStorageDir)
+    models = annotateColdStorage(models, coldStorageDir);
   logger.trace(`[models] list received: ${models.length} model(s)`);
   return NextResponse.json(models);
 }
