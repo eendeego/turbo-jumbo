@@ -114,6 +114,7 @@ export function HomeClient({
   }, []);
 
   const deleteFromLabel = useMemo(() => {
+    if (activeLocation === 'all') return 'all locations';
     if (activeLocation === 'cold-storage') return 'cold storage';
     const peer = peerConfigs.find((p) => p.address === activeLocation);
     if (!peer) return undefined;
@@ -200,6 +201,7 @@ export function HomeClient({
             files={fileInfo}
             from={deleteFromLabel}
             requireDoubleConfirm={
+              activeLocation === 'all' ||
               activeLocation === 'cold-storage' ||
               anyMissingFromColdStorage(fileInfo, coldModels)
             }

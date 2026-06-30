@@ -108,9 +108,11 @@ export function DeleteModal({
         <VStack gap={4}>
           <Heading level={3}>Are you sure?</Heading>
           <Text type="supporting">
-            {from === 'cold storage'
-              ? 'These files will be permanently deleted from cold storage and cannot be recovered.'
-              : 'Some of these files are not backed up in cold storage and cannot be recovered after deletion.'}
+            {from === 'all locations'
+              ? 'This will delete these files from all locations, including cold storage. This cannot be undone.'
+              : from === 'cold storage'
+                ? 'These files will be permanently deleted from cold storage and cannot be recovered.'
+                : 'Some of these files are not backed up in cold storage and cannot be recovered after deletion.'}
           </Text>
           <HStack gap={2} hAlign="end">
             <Button
