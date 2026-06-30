@@ -320,7 +320,7 @@ export function HomeClient({
           activeLocation={activeLocation}
           onLocationChange={handleLocationChange}
         />
-        {localModelsPath && (
+        {localModelsPath && activeLocation !== 'cold-storage' && (
           <HuggingFaceDownload localModelsPath={localModelsPath} />
         )}
         <ModelsTableClient
