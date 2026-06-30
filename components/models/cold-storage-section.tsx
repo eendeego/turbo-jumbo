@@ -69,7 +69,6 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
           files: Array.from(selected),
           from: 'cold-storage',
           toColdStorage: destinations.toColdStorage,
-          toLocal: destinations.toLocal,
           toPeers: destinations.toPeers,
           fileSizes: buildFileSizes(models),
         }),

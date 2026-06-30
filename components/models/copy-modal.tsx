@@ -14,14 +14,13 @@ import type {FileInfo} from '@/components/models/delete-modal';
 
 export interface CopyDestinations {
   toColdStorage: boolean;
-  toLocal: boolean;
-  toPeers: string[];
+  toPeers: string[]; // peer addresses, including the local peer's own address
   deleteAfterCopy: boolean;
 }
 
 interface CopyModalProps {
   files: FileInfo[];
-  from: string; // "local" | "cold-storage" | peer address
+  from: string; // "cold-storage" | peer address
   onCopy: (destinations: CopyDestinations) => void;
   onCancel: () => void;
 }
@@ -41,12 +40,10 @@ function allPresent(files: FileInfo[], destModels: Model[]): boolean {
 export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
   const [peers, setPeers] = useState<Peer[] | null>(null);
   const [coldModels, setColdModels] = useState<Model[] | null>(null);
-  const [localModels, setLocalModels] = useState<Model[] | null>(null);
   const [peerModelsMap, setPeerModelsMap] = useState<Map<string, Model[]>>(
     new Map(),
   );
   const [toColdStorage, setToColdStorage] = useState(false);
-  const [toLocal, setToLocal] = useState(false);
   const [deleteAfterCopy, setDeleteAfterCopy] = useState(false);
   const [selectedPeers, setSelectedPeers] = useState<Set<string>>(new Set());
 
@@ -57,17 +54,15 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
     fetch('/api/v1/cold-storage')
       .then((r) => r.json())
       .then((data: Model[]) => setColdModels(data));
-    if (from !== 'local') {
-      fetch('/api/v1/local-models')
-        .then((r) => r.json())
-        .then((data: Model[]) => setLocalModels(data));
-    }
-  }, [from]);
+  }, []);
 
   useEffect(() => {
     if (!peers) return;
     peers.forEach((peer) => {
-      fetch(`http://${peer.address}/api/v1/local-models`)
+      const url = peer.isLocal
+        ? '/api/v1/local-models'
+        : `http://${peer.address}/api/v1/local-models`;
+      fetch(url)
         .then((r) => r.json())
         .then((models: Model[]) =>
           setPeerModelsMap((prev) => new Map(prev).set(peer.address, models)),
@@ -79,15 +74,11 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
   }, [peers]);
 
   const showColdStorage = from !== 'cold-storage';
-  const showLocal = from !== 'local';
-  const availablePeers = (peers ?? []).filter(
-    (p) => p.address !== from && !p.isLocal,
-  );
+  // The local peer is just another destination now; only exclude the source.
+  const availablePeers = (peers ?? []).filter((p) => p.address !== from);
   const coldAlreadyPresent =
     coldModels !== null && allPresent(files, coldModels);
-  const localAlreadyPresent =
-    localModels !== null && allPresent(files, localModels);
-  const canCopy = toColdStorage || toLocal || selectedPeers.size > 0;
+  const canCopy = toColdStorage || selectedPeers.size > 0;
 
   function togglePeer(addr: string) {
     setSelectedPeers((prev) => {
@@ -101,7 +92,6 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
   function handleCopy() {
     onCopy({
       toColdStorage,
-      toLocal,
       toPeers: Array.from(selectedPeers),
       deleteAfterCopy: toColdStorage && deleteAfterCopy,
     });
@@ -153,16 +143,6 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
             </>
           )}
 
-          {showLocal && (
-            <CheckboxInput
-              label="Local"
-              description={localAlreadyPresent ? 'already present' : undefined}
-              value={toLocal}
-              isDisabled={localAlreadyPresent}
-              onChange={setToLocal}
-            />
-          )}
-
           {peers === null ? (
             <Spinner label="Loading peers…" />
           ) : (
@@ -170,11 +150,20 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
               const peerModels = peerModelsMap.get(peer.address);
               const alreadyPresent =
                 peerModels !== undefined && allPresent(files, peerModels);
+              const note = peer.isLocal
+                ? alreadyPresent
+                  ? 'local · already present'
+                  : 'local'
+                : alreadyPresent
+                  ? 'already present'
+                  : undefined;
               return (
                 <CheckboxInput
                   key={peer.address}
-                  label={`${peer.name} (${peer.address})`}
-                  description={alreadyPresent ? 'already present' : undefined}
+                  label={
+                    peer.isLocal ? peer.name : `${peer.name} (${peer.address})`
+                  }
+                  description={note}
                   value={selectedPeers.has(peer.address)}
                   isDisabled={alreadyPresent}
                   onChange={() => togglePeer(peer.address)}

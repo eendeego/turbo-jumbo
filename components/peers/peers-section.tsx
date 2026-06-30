@@ -118,9 +118,8 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           files: peerSelections[peer.address] ?? [],
-          from: peer.isLocal ? 'local' : peer.address,
+          from: peer.address,
           toColdStorage: destinations.toColdStorage,
-          toLocal: destinations.toLocal,
           toPeers: destinations.toPeers,
           fileSizes: buildFileSizes(peerModels.get(peer.address) ?? []),
         }),
@@ -164,7 +163,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           files: sel,
-          from: peer.isLocal ? 'local' : peer.address,
+          from: peer.address,
           ...destinations,
           fileSizes: buildFileSizes(peerModels.get(peer.address) ?? []),
           skip,
@@ -219,9 +218,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
       {confirmingCopyPeer && (
         <CopyModal
           files={selectedFileInfo(confirmingCopyModels, confirmingCopySelected)}
-          from={
-            confirmingCopyPeer.isLocal ? 'local' : confirmingCopyPeer.address
-          }
+          from={confirmingCopyPeer.address}
           onCopy={(destinations) =>
             onCopyPeer(confirmingCopyPeer, destinations)
           }

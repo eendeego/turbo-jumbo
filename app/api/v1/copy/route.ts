@@ -1,4 +1,4 @@
-import {localModelsDir, coldStorageDir} from '@/lib/config';
+import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {promises as fsp} from 'fs';
 import {createReadStream, createWriteStream} from 'fs';
 import nodePath from 'path';
@@ -11,10 +11,9 @@ const EMIT_INTERVAL = CHUNK_SIZE;
 
 type CopyRequest = {
   files: string[];
-  from: string; // "local" | "cold-storage" | peer address
+  from: string; // "cold-storage" | peer address (the local peer's own address for local source)
   toColdStorage: boolean;
-  toLocal: boolean;
-  toPeers: string[];
+  toPeers: string[]; // may include the local peer's address
   deleteAfterCopy: boolean;
   fileSizes?: Record<string, number>; // caller-supplied sizes for peer sources
   skip?: Array<{file: string; destination: string}>; // file+destination pairs to skip
@@ -38,7 +37,7 @@ function makeCounter(onBytes: (n: number) => void): Transform {
 
 export async function POST(req: Request) {
   const body = (await req.json()) as CopyRequest;
-  const {files, from, toColdStorage, toLocal, toPeers, deleteAfterCopy} = body;
+  const {files, from, toColdStorage, toPeers, deleteAfterCopy} = body;
 
   // file+destination pairs the user chose not to overwrite (see /api/v1/copy/check).
   const skipSet = new Set(
@@ -50,9 +49,12 @@ export async function POST(req: Request) {
   if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
     return new Response('Invalid files', {status: 400});
 
-  const isPeerSource = from !== 'local' && from !== 'cold-storage';
+  // The local peer is just another peer address; "from"/"toPeers" use it for
+  // local source/destination instead of a special "local" token.
+  const localPeerAddr = localPeer?.address ?? '';
+  const isPeerSource = from !== 'cold-storage' && from !== localPeerAddr;
   const sourceBasePath =
-    from === 'local'
+    from === localPeerAddr
       ? localModelsDir
       : from === 'cold-storage'
         ? coldStorageDir
@@ -62,8 +64,6 @@ export async function POST(req: Request) {
     return new Response('No local peer configured', {status: 400});
   if (toColdStorage && !coldStorageDir)
     return new Response('No cold storage configured', {status: 400});
-  if (toLocal && !localModelsDir)
-    return new Response('No local peer configured', {status: 400});
 
   const coldBase = coldStorageDir ? nodePath.resolve(coldStorageDir) : '';
   const localBase = localModelsDir ? nodePath.resolve(localModelsDir) : '';
@@ -90,14 +90,6 @@ export async function POST(req: Request) {
 
   let filesTotal = 0;
   let bytesTotal = 0;
-  if (toLocal) {
-    for (const file of files) {
-      if (!shouldSkip(file, 'local')) {
-        filesTotal++;
-        bytesTotal += fileSizeMap[file] ?? 0;
-      }
-    }
-  }
   if (toColdStorage) {
     for (const file of files) {
       if (!shouldSkip(file, 'cold-storage')) {
@@ -107,7 +99,8 @@ export async function POST(req: Request) {
     }
   }
   for (const peerAddr of toPeers) {
-    if (isPeerSource) {
+    // A push to a remote peer counts as one op; everything else is per-file.
+    if (isPeerSource && peerAddr !== localPeerAddr) {
       const nonSkipped = files.filter((f) => !shouldSkip(f, peerAddr));
       if (nonSkipped.length > 0) {
         filesTotal++;
@@ -235,20 +228,20 @@ export async function POST(req: Request) {
           }
         }
 
-        // ── Copy to local models ──────────────────────────────────────────
-        if (toLocal) {
-          for (const file of files) {
-            if (shouldSkip(file, 'local')) continue;
-            if (!(await copyToDir(file, localBase))) {
-              safeClose();
-              return;
-            }
-          }
-        }
-
-        // ── Copy to peers ─────────────────────────────────────────────────
+        // ── Copy to peers (the local peer is just another address here) ────
         for (const peerAddr of toPeers) {
-          if (isPeerSource) {
+          if (peerAddr === localPeerAddr) {
+            // Local-peer destination: copy straight into local storage. The
+            // copyToDir helper handles both a peer source (download) and a
+            // local/cold source (direct read).
+            for (const file of files) {
+              if (shouldSkip(file, peerAddr)) continue;
+              if (!(await copyToDir(file, localBase))) {
+                safeClose();
+                return;
+              }
+            }
+          } else if (isPeerSource) {
             // Tell the source peer to push directly — no per-byte visibility
             // here, so report the whole file in one step.
             const nonSkippedFiles = files.filter(

@@ -1,4 +1,4 @@
-import {localModelsDir, coldStorageDir} from '@/lib/config';
+import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import nodePath from 'path';
 import {promises as fsp} from 'fs';
 import {execFile} from 'child_process';
@@ -32,15 +32,15 @@ async function peerChecksumData(
 export async function POST(req: Request) {
   const body = (await req.json()) as {
     files: string[];
-    from: string; // "local" | "cold-storage" | peer address
+    from: string; // "cold-storage" | peer address (local peer's own address for local source)
     toColdStorage: boolean;
-    toLocal: boolean;
-    toPeers: string[];
+    toPeers: string[]; // may include the local peer's address
     fileSizes?: Record<string, number>;
   };
 
-  const {files, from, toColdStorage, toLocal, toPeers} = body;
-  const isPeerSource = from !== 'local' && from !== 'cold-storage';
+  const {files, from, toColdStorage, toPeers} = body;
+  const localPeerAddr = localPeer?.address ?? '';
+  const isPeerSource = from !== 'cold-storage' && from !== localPeerAddr;
   const localBase = localModelsDir ? nodePath.resolve(localModelsDir) : '';
   const coldBase = coldStorageDir ? nodePath.resolve(coldStorageDir) : '';
 
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     let sourceSize = body.fileSizes?.[file] ?? 0;
     if (!isPeerSource && sourceSize === 0) {
       const sourcePath =
-        from === 'local'
+        from === localPeerAddr
           ? nodePath.resolve(localBase, file)
           : nodePath.resolve(coldBase, file);
       try {
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
         result = cs?.md5 ?? null;
       } else {
         const sourcePath =
-          from === 'local'
+          from === localPeerAddr
             ? nodePath.resolve(localBase, file)
             : nodePath.resolve(coldBase, file);
         try {
@@ -92,39 +92,6 @@ export async function POST(req: Request) {
       sourceMd5Cache = result;
       return result;
     };
-
-    // Check local destination
-    if (toLocal) {
-      const destPath = nodePath.resolve(localBase, file);
-      if (destPath.startsWith(localBase + nodePath.sep)) {
-        try {
-          const {size: destSize} = await fsp.stat(destPath);
-          const sizeMatch = sourceSize === destSize;
-          let md5Match: boolean | null = null;
-          let sourceMd5: string | null = null;
-          let destMd5: string | null = null;
-          if (sizeMatch) {
-            [sourceMd5, destMd5] = await Promise.all([
-              getSourceMd5(),
-              localMd5(destPath),
-            ]);
-            if (sourceMd5 !== null) md5Match = sourceMd5 === destMd5;
-          }
-          conflicts.push({
-            file,
-            destination: 'local',
-            sourceSize,
-            destSize,
-            sizeMatch,
-            md5Match,
-            sourceMd5,
-            destMd5,
-          });
-        } catch {
-          /* file doesn't exist at destination */
-        }
-      }
-    }
 
     // Check cold storage destination
     if (toColdStorage) {
@@ -158,8 +125,39 @@ export async function POST(req: Request) {
       }
     }
 
-    // Check peer destinations
+    // Check peer destinations (the local peer is checked directly on disk)
     for (const peerAddr of toPeers) {
+      if (peerAddr === localPeerAddr) {
+        const destPath = nodePath.resolve(localBase, file);
+        if (!destPath.startsWith(localBase + nodePath.sep)) continue;
+        try {
+          const {size: destSize} = await fsp.stat(destPath);
+          const sizeMatch = sourceSize === destSize;
+          let md5Match: boolean | null = null;
+          let sourceMd5: string | null = null;
+          let destMd5: string | null = null;
+          if (sizeMatch) {
+            [sourceMd5, destMd5] = await Promise.all([
+              getSourceMd5(),
+              localMd5(destPath),
+            ]);
+            if (sourceMd5 !== null) md5Match = sourceMd5 === destMd5;
+          }
+          conflicts.push({
+            file,
+            destination: peerAddr,
+            sourceSize,
+            destSize,
+            sizeMatch,
+            md5Match,
+            sourceMd5,
+            destMd5,
+          });
+        } catch {
+          /* file doesn't exist at destination */
+        }
+        continue;
+      }
       try {
         const headRes = await fetch(
           `http://${peerAddr}/api/v1/local-models/download?file=${encodeURIComponent(file)}`,
