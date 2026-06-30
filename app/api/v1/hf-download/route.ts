@@ -1,7 +1,9 @@
 import {spawn} from 'child_process';
-import {createReadStream, createWriteStream, promises as fsp} from 'fs';
+import {promises as fsp} from 'fs';
 import path from 'path';
 import {localModelsDir, coldStorageDir} from '@/lib/config';
+import {auditFile, copyFileWithMeta, metaPath} from '@/lib/audit';
+import {resolveHfFileByPath} from '@/lib/hf-infer';
 
 const ANSI_RE = /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07]*\x07|[^[\]])/g;
 function stripAnsi(s: string): string {
@@ -12,6 +14,48 @@ const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BRANCH_RE = /^[A-Za-z0-9_./-]+$/;
 const FILE_PATH_RE = /^[A-Za-z0-9_. /-]+$/;
 
+// repoId/filePath become filesystem paths below (the download lands at
+// <base>/<repoId>/<filePath>), so a `..` segment — which the patterns above
+// otherwise permit — must be rejected to keep the write inside the storage root.
+function hasUnsafeSegment(p: string): boolean {
+  return p.split('/').some((seg) => seg === '..');
+}
+
+/**
+ * Record the HuggingFace source for each freshly-downloaded file: resolve its
+ * size/checksum from the repo, then run the normal audit (which hashes the file
+ * locally and writes the `.tjmeta.json` sidecar) so the model is verifiable —
+ * and, being placed at <repoId>/<filePath>, passes — without a manual step.
+ */
+async function recordSources(
+  repoId: string,
+  branch: string,
+  filePaths: string[],
+  signal: AbortSignal,
+  enqueue: (s: string) => void,
+): Promise<void> {
+  const localBase = localModelsDir!;
+  enqueue('\nRecording sources...\n');
+  for (const fp of filePaths) {
+    if (signal.aborted) return;
+    const hf = await resolveHfFileByPath(repoId, branch, fp);
+    if (!hf) {
+      enqueue(`  ${fp}: could not resolve source — left unverified\n`);
+      continue;
+    }
+    const relPath = path.join(repoId, fp);
+    const result = await auditFile(
+      localBase,
+      relPath,
+      '',
+      path.basename(fp),
+      signal,
+      hf,
+    );
+    enqueue(`  ${fp}: ${result.status}\n`);
+  }
+}
+
 function fmtBytes(b: number): string {
   if (b >= 1e12) return `${(b / 1e12).toFixed(1)}TB`;
   if (b >= 1e9) return `${(b / 1e9).toFixed(1)}GB`;
@@ -19,25 +63,8 @@ function fmtBytes(b: number): string {
   return `${(b / 1e3).toFixed(1)}KB`;
 }
 
-async function copyFile(
-  src: string,
-  dst: string,
-  onBytes: (n: number) => void,
-): Promise<void> {
-  await fsp.mkdir(path.dirname(dst), {recursive: true});
-  await new Promise<void>((resolve, reject) => {
-    const rs = createReadStream(src);
-    const ws = createWriteStream(dst);
-    rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
-    rs.once('error', reject);
-    ws.once('error', reject);
-    ws.once('finish', resolve);
-    rs.pipe(ws);
-  });
-}
-
 async function moveToColdstorage(
-  filePaths: string[],
+  relPaths: string[],
   deleteAfterTransfer: boolean,
   enqueue: (s: string) => void,
 ): Promise<void> {
@@ -50,9 +77,9 @@ async function moveToColdstorage(
   // Pre-compute sizes for the progress bar
   const sizes = new Map<string, number>();
   let total = 0;
-  for (const fp of filePaths) {
-    const size = (await fsp.stat(path.join(localBase, fp))).size;
-    sizes.set(fp, size);
+  for (const rp of relPaths) {
+    const size = (await fsp.stat(path.join(localBase, rp))).size;
+    sizes.set(rp, size);
     total += size;
   }
 
@@ -68,17 +95,27 @@ async function moveToColdstorage(
     enqueue(`\r[${bar}] ${pct}%  ${fmtBytes(done)} / ${fmtBytes(total)}`);
   };
 
+  // Rename a `.tjmeta.json` sidecar alongside its file; absence is fine.
+  const renameSidecar = async (src: string, dst: string) => {
+    try {
+      await fsp.rename(metaPath(src), metaPath(dst));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+  };
+
   const toDelete: string[] = [];
 
-  for (const fp of filePaths) {
-    const src = path.join(localBase, fp);
-    const dst = path.join(coldBase, fp);
+  for (const rp of relPaths) {
+    const src = path.join(localBase, rp);
+    const dst = path.join(coldBase, rp);
 
     if (deleteAfterTransfer) {
       try {
         await fsp.mkdir(path.dirname(dst), {recursive: true});
         await fsp.rename(src, dst);
-        onBytes(sizes.get(fp) ?? 0); // account for this file in progress
+        await renameSidecar(src, dst);
+        onBytes(sizes.get(rp) ?? 0); // account for this file in progress
         continue;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
@@ -86,15 +123,18 @@ async function moveToColdstorage(
       }
     }
 
-    await copyFile(src, dst, onBytes);
-    if (deleteAfterTransfer) toDelete.push(src);
+    await copyFileWithMeta(src, dst, onBytes);
+    if (deleteAfterTransfer) {
+      toDelete.push(src, metaPath(src));
+    }
   }
 
   enqueue('\n');
 
   if (toDelete.length > 0) {
     enqueue('Cleaning up local copy...\n');
-    for (const src of toDelete) await fsp.rm(src);
+    // force: a sidecar in the list may not exist for every file.
+    for (const src of toDelete) await fsp.rm(src, {force: true});
   }
 
   enqueue('Done.\n');
@@ -108,7 +148,12 @@ export async function POST(req: Request) {
   const {repoId, branch, filePaths, sendToCold, deleteAfterTransfer} =
     await req.json();
 
-  if (!repoId || typeof repoId !== 'string' || !REPO_ID_RE.test(repoId))
+  if (
+    !repoId ||
+    typeof repoId !== 'string' ||
+    !REPO_ID_RE.test(repoId) ||
+    hasUnsafeSegment(repoId)
+  )
     return new Response('Invalid repoId', {status: 400});
   if (!branch || typeof branch !== 'string' || !BRANCH_RE.test(branch))
     return new Response('Invalid branch', {status: 400});
@@ -116,10 +161,20 @@ export async function POST(req: Request) {
     !Array.isArray(filePaths) ||
     filePaths.length === 0 ||
     filePaths.some(
-      (fp: unknown) => typeof fp !== 'string' || !FILE_PATH_RE.test(fp),
+      (fp: unknown) =>
+        typeof fp !== 'string' ||
+        !FILE_PATH_RE.test(fp) ||
+        hasUnsafeSegment(fp),
     )
   )
     return new Response('Invalid filePaths', {status: 400});
+
+  // Download into <base>/<repoId> so files land at <repoId>/<filePath> — the
+  // layout the audit expects — making them correctly placed and verifiable.
+  const localDir = path.join(localModelsDir, repoId);
+  // Storage-root-relative paths of the downloaded files, used for the sidecar
+  // pass and the cold-storage transfer.
+  const relPaths = (filePaths as string[]).map((fp) => path.join(repoId, fp));
 
   const includes = (filePaths as string[])
     .map((fp) => `--include "${fp}"`)
@@ -130,7 +185,7 @@ export async function POST(req: Request) {
     repoId,
     includes,
     '--local-dir',
-    localModelsDir,
+    localDir,
     '--revision',
     branch,
   ].join(' ');
@@ -163,12 +218,17 @@ export async function POST(req: Request) {
       proc.on('close', async (code) => {
         enqueue(`\nProcess exited with code ${code}\n`);
         try {
-          if (code === 0 && sendToCold && coldStorageDir) {
-            await moveToColdstorage(
+          if (code === 0) {
+            await recordSources(
+              repoId,
+              branch,
               filePaths as string[],
-              !!deleteAfterTransfer,
+              req.signal,
               enqueue,
             );
+            if (sendToCold && coldStorageDir) {
+              await moveToColdstorage(relPaths, !!deleteAfterTransfer, enqueue);
+            }
           }
         } catch (err: unknown) {
           enqueue(`\nError: ${(err as Error).message}\n`);
