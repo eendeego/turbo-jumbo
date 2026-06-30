@@ -2,7 +2,12 @@
 
 import {useState, useCallback} from 'react';
 import * as stylex from '@stylexjs/stylex';
-import {Table, proportional, type TableColumn} from '@astryxdesign/core/Table';
+import {
+  Table,
+  proportional,
+  pixel,
+  type TableColumn,
+} from '@astryxdesign/core/Table';
 import {HStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
@@ -92,7 +97,7 @@ function PeersCell({
 }) {
   if (peers.length === 0) return null;
   return (
-    <HStack gap={1} vAlign="center" wrap="wrap">
+    <HStack gap={1} vAlign="center" wrap="nowrap">
       {peers.map((peer) => {
         const quantKey = `${row.parentName}::${row.label}`;
         const hasPeer = row.isChild
@@ -206,7 +211,8 @@ export function ModelsTableClient({
     {
       key: 'peers',
       header: 'Peers',
-      width: proportional(1),
+      width: pixel(120),
+      align: 'center',
       renderCell: (item) => (
         <PeersCell
           row={item}
@@ -219,7 +225,8 @@ export function ModelsTableClient({
     {
       key: 'coldStorage',
       header: 'Cold Storage',
-      width: proportional(1),
+      width: pixel(100),
+      align: 'center',
       renderCell: (item) => <ColdStorageCell row={item} />,
     },
   ];
