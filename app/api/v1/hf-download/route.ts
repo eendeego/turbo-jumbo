@@ -10,24 +10,13 @@ function stripAnsi(s: string): string {
 
 const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BRANCH_RE = /^[A-Za-z0-9_./-]+$/;
-const FOLDER_RE = /^[A-Za-z0-9_. -]+$/;
+const FILE_PATH_RE = /^[A-Za-z0-9_. /-]+$/;
 
 function fmtBytes(b: number): string {
   if (b >= 1e12) return `${(b / 1e12).toFixed(1)}TB`;
   if (b >= 1e9) return `${(b / 1e9).toFixed(1)}GB`;
   if (b >= 1e6) return `${(b / 1e6).toFixed(1)}MB`;
   return `${(b / 1e3).toFixed(1)}KB`;
-}
-
-async function getDirSize(dir: string): Promise<number> {
-  let total = 0;
-  for (const entry of await fsp.readdir(dir, {withFileTypes: true})) {
-    const full = path.join(dir, entry.name);
-    total += entry.isDirectory()
-      ? await getDirSize(full)
-      : (await fsp.stat(full)).size;
-  }
-  return total;
 }
 
 async function copyFile(
@@ -47,25 +36,7 @@ async function copyFile(
   });
 }
 
-async function copyDir(
-  src: string,
-  dst: string,
-  onBytes: (n: number) => void,
-): Promise<void> {
-  await fsp.mkdir(dst, {recursive: true});
-  for (const entry of await fsp.readdir(src, {withFileTypes: true})) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dst, entry.name);
-    if (entry.isDirectory()) {
-      await copyDir(s, d, onBytes);
-    } else {
-      await copyFile(s, d, onBytes);
-    }
-  }
-}
-
 async function moveToColdstorage(
-  folder: string | null,
   filePaths: string[],
   deleteAfterTransfer: boolean,
   enqueue: (s: string) => void,
@@ -76,29 +47,13 @@ async function moveToColdstorage(
   const localBase = localModelsDir!;
   const coldBase = coldStorageDir!;
 
-  // For deletes with a folder, try an atomic rename first (instant on same filesystem)
-  if (deleteAfterTransfer && folder) {
-    const src = path.join(localBase, folder);
-    const dst = path.join(coldBase, folder);
-    try {
-      await fsp.mkdir(path.dirname(dst), {recursive: true});
-      await fsp.rename(src, dst);
-      enqueue('Done.\n');
-      return;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
-      // Cross-filesystem: fall through to copy + delete
-    }
-  }
-
-  // Streaming copy with progress bar
+  // Pre-compute sizes for the progress bar
+  const sizes = new Map<string, number>();
   let total = 0;
-  if (folder) {
-    total = await getDirSize(path.join(localBase, folder));
-  } else {
-    for (const fp of filePaths) {
-      total += (await fsp.stat(path.join(localBase, fp))).size;
-    }
+  for (const fp of filePaths) {
+    const size = (await fsp.stat(path.join(localBase, fp))).size;
+    sizes.set(fp, size);
+    total += size;
   }
 
   let done = 0;
@@ -113,32 +68,33 @@ async function moveToColdstorage(
     enqueue(`\r[${bar}] ${pct}%  ${fmtBytes(done)} / ${fmtBytes(total)}`);
   };
 
-  if (folder) {
-    await copyDir(
-      path.join(localBase, folder),
-      path.join(coldBase, folder),
-      onBytes,
-    );
-  } else {
-    for (const fp of filePaths) {
-      await copyFile(
-        path.join(localBase, fp),
-        path.join(coldBase, fp),
-        onBytes,
-      );
-    }
-  }
-  enqueue('\n');
+  const toDelete: string[] = [];
 
-  if (deleteAfterTransfer) {
-    enqueue('Cleaning up local copy...\n');
-    if (folder) {
-      await fsp.rm(path.join(localBase, folder), {recursive: true});
-    } else {
-      for (const fp of filePaths) {
-        await fsp.rm(path.join(localBase, fp));
+  for (const fp of filePaths) {
+    const src = path.join(localBase, fp);
+    const dst = path.join(coldBase, fp);
+
+    if (deleteAfterTransfer) {
+      try {
+        await fsp.mkdir(path.dirname(dst), {recursive: true});
+        await fsp.rename(src, dst);
+        onBytes(sizes.get(fp) ?? 0); // account for this file in progress
+        continue;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+        // Cross-filesystem: copy then schedule delete
       }
     }
+
+    await copyFile(src, dst, onBytes);
+    if (deleteAfterTransfer) toDelete.push(src);
+  }
+
+  enqueue('\n');
+
+  if (toDelete.length > 0) {
+    enqueue('Cleaning up local copy...\n');
+    for (const src of toDelete) await fsp.rm(src);
   }
 
   enqueue('Done.\n');
@@ -149,7 +105,7 @@ export async function POST(req: Request) {
     return new Response('No local peer configured', {status: 400});
   }
 
-  const {repoId, branch, folder, filePaths, sendToCold, deleteAfterTransfer} =
+  const {repoId, branch, filePaths, sendToCold, deleteAfterTransfer} =
     await req.json();
 
   if (!repoId || typeof repoId !== 'string' || !REPO_ID_RE.test(repoId))
@@ -157,18 +113,22 @@ export async function POST(req: Request) {
   if (!branch || typeof branch !== 'string' || !BRANCH_RE.test(branch))
     return new Response('Invalid branch', {status: 400});
   if (
-    folder !== null &&
-    (typeof folder !== 'string' || !FOLDER_RE.test(folder))
+    !Array.isArray(filePaths) ||
+    filePaths.length === 0 ||
+    filePaths.some(
+      (fp: unknown) => typeof fp !== 'string' || !FILE_PATH_RE.test(fp),
+    )
   )
-    return new Response('Invalid folder', {status: 400});
+    return new Response('Invalid filePaths', {status: 400});
 
-  const include = folder ? `${folder}/*` : '*.gguf';
+  const includes = (filePaths as string[])
+    .map((fp) => `--include "${fp}"`)
+    .join(' ');
   const cmd = [
     'hf',
     'download',
     repoId,
-    '--include',
-    include,
+    includes,
     '--local-dir',
     localModelsDir,
     '--revision',
@@ -203,15 +163,9 @@ export async function POST(req: Request) {
       proc.on('close', async (code) => {
         enqueue(`\nProcess exited with code ${code}\n`);
         try {
-          if (
-            code === 0 &&
-            sendToCold &&
-            coldStorageDir &&
-            (folder || filePaths?.length > 0)
-          ) {
+          if (code === 0 && sendToCold && coldStorageDir) {
             await moveToColdstorage(
-              folder ?? null,
-              filePaths ?? [],
+              filePaths as string[],
               !!deleteAfterTransfer,
               enqueue,
             );

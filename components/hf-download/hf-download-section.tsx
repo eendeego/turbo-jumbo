@@ -11,21 +11,90 @@ import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {Spinner} from '@astryxdesign/core/Spinner';
 
-type ParsedUrl = {repoId: string; branch: string; folder: string | null};
+type ParsedUrl = {
+  repoId: string;
+  branch: string;
+  folder: string | null;
+  filename: string | null;
+};
 type HfFile = {path: string; size: number};
 type TermState = {lines: string[]; col: number};
 
 function parseHfUrl(url: string): ParsedUrl | null {
-  const match = url.match(
+  const s = url.trim().replace(/\/+$/, ''); // strip trailing slashes
+
+  // Full file URL: https://huggingface.co/owner/repo/blob/branch/path/to/file.gguf
+  const fileMatch = s.match(
     /^https?:\/\/huggingface\.co\/([^/]+\/[^/]+)\/(blob|resolve)\/([^/]+)\/(.+)$/,
   );
-  if (!match) return null;
-  const repoId = match[1];
-  const branch = match[3];
-  const filePath = match[4];
-  const slashIdx = filePath.indexOf('/');
-  const folder = slashIdx !== -1 ? filePath.slice(0, slashIdx) : null;
-  return {repoId, branch, folder};
+  if (fileMatch) {
+    const repoId = fileMatch[1];
+    const branch = fileMatch[3];
+    const filePath = fileMatch[4];
+    const slashIdx = filePath.indexOf('/');
+    const folder = slashIdx !== -1 ? filePath.slice(0, slashIdx) : null;
+    const filename = filePath.split('/').pop()!;
+    return {repoId, branch, folder, filename};
+  }
+
+  // Repo URL with explicit branch: https://huggingface.co/owner/repo/blob/branch (no file)
+  const blobRootMatch = s.match(
+    /^https?:\/\/huggingface\.co\/([^/]+\/[^/]+)\/(?:blob|tree)\/([^/]+)$/,
+  );
+  if (blobRootMatch) {
+    return {
+      repoId: blobRootMatch[1],
+      branch: blobRootMatch[2],
+      folder: null,
+      filename: null,
+    };
+  }
+
+  // Repo URL: https://huggingface.co/owner/repo
+  const repoUrlMatch = s.match(
+    /^https?:\/\/huggingface\.co\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)$/,
+  );
+  if (repoUrlMatch) {
+    return {
+      repoId: repoUrlMatch[1],
+      branch: 'main',
+      folder: null,
+      filename: null,
+    };
+  }
+
+  // Bare owner/repo
+  if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(s)) {
+    return {repoId: s, branch: 'main', folder: null, filename: null};
+  }
+
+  return null;
+}
+
+// Given the filename from the URL, pick which files to pre-select.
+// - Shard file (e.g. model-00001-of-00004.gguf) → all sibling shards
+// - Single file → just that file
+// - No match → everything
+function computeDefaultSelection(
+  files: HfFile[],
+  filename: string | null,
+): Set<string> {
+  if (!filename) return new Set();
+
+  const shardMatch = filename.match(/^(.+)-(\d{5})-of-(\d{5})(\.gguf)$/i);
+  if (shardMatch) {
+    const [, base, , total, ext] = shardMatch;
+    const shards = files.filter((f) => {
+      const name = f.path.split('/').pop() ?? '';
+      return name.startsWith(`${base}-`) && name.endsWith(`-of-${total}${ext}`);
+    });
+    if (shards.length > 0) return new Set(shards.map((f) => f.path));
+  }
+
+  const exact = files.find((f) => f.path.split('/').pop() === filename);
+  if (exact) return new Set([exact.path]);
+
+  return new Set(files.map((f) => f.path));
 }
 
 // Minimal terminal emulator: handles \r (go to column 0) and \n (new line).
@@ -80,6 +149,7 @@ export function HfDownloadSection({
   const [files, setFiles] = useState<HfFile[] | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
 
   // Debounce so we don't hit the HF API on every keypress
@@ -104,6 +174,7 @@ export function HfDownloadSection({
       setFiles(null);
       setFilesError(null);
       setFilesLoading(false);
+      setSelectedPaths(new Set());
       return;
     }
     setFiles(null);
@@ -125,6 +196,7 @@ export function HfDownloadSection({
       .then((data) => {
         if (!cancelled) {
           setFiles(data);
+          setSelectedPaths(computeDefaultSelection(data, parsed.filename));
           setFilesLoading(false);
         }
       })
@@ -139,21 +211,34 @@ export function HfDownloadSection({
     };
   }, [parsed]);
 
-  const totalSize = files?.reduce((s, f) => s + f.size, 0) ?? 0;
+  const selectedFiles = useMemo(
+    () => files?.filter((f) => selectedPaths.has(f.path)) ?? [],
+    [files, selectedPaths],
+  );
+  const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0);
 
   const command = useMemo(() => {
-    if (!parsed || files === null) return null;
-    const include = parsed.folder
-      ? `--include "${parsed.folder}/*"`
-      : `--include "*.gguf"`;
+    if (!parsed || !files || selectedFiles.length === 0) return null;
+    const includes = selectedFiles
+      .map((f) => `--include "${f.path}"`)
+      .join(' ');
     const rev = parsed.branch !== 'main' ? ` --revision ${parsed.branch}` : '';
-    return `HF_HUB_ENABLE_HF_TRANSFER=1 hf download ${parsed.repoId} ${include} --local-dir ${localModelsPath}${rev}`;
-  }, [parsed, files, localModelsPath]);
+    return `HF_HUB_ENABLE_HF_TRANSFER=1 hf download ${parsed.repoId} ${includes} --local-dir ${localModelsPath}${rev}`;
+  }, [parsed, files, selectedFiles, localModelsPath]);
+
+  const toggleFile = (path: string, checked: boolean) => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(path);
+      else next.delete(path);
+      return next;
+    });
+  };
 
   const handleCancel = () => abortRef.current?.abort();
 
   const handleRun = async () => {
-    if (!parsed || !files || running) return;
+    if (!parsed || selectedFiles.length === 0 || running) return;
     const abort = new AbortController();
     abortRef.current = abort;
     setRunning(true);
@@ -167,8 +252,7 @@ export function HfDownloadSection({
         body: JSON.stringify({
           repoId: parsed.repoId,
           branch: parsed.branch,
-          folder: parsed.folder,
-          filePaths: files.map((f) => f.path),
+          filePaths: selectedFiles.map((f) => f.path),
           sendToCold,
           deleteAfterTransfer,
         }),
@@ -234,13 +318,24 @@ export function HfDownloadSection({
               {files!.map((f) => (
                 <ListItem
                   key={f.path}
+                  startContent={
+                    <CheckboxInput
+                      label={f.path}
+                      isLabelHidden
+                      value={selectedPaths.has(f.path)}
+                      onChange={(checked) => toggleFile(f.path, checked)}
+                      isDisabled={running}
+                    />
+                  }
                   label={f.path.split('/').pop()}
                   description={formatBytes(f.size)}
                 />
               ))}
             </List>
             <HStack gap={2} hAlign="between">
-              <Text type="supporting">Total</Text>
+              <Text type="supporting">
+                {selectedFiles.length} / {files!.length} selected
+              </Text>
               <Text type="label">{formatBytes(totalSize)}</Text>
             </HStack>
           </VStack>
