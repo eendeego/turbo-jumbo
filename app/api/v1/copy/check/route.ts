@@ -34,11 +34,12 @@ export async function POST(req: Request) {
     files: string[];
     from: string; // "local" | "cold-storage" | peer address
     toColdStorage: boolean;
+    toLocal: boolean;
     toPeers: string[];
     fileSizes?: Record<string, number>;
   };
 
-  const {files, from, toColdStorage, toPeers} = body;
+  const {files, from, toColdStorage, toLocal, toPeers} = body;
   const isPeerSource = from !== 'local' && from !== 'cold-storage';
   const localBase = localModelsDir ? nodePath.resolve(localModelsDir) : '';
   const coldBase = coldStorageDir ? nodePath.resolve(coldStorageDir) : '';
@@ -91,6 +92,39 @@ export async function POST(req: Request) {
       sourceMd5Cache = result;
       return result;
     };
+
+    // Check local destination
+    if (toLocal) {
+      const destPath = nodePath.resolve(localBase, file);
+      if (destPath.startsWith(localBase + nodePath.sep)) {
+        try {
+          const {size: destSize} = await fsp.stat(destPath);
+          const sizeMatch = sourceSize === destSize;
+          let md5Match: boolean | null = null;
+          let sourceMd5: string | null = null;
+          let destMd5: string | null = null;
+          if (sizeMatch) {
+            [sourceMd5, destMd5] = await Promise.all([
+              getSourceMd5(),
+              localMd5(destPath),
+            ]);
+            if (sourceMd5 !== null) md5Match = sourceMd5 === destMd5;
+          }
+          conflicts.push({
+            file,
+            destination: 'local',
+            sourceSize,
+            destSize,
+            sizeMatch,
+            md5Match,
+            sourceMd5,
+            destMd5,
+          });
+        } catch {
+          /* file doesn't exist at destination */
+        }
+      }
+    }
 
     // Check cold storage destination
     if (toColdStorage) {

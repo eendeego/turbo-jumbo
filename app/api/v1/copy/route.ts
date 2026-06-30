@@ -13,6 +13,7 @@ type CopyRequest = {
   files: string[];
   from: string; // "local" | "cold-storage" | peer address
   toColdStorage: boolean;
+  toLocal: boolean;
   toPeers: string[];
   deleteAfterCopy: boolean;
   fileSizes?: Record<string, number>; // caller-supplied sizes for peer sources
@@ -37,7 +38,7 @@ function makeCounter(onBytes: (n: number) => void): Transform {
 
 export async function POST(req: Request) {
   const body = (await req.json()) as CopyRequest;
-  const {files, from, toColdStorage, toPeers, deleteAfterCopy} = body;
+  const {files, from, toColdStorage, toLocal, toPeers, deleteAfterCopy} = body;
 
   // file+destination pairs the user chose not to overwrite (see /api/v1/copy/check).
   const skipSet = new Set(
@@ -61,8 +62,11 @@ export async function POST(req: Request) {
     return new Response('No local peer configured', {status: 400});
   if (toColdStorage && !coldStorageDir)
     return new Response('No cold storage configured', {status: 400});
+  if (toLocal && !localModelsDir)
+    return new Response('No local peer configured', {status: 400});
 
   const coldBase = coldStorageDir ? nodePath.resolve(coldStorageDir) : '';
+  const localBase = localModelsDir ? nodePath.resolve(localModelsDir) : '';
 
   // Validate local source paths up-front
   if (!isPeerSource && sourceBasePath) {
@@ -86,6 +90,14 @@ export async function POST(req: Request) {
 
   let filesTotal = 0;
   let bytesTotal = 0;
+  if (toLocal) {
+    for (const file of files) {
+      if (!shouldSkip(file, 'local')) {
+        filesTotal++;
+        bytesTotal += fileSizeMap[file] ?? 0;
+      }
+    }
+  }
   if (toColdStorage) {
     for (const file of files) {
       if (!shouldSkip(file, 'cold-storage')) {
@@ -153,75 +165,84 @@ export async function POST(req: Request) {
 
       emit(); // initial event
 
+      // Copy one file (from the local/cold/peer source) into a local directory
+      // tree, streaming byte progress. Returns false on an invalid or failed
+      // destination so the caller can abort. Used for both cold storage and the
+      // local models dir.
+      const copyToDir = async (
+        file: string,
+        destBaseDir: string,
+      ): Promise<boolean> => {
+        const dst = nodePath.resolve(destBaseDir, file);
+        if (!dst.startsWith(destBaseDir + nodePath.sep)) return false;
+        await fsp.mkdir(nodePath.dirname(dst), {recursive: true});
+
+        let nextEmitAt = EMIT_INTERVAL;
+        const counter = makeCounter((n) => {
+          fileDone += n;
+          bytesDone += n;
+          if (fileDone >= nextEmitAt) {
+            nextEmitAt = fileDone + EMIT_INTERVAL;
+            emit();
+          }
+        });
+
+        if (isPeerSource) {
+          const res = await fetch(
+            `http://${from}/api/v1/local-models/download?file=${encodeURIComponent(file)}`,
+          );
+          if (!res.ok || !res.body) return false;
+          const contentLen = parseInt(
+            res.headers.get('content-length') ?? '0',
+            10,
+          );
+          fileTotal = fileSizeMap[file] ?? contentLen;
+          fileDone = 0;
+          emit();
+          await pipeline(
+            // @ts-expect-error – DOM ReadableStream vs Node ReadableStream type mismatch
+            Readable.fromWeb(res.body),
+            counter,
+            createWriteStream(dst),
+          );
+        } else {
+          const src = resolveLocal(sourceBasePath!, file)!;
+          fileTotal = fileSizeMap[file] ?? 0;
+          fileDone = 0;
+          emit();
+          await pipeline(
+            createReadStream(src),
+            counter,
+            createWriteStream(dst),
+          );
+        }
+
+        filesDone++;
+        fileDone = fileTotal;
+        emit();
+        return true;
+      };
+
       try {
         // ── Copy to cold storage ──────────────────────────────────────────
         if (toColdStorage) {
           for (const file of files) {
             if (shouldSkip(file, 'cold-storage')) continue;
-            const dst = nodePath.resolve(coldBase, file);
-            if (!dst.startsWith(coldBase + nodePath.sep)) {
+            if (!(await copyToDir(file, coldBase))) {
               safeClose();
               return;
             }
-            await fsp.mkdir(nodePath.dirname(dst), {recursive: true});
+          }
+        }
 
-            if (isPeerSource) {
-              const res = await fetch(
-                `http://${from}/api/v1/local-models/download?file=${encodeURIComponent(file)}`,
-              );
-              if (!res.ok || !res.body) {
-                safeClose();
-                return;
-              }
-
-              const contentLen = parseInt(
-                res.headers.get('content-length') ?? '0',
-                10,
-              );
-              fileTotal = fileSizeMap[file] ?? contentLen;
-              fileDone = 0;
-              emit();
-
-              let nextEmitAt = EMIT_INTERVAL;
-              const counter = makeCounter((n) => {
-                fileDone += n;
-                bytesDone += n;
-                if (fileDone >= nextEmitAt) {
-                  nextEmitAt = fileDone + EMIT_INTERVAL;
-                  emit();
-                }
-              });
-              await pipeline(
-                // @ts-expect-error – DOM ReadableStream vs Node ReadableStream type mismatch
-                Readable.fromWeb(res.body),
-                counter,
-                createWriteStream(dst),
-              );
-            } else {
-              const src = resolveLocal(sourceBasePath!, file)!;
-              fileTotal = fileSizeMap[file] ?? 0;
-              fileDone = 0;
-              emit();
-
-              let nextEmitAt = EMIT_INTERVAL;
-              const counter = makeCounter((n) => {
-                fileDone += n;
-                bytesDone += n;
-                if (fileDone >= nextEmitAt) {
-                  nextEmitAt = fileDone + EMIT_INTERVAL;
-                  emit();
-                }
-              });
-              await pipeline(
-                createReadStream(src),
-                counter,
-                createWriteStream(dst),
-              );
+        // ── Copy to local models ──────────────────────────────────────────
+        if (toLocal) {
+          for (const file of files) {
+            if (shouldSkip(file, 'local')) continue;
+            if (!(await copyToDir(file, localBase))) {
+              safeClose();
+              return;
             }
-
-            filesDone++;
-            fileDone = fileTotal;
-            emit();
           }
         }
 

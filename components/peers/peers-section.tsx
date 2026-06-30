@@ -116,6 +116,7 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
           files: peerSelections[peer.address] ?? [],
           from: peer.address,
           toColdStorage: destinations.toColdStorage,
+          toLocal: destinations.toLocal,
           toPeers: destinations.toPeers,
           fileSizes: buildFileSizes(peerModels.get(peer.address) ?? []),
         }),

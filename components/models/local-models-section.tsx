@@ -79,6 +79,7 @@ export function LocalModelsSection({
           files: Array.from(selected),
           from: 'local',
           toColdStorage: destinations.toColdStorage,
+          toLocal: destinations.toLocal,
           toPeers: destinations.toPeers,
           fileSizes: buildFileSizes(models),
         }),

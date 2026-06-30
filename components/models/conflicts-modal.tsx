@@ -84,7 +84,9 @@ export function ConflictsModal({
             const destLabel =
               conflict.destination === 'cold-storage'
                 ? 'cold storage'
-                : conflict.destination;
+                : conflict.destination === 'local'
+                  ? 'local models'
+                  : conflict.destination;
             const status =
               conflict.md5Match === true
                 ? {label: 'identical', variant: 'success' as const}
