@@ -32,6 +32,16 @@ deploy() {
         podman rm "$CONTAINER_NAME"
     fi
 
+    # Wait for the file to be present and stable (guards against mid-rename reads)
+    local retries=10
+    while [[ ! -f "$TARBALL" ]] && (( retries-- > 0 )); do
+        sleep 0.5
+    done
+    if [[ ! -f "$TARBALL" ]]; then
+        echo "Tarball not found after waiting, skipping deploy."
+        return 1
+    fi
+
     echo "Loading image…"
     podman load < "$TARBALL"
 
@@ -77,11 +87,11 @@ trap cleanup EXIT INT TERM
 
 # stat polling watcher (NFS fallback)
 (
-    last_mtime=$(stat -c '%Y' "$TARBALL")
+    last_mtime=$(stat -c '%Y' "$TARBALL" 2>/dev/null || echo 0)
     while true; do
         sleep "$POLL_INTERVAL"
-        mtime=$(stat -c '%Y' "$TARBALL")
-        if [[ "$mtime" != "$last_mtime" ]]; then
+        mtime=$(stat -c '%Y' "$TARBALL" 2>/dev/null || echo 0)
+        if [[ "$mtime" != "0" && "$mtime" != "$last_mtime" ]]; then
             last_mtime="$mtime"
             echo stat > "$FIFO"
         fi
