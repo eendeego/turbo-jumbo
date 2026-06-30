@@ -1,0 +1,26 @@
+// Pure helpers for presenting model names. No node-only deps, so these are safe
+// to import from both server code (lib/models.ts) and client components.
+
+/**
+ * Extract the `org/repo` identity from a sidecar `modelUrl` such as
+ * `https://huggingface.co/unsloth/Qwen3-GGUF`. Returns null when the URL isn't a
+ * well-formed huggingface.co model URL.
+ */
+export function repoIdFromModelUrl(modelUrl: string): string | null {
+  const m = modelUrl
+    .trim()
+    .match(
+      /^https?:\/\/huggingface\.co\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)\/?$/,
+    );
+  return m ? m[1] : null;
+}
+
+/**
+ * The label to show for a model identity: the repo segment of an `org/repo`
+ * (e.g. `Qwen3-GGUF` from `unsloth/Qwen3-GGUF`), or the name unchanged when it
+ * isn't an `org/repo` (a filename-derived name has no slash).
+ */
+export function modelDisplayName(name: string): string {
+  const slash = name.lastIndexOf('/');
+  return slash === -1 ? name : name.slice(slash + 1);
+}

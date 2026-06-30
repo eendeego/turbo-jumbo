@@ -19,6 +19,7 @@ import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
 import type {AuditResult, AuditStatus} from '@/lib/audit';
+import {modelDisplayName} from '@/lib/model-name';
 
 export interface ShardInfo {
   filename: string;
@@ -30,7 +31,9 @@ export interface QuantInfo {
   filename: string | null;
   displayName: string;
   isSingleFile: boolean;
-  inColdStorage: boolean;
+  inColdStorage: boolean; // a file of this name exists in cold storage
+  coldComplete: boolean; // ...and its size matches (a complete, identical copy)
+  coldSize: number | null; // size of the cold copy, when present (for the tooltip)
   size: number;
   paths: string[];
   coldPaths: string[];
@@ -64,6 +67,8 @@ interface DisplayRow extends Record<string, unknown> {
   size: number;
   sizeRange: [number, number] | null;
   inColdStorage: boolean | null;
+  coldComplete: boolean | null;
+  coldSize: number | null;
   allInColdStorage: boolean;
   noneInColdStorage: boolean;
   paths: string[];
@@ -329,14 +334,18 @@ function NameCell({
     );
   }
 
-  // Model row
+  // Model row. Show the repo segment of an org/repo identity; the full repo (when
+  // the name carries one) and the quantizations live in the tooltip.
+  const tooltip = row.label.includes('/')
+    ? `Repository: ${row.label} · Quantizations: ${row.quantizations}`
+    : `Quantizations: ${row.quantizations}`;
   return (
     <Button
-      label={row.label}
+      label={modelDisplayName(row.label)}
       variant="ghost"
       size="sm"
       icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
-      tooltip={`Quantizations: ${row.quantizations}`}
+      tooltip={tooltip}
       onClick={() => onToggle(row.parentName)}
     />
   );
@@ -377,10 +386,23 @@ function PeersCell({
 function ColdStorageCell({row}: {row: DisplayRow}) {
   if (row.depth === 2) return null; // shards don't show cold storage status
   if (row.depth === 1) {
-    return row.inColdStorage ? (
-      <Badge label="Yes" variant="green" />
-    ) : (
-      <Badge label="Missing" variant="red" />
+    if (!row.inColdStorage) return <Badge label="Missing" variant="red" />;
+    if (row.coldComplete) return <Badge label="Yes" variant="green" />;
+    // Present by name but a different size — a partial/mismatched cold copy.
+    const incomplete = <Badge label="Incomplete" variant="orange" />;
+    if (row.coldSize == null) return incomplete;
+    return (
+      <HoverCard
+        placement="above"
+        content={
+          <Text type="supporting">
+            Cold copy {formatSize(row.coldSize)} — expected{' '}
+            {formatSize(row.size)}
+          </Text>
+        }
+      >
+        {incomplete}
+      </HoverCard>
     );
   }
   if (row.allInColdStorage) return <Badge label="Complete" variant="green" />;
@@ -500,6 +522,8 @@ export function ModelsTableClient({
       size: m.minSize === m.maxSize ? m.minSize : -1,
       sizeRange: m.minSize !== m.maxSize ? [m.minSize, m.maxSize] : null,
       inColdStorage: null,
+      coldComplete: null,
+      coldSize: null,
       allInColdStorage: m.allInColdStorage,
       noneInColdStorage: m.noneInColdStorage,
       paths: m.quants.flatMap((q) => q.paths),
@@ -521,6 +545,8 @@ export function ModelsTableClient({
         size: q.size,
         sizeRange: null,
         inColdStorage: q.inColdStorage,
+        coldComplete: q.coldComplete,
+        coldSize: q.coldSize,
         allInColdStorage: false,
         noneInColdStorage: false,
         paths: q.paths,
@@ -541,6 +567,8 @@ export function ModelsTableClient({
             size: shard.size,
             sizeRange: null,
             inColdStorage: null,
+            coldComplete: null,
+            coldSize: null,
             allInColdStorage: false,
             noneInColdStorage: false,
             paths: [],

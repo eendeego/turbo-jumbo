@@ -10,6 +10,7 @@ import {List, ListItem} from '@astryxdesign/core/List';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/model-types';
+import {modelDisplayName} from '@/lib/model-name';
 import type {FileInfo} from '@/components/models/delete-modal';
 
 export interface CopyDestinations {
@@ -116,7 +117,7 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
             <ListItem
               key={i}
               label={f.filename}
-              description={`${f.model} / ${f.quant}`}
+              description={`${modelDisplayName(f.model)} / ${f.quant}`}
             />
           ))}
         </List>

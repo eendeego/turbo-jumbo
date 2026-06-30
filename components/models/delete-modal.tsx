@@ -7,6 +7,7 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {List, ListItem} from '@astryxdesign/core/List';
 import type {Model} from '@/lib/model-types';
+import {modelDisplayName} from '@/lib/model-name';
 import {filePaths} from '@/components/models/model-list';
 
 export interface FileInfo {
@@ -91,7 +92,7 @@ export function DeleteModal({
               <ListItem
                 key={i}
                 label={f.filename}
-                description={`${f.model} / ${f.quant}`}
+                description={`${modelDisplayName(f.model)} / ${f.quant}`}
               />
             ))}
           </List>

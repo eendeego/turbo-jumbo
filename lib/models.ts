@@ -1,9 +1,35 @@
 import fs from 'fs';
 import path from 'path';
 import type {Model, ModelFile, Shard, SingleFile, SplitGroup} from '@/lib/model-types';
+import {metaPath} from '@/lib/audit';
+import {repoIdFromModelUrl} from '@/lib/model-name';
 
 export type {Model, ModelFile, Shard, SingleFile, SplitGroup} from '@/lib/model-types';
 export {shardPath, shardSize} from '@/lib/model-types';
+
+/**
+ * The model identity recorded in a file's `.tjmeta.json` sidecar, if any: the
+ * `org/repo` the file was downloaded from / verified against. Read synchronously
+ * to fit the synchronous scan. Returns null when the sidecar is absent or its
+ * `modelUrl` is missing/unparseable, so the caller falls back to the
+ * filename-derived name.
+ */
+function sidecarRepoId(fullPath: string): string | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(metaPath(fullPath), 'utf8');
+  } catch {
+    return null;
+  }
+  try {
+    const meta = JSON.parse(raw) as {modelUrl?: unknown};
+    return typeof meta.modelUrl === 'string'
+      ? repoIdFromModelUrl(meta.modelUrl)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 // A quantization token: IQ2_XS, Q4_K_M, MXFP4 (Microscaling FP4), BF16, F16, …
 const QUANT_TOKEN =
@@ -76,7 +102,10 @@ export function scanModels(storagePath: string | undefined): Model[] {
         const base = splitMatch[1];
         const index = parseInt(splitMatch[2], 10);
         const total = parseInt(splitMatch[3], 10);
-        const modelName = extractModelName(`${base}.gguf`);
+        // Prefer the authoritative org/repo from the sidecar; fall back to the
+        // filename-derived name when there's no sidecar.
+        const modelName =
+          sidecarRepoId(fullPath) ?? extractModelName(`${base}.gguf`);
         const quant = extractQuant(`${base}.gguf`);
         const key = `${modelName}::${base}`;
 
@@ -110,7 +139,8 @@ export function scanModels(storagePath: string | undefined): Model[] {
         } catch {
           missing = true;
         }
-        const modelName = extractModelName(entry.name);
+        const modelName =
+          sidecarRepoId(fullPath) ?? extractModelName(entry.name);
         const file: SingleFile = {
           isSplit: false,
           filename: entry.name,
