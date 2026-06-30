@@ -26,20 +26,22 @@ import {
   ConflictsModal,
   type ConflictItem,
 } from '@/components/models/conflicts-modal';
+import type {AsyncState} from '@/lib/async-state';
+
+export type PeerModels = AsyncState<Model[]>;
 
 export function PeerSection({
   peer,
   models,
-  isDown,
   coldModels,
   onModelsRefreshed,
 }: {
   peer: Peer;
-  models: Model[] | undefined;
-  isDown: boolean;
+  models: PeerModels;
   coldModels: Model[];
   onModelsRefreshed: (address: string, models: Model[]) => void;
 }) {
+  const modelList = models.type === 'value' ? models.value : [];
   const [selections, setSelections] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -102,7 +104,7 @@ export function PeerSection({
           from: peer.address,
           toColdStorage: destinations.toColdStorage,
           toPeers: destinations.toPeers,
-          fileSizes: buildFileSizes(models ?? []),
+          fileSizes: buildFileSizes(modelList),
         }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -146,7 +148,7 @@ export function PeerSection({
           files: selections,
           from: peer.address,
           ...destinations,
-          fileSizes: buildFileSizes(models ?? []),
+          fileSizes: buildFileSizes(modelList),
           skip,
         }),
       });
@@ -168,7 +170,7 @@ export function PeerSection({
     }
   }
 
-  const confirmingModels = models ?? [];
+  const confirmingModels = modelList;
 
   return (
     <>
@@ -209,14 +211,12 @@ export function PeerSection({
             {peer.isLocal && <Text type="supporting">— local</Text>}
           </HStack>
           {error && <Banner status="error" title={`Error: ${error}`} />}
-          {models === undefined ? (
-            <Spinner label="Loading…" />
-          ) : isDown ? (
-            <EmptyState title="Host is down" />
-          ) : (
+          {models.type === 'error' ? (
+            <EmptyState title={models.message} />
+          ) : models.type === 'value' ? (
             <VStack gap={1}>
               <ModelList
-                models={models}
+                models={models.value}
                 selected={selected}
                 onToggle={onToggle}
               />
@@ -230,6 +230,8 @@ export function PeerSection({
                 checking={checking}
               />
             </VStack>
+          ) : (
+            <Spinner label="Loading…" />
           )}
         </VStack>
       </Section>
