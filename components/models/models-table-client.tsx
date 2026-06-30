@@ -14,7 +14,6 @@ import {Icon} from '@astryxdesign/core/Icon';
 import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
-import {TabList, Tab} from '@astryxdesign/core/TabList';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
 
@@ -38,11 +37,8 @@ export interface QuantInfo {
   missingIndices: number[];
 }
 
-export interface LocationTab {
-  id: string;
-  label: string;
-  isLocal: boolean;
-}
+export type {LocationTab} from '@/components/models/location-tabs';
+import type {LocationTab} from '@/components/models/location-tabs';
 
 export interface ModelRow extends Record<string, unknown> {
   name: string;
@@ -196,30 +192,6 @@ function ColdStorageCell({row}: {row: DisplayRow}) {
   if (row.allInColdStorage) return <Badge label="Complete" variant="green" />;
   if (row.noneInColdStorage) return <Badge label="Missing" variant="red" />;
   return <Badge label="Partial" variant="orange" />;
-}
-
-export function LocationTabs({
-  locations,
-  activeLocation,
-  onLocationChange,
-}: {
-  locations: LocationTab[];
-  activeLocation: string;
-  onLocationChange: (id: string) => void;
-}) {
-  return (
-    <TabList value={activeLocation} onChange={onLocationChange} hasDivider>
-      <Tab value="all" label="All" />
-      {locations.map((loc) => (
-        <Tab
-          key={loc.id}
-          value={loc.id}
-          label={loc.isLocal ? `${loc.label} (local)` : loc.label}
-        />
-      ))}
-      <Tab value="cold-storage" label="Cold Storage" />
-    </TabList>
-  );
 }
 
 export function ModelsTableClient({

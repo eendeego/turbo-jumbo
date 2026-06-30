@@ -14,14 +14,12 @@ import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {AsyncState} from '@/lib/async-state';
-import type {
-  ModelRow,
-  LocationTab,
-} from '@/components/models/models-table-client';
+import type {ModelRow} from '@/components/models/models-table-client';
+import {ModelsTableClient} from '@/components/models/models-table-client';
 import {
-  ModelsTableClient,
   LocationTabs,
-} from '@/components/models/models-table-client';
+  type LocationTab,
+} from '@/components/models/location-tabs';
 import {ActionBar} from '@/components/models/action-bar';
 import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
 import {
