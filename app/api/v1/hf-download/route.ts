@@ -197,7 +197,7 @@ export async function POST(req: Request) {
       const enqueue = (s: string) => controller.enqueue(encode(s));
 
       const proc = spawn('script', ['-q', '-c', cmd, '/dev/null'], {
-        env: {...process.env, HF_HUB_ENABLE_HF_TRANSFER: '1'},
+        env: {...process.env, HF_XET_HIGH_PERFORMANCE: '1'},
       });
 
       req.signal.addEventListener('abort', () => proc.kill('SIGTERM'));
