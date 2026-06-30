@@ -1,6 +1,7 @@
 'use client';
 
 import {useEffect, useMemo, useRef, useState} from 'react';
+import * as stylex from '@stylexjs/stylex';
 import {Section} from '@astryxdesign/core/Section';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
@@ -137,6 +138,10 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1e3).toFixed(1)} KB`;
 }
 
+const styles = stylex.create({
+  picker: {maxHeight: '80vh', overflowY: 'auto'},
+});
+
 export function HuggingFaceDownload({
   localModelsPath,
 }: {
@@ -239,6 +244,14 @@ export function HuggingFaceDownload({
     });
   };
 
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    if (!command) return;
+    navigator.clipboard.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   const handleCancel = () => abortRef.current?.abort();
 
   const handleRun = async () => {
@@ -293,7 +306,7 @@ export function HuggingFaceDownload({
     filesLoading || !!filesError || hasFiles || term !== null;
 
   const pickerContent = (
-    <VStack gap={2}>
+    <VStack gap={2} xstyle={styles.picker}>
       {filesLoading && <Spinner label="Fetching file list…" />}
 
       {filesError && (
@@ -332,20 +345,30 @@ export function HuggingFaceDownload({
       )}
 
       {command && (
-        <VStack gap={2}>
-          <CodeBlock code={command} language="bash" isWrapped width="100%" />
-          <HStack gap={2}>
-            {running ? (
-              <Button
-                label="Cancel"
-                variant="destructive"
-                onClick={handleCancel}
-              />
-            ) : (
-              <Button label="Run" variant="primary" onClick={handleRun} />
-            )}
-          </HStack>
-        </VStack>
+        <HStack gap={2} hAlign="end">
+          <Button
+            label={copied ? 'Copied' : 'Copy Download Command'}
+            variant="secondary"
+            size="sm"
+            onClick={handleCopy}
+          />
+          {running ? (
+            <Button
+              label="Cancel"
+              variant="destructive"
+              size="sm"
+              onClick={handleCancel}
+            />
+          ) : (
+            <Button
+              label="Run"
+              variant="primary"
+              size="sm"
+              onClick={handleRun}
+              isDisabled={selectedFiles.length === 0}
+            />
+          )}
+        </HStack>
       )}
 
       {hasFiles && (
