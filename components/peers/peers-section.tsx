@@ -8,10 +8,15 @@ import {Spinner} from '@astryxdesign/core/Spinner';
 import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {ModelList} from '@/components/models/model-list';
+import {ActionBar} from '@/components/models/action-bar';
 
 export function PeersSection() {
   const [peers, setPeers] = useState<Peer[] | null>(null);
   const [peerModels, setPeerModels] = useState<Map<string, Model[]>>(new Map());
+  const [peerSelections, setPeerSelections] = useState<
+    Record<string, string[]>
+  >({});
+  const [peerDeleting, setPeerDeleting] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetch('/api/v1/peers')
@@ -40,12 +45,42 @@ export function PeersSection() {
     return () => clearInterval(id);
   }, [peers]);
 
+  function onTogglePeer(addr: string, paths: string[]) {
+    setPeerSelections((prev) => {
+      const current = new Set(prev[addr] ?? []);
+      const allSelected = paths.every((p) => current.has(p));
+      if (allSelected) paths.forEach((p) => current.delete(p));
+      else paths.forEach((p) => current.add(p));
+      return {...prev, [addr]: Array.from(current)};
+    });
+  }
+
+  async function onDeletePeer(peer: Peer) {
+    const sel = peerSelections[peer.address] ?? [];
+    setPeerDeleting((prev) => ({...prev, [peer.address]: true}));
+    try {
+      await fetch(`http://${peer.address}/api/v1/local-models`, {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({files: sel}),
+      });
+      const res = await fetch(`http://${peer.address}/api/v1/local-models`);
+      const models: Model[] = await res.json();
+      setPeerModels((prev) => new Map(prev).set(peer.address, models));
+      setPeerSelections((prev) => ({...prev, [peer.address]: []}));
+    } finally {
+      setPeerDeleting((prev) => ({...prev, [peer.address]: false}));
+    }
+  }
+
   if (!peers || peers.length === 0) return null;
 
   return (
     <>
       {peers.map((peer) => {
         const models = peerModels.get(peer.address);
+        const selected = new Set(peerSelections[peer.address] ?? []);
+        const deleting = peerDeleting[peer.address] ?? false;
         return (
           <Section key={peer.address}>
             <VStack gap={3}>
@@ -54,7 +89,18 @@ export function PeersSection() {
               {models === undefined ? (
                 <Spinner label="Loading…" />
               ) : (
-                <ModelList models={models} />
+                <VStack gap={1}>
+                  <ModelList
+                    models={models}
+                    selected={selected}
+                    onToggle={(paths) => onTogglePeer(peer.address, paths)}
+                  />
+                  <ActionBar
+                    selected={selected}
+                    onDelete={() => onDeletePeer(peer)}
+                    deleting={deleting}
+                  />
+                </VStack>
               )}
             </VStack>
           </Section>
