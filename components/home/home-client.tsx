@@ -45,12 +45,25 @@ function selectedFileInfo(
   const result: FileInfo[] = [];
   for (const model of models) {
     for (const q of model.quants) {
-      if (q.paths.length > 0 && q.paths.some((p) => selected.has(p))) {
+      const allPaths = new Set([...q.paths, ...q.coldPaths]);
+      const matchedPaths = [...allPaths].filter((p) => selected.has(p));
+      if (matchedPaths.length === 0) continue;
+
+      if (q.isSingleFile || matchedPaths.length === 1) {
         result.push({
           model: model.name,
           quant: q.label,
           filename: q.displayName,
         });
+      } else {
+        // Split quant with multiple selected shards: list each shard file.
+        for (const p of matchedPaths) {
+          result.push({
+            model: model.name,
+            quant: q.label,
+            filename: p.split('/').pop() ?? p,
+          });
+        }
       }
     }
   }
