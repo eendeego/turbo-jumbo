@@ -6,6 +6,7 @@ import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
+import {Banner} from '@astryxdesign/core/Banner';
 import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {
@@ -49,6 +50,7 @@ export function PeerSection({
   const [pendingConflicts, setPendingConflicts] = useState<ConflictItem[]>([]);
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const selected = new Set(selections);
 
@@ -65,16 +67,21 @@ export function PeerSection({
   async function onDelete() {
     setConfirmingDelete(false);
     setDeleting(true);
+    setError(null);
     const base = peer.isLocal ? '' : `http://${peer.address}`;
     try {
-      await fetch(`${base}/api/v1/local-models`, {
+      const del = await fetch(`${base}/api/v1/local-models`, {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({files: selections}),
       });
+      if (!del.ok) throw new Error(`${del.status} ${del.statusText}`);
       const res = await fetch(`${base}/api/v1/local-models`);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       onModelsRefreshed(peer.address, await res.json());
       setSelections([]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setDeleting(false);
     }
@@ -83,7 +90,9 @@ export function PeerSection({
   async function onCopy(destinations: CopyDestinations) {
     setConfirmingCopy(false);
     setChecking(true);
+    setError(null);
     let hasConflicts = false;
+    let hasError = false;
     try {
       const res = await fetch('/api/v1/copy/check', {
         method: 'POST',
@@ -96,16 +105,20 @@ export function PeerSection({
           fileSizes: buildFileSizes(models ?? []),
         }),
       });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const {conflicts} = (await res.json()) as {conflicts: ConflictItem[]};
       if (conflicts.length > 0) {
         hasConflicts = true;
         setPendingConflicts(conflicts);
         setPendingDestinations(destinations);
       }
+    } catch (e) {
+      hasError = true;
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setChecking(false);
     }
-    if (!hasConflicts) await doCopy(destinations, []);
+    if (!hasConflicts && !hasError) await doCopy(destinations, []);
   }
 
   async function onConflictsConfirm(
@@ -124,6 +137,7 @@ export function PeerSection({
   ) {
     setCopying(true);
     setCopyProgress(null);
+    setError(null);
     try {
       const res = await fetch('/api/v1/copy', {
         method: 'POST',
@@ -136,13 +150,18 @@ export function PeerSection({
           skip,
         }),
       });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       await readCopyProgress(res, setCopyProgress);
       if (destinations.deleteAfterCopy) {
         const base = peer.isLocal ? '' : `http://${peer.address}`;
         const refreshed = await fetch(`${base}/api/v1/local-models`);
+        if (!refreshed.ok)
+          throw new Error(`${refreshed.status} ${refreshed.statusText}`);
         onModelsRefreshed(peer.address, await refreshed.json());
         setSelections([]);
       }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setCopying(false);
       setCopyProgress(null);
@@ -189,6 +208,7 @@ export function PeerSection({
             <Heading level={2}>{peer.name}</Heading>
             {peer.isLocal && <Text type="supporting">— local</Text>}
           </HStack>
+          {error && <Banner status="error" title={`Error: ${error}`} />}
           {models === undefined ? (
             <Spinner label="Loading…" />
           ) : isDown ? (

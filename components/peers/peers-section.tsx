@@ -4,17 +4,23 @@ import {useEffect, useState} from 'react';
 import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/model-types';
 import type {WsMessage} from '@/lib/ws-messages';
+import {Banner} from '@astryxdesign/core/Banner';
 import {PeerSection} from '@/components/peers/peer-section';
 
 export function PeersSection({coldModels}: {coldModels: Model[]}) {
   const [peers, setPeers] = useState<Peer[] | null>(null);
+  const [peersError, setPeersError] = useState<string | null>(null);
   const [peerModels, setPeerModels] = useState<Map<string, Model[]>>(new Map());
   const [peerDown, setPeerDown] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch('/api/v1/peers')
-      .then((r) => r.json())
-      .then((data: Peer[]) => setPeers(data));
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        return r.json();
+      })
+      .then((data: Peer[]) => setPeers(data))
+      .catch((e: Error) => setPeersError(e.message));
   }, []);
 
   // Poll the local peer's models over HTTP.
@@ -73,6 +79,11 @@ export function PeersSection({coldModels}: {coldModels: Model[]}) {
       cancelled = true;
     };
   }, []);
+
+  if (peersError)
+    return (
+      <Banner status="error" title={`Failed to load peers: ${peersError}`} />
+    );
 
   if (!peers || peers.length === 0) return null;
 

@@ -2,6 +2,7 @@
 
 import {useState} from 'react';
 import {VStack} from '@astryxdesign/core/Stack';
+import {Banner} from '@astryxdesign/core/Banner';
 import type {Model} from '@/lib/model-types';
 import {
   type CopyProgress,
@@ -29,6 +30,7 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
   const [pendingConflicts, setPendingConflicts] = useState<ConflictItem[]>([]);
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   function onToggle(paths: string[]) {
     setSelected((prev) => {
@@ -43,15 +45,20 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
   async function onDelete() {
     setConfirming(false);
     setDeleting(true);
+    setError(null);
     try {
-      await fetch('/api/v1/cold-storage', {
+      const del = await fetch('/api/v1/cold-storage', {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({files: Array.from(selected)}),
       });
+      if (!del.ok) throw new Error(`${del.status} ${del.statusText}`);
       const res = await fetch('/api/v1/cold-storage');
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       setModels(await res.json());
       setSelected(new Set());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setDeleting(false);
     }
@@ -60,7 +67,9 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
   async function onCopy(destinations: CopyDestinations) {
     setConfirmingCopy(false);
     setChecking(true);
+    setError(null);
     let hasConflicts = false;
+    let hasError = false;
     try {
       const res = await fetch('/api/v1/copy/check', {
         method: 'POST',
@@ -73,16 +82,20 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
           fileSizes: buildFileSizes(models),
         }),
       });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const {conflicts} = (await res.json()) as {conflicts: ConflictItem[]};
       if (conflicts.length > 0) {
         hasConflicts = true;
         setPendingConflicts(conflicts);
         setPendingDestinations(destinations);
       }
+    } catch (e) {
+      hasError = true;
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setChecking(false);
     }
-    if (!hasConflicts) await doCopy(destinations, []);
+    if (!hasConflicts && !hasError) await doCopy(destinations, []);
   }
 
   async function onConflictsConfirm(
@@ -101,6 +114,7 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
   ) {
     setCopying(true);
     setCopyProgress(null);
+    setError(null);
     try {
       const res = await fetch('/api/v1/copy', {
         method: 'POST',
@@ -113,7 +127,10 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
           skip,
         }),
       });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       await readCopyProgress(res, setCopyProgress);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setCopying(false);
       setCopyProgress(null);
@@ -122,6 +139,7 @@ export function ColdStorageSection({initialModels}: {initialModels: Model[]}) {
 
   return (
     <VStack gap={1}>
+      {error && <Banner status="error" title={`Error: ${error}`} />}
       <ModelList models={models} selected={selected} onToggle={onToggle} />
       <ActionBar
         selected={selected}
