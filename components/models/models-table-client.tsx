@@ -8,7 +8,8 @@ import {
   pixel,
   type TableColumn,
 } from '@astryxdesign/core/Table';
-import {HStack} from '@astryxdesign/core/Stack';
+import {HStack, VStack} from '@astryxdesign/core/Stack';
+import {Link} from '@astryxdesign/core/Link';
 import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
 import {Button} from '@astryxdesign/core/Button';
@@ -129,12 +130,61 @@ function rowAudit(
   return {kind: 'result', status: worst.status, message: worst.message};
 }
 
+// The expected value most relevant to a given failure, drawn from the HF source.
+function expectedDetail(f: AuditResult): string | null {
+  if (!f.hf) return null;
+  switch (f.status) {
+    case 'incomplete':
+      return `Expected size: ${formatSize(f.hf.expectedSize)}`;
+    case 'checksum-mismatch':
+      return `Expected sha256: ${f.hf.expectedSha256}`;
+    case 'misplaced':
+      return `Expected path: ${f.hf.expectedPath}`;
+    default:
+      return null;
+  }
+}
+
+function AuditFailureContent({failures}: {failures: AuditResult[]}) {
+  return (
+    <VStack gap={3}>
+      {failures.map((f) => {
+        const name = f.file.split('/').pop() ?? f.file;
+        const detail = expectedDetail(f);
+        const {label, variant} = AUDIT_BADGE[f.status];
+        return (
+          <VStack key={f.file} gap={1}>
+            <Text type="body">{name}</Text>
+            <HStack gap={2} vAlign="center">
+              <Badge label={label} variant={variant} />
+              {f.message && <Text type="supporting">{f.message}</Text>}
+            </HStack>
+            {detail && <Text type="supporting">{detail}</Text>}
+            {f.hf && (
+              <VStack gap={0}>
+                <Link href={f.hf.modelUrl} isExternalLink>
+                  {f.hf.repoId}
+                </Link>
+                <Link href={f.hf.fileUrl} isExternalLink>
+                  View file on HuggingFace
+                </Link>
+              </VStack>
+            )}
+          </VStack>
+        );
+      })}
+    </VStack>
+  );
+}
+
 function AuditCell({
   audit,
+  failures,
   onFix,
   fixing,
 }: {
   audit: RowAudit;
+  failures?: AuditResult[];
   onFix?: () => void;
   fixing?: boolean;
 }) {
@@ -144,10 +194,12 @@ function AuditCell({
   }
   const {label, variant} = AUDIT_BADGE[audit.status];
   const plainBadge = <Badge label={label} variant={variant} />;
-  const badge = audit.message ? (
+  const hasFailures =
+    audit.status !== 'pass' && failures != null && failures.length > 0;
+  const badge = hasFailures ? (
     <HoverCard
       placement="above"
-      content={<Text type="supporting">{audit.message}</Text>}
+      content={<AuditFailureContent failures={failures} />}
     >
       {plainBadge}
     </HoverCard>
@@ -549,9 +601,15 @@ export function ModelsTableClient({
               const misplaced = item.paths.filter(
                 (p) => results.get(p)?.status === 'misplaced',
               );
+              const failures = item.paths
+                .map((p) => results.get(p))
+                .filter(
+                  (r): r is AuditResult => r != null && r.status !== 'pass',
+                );
               return (
                 <AuditCell
                   audit={rowAudit(item.paths, auditedPaths, results, auditing)}
+                  failures={failures}
                   onFix={
                     onFixMisplaced && misplaced.length > 0
                       ? () => onFixMisplaced(misplaced)

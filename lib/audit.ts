@@ -14,10 +14,22 @@ export type AuditStatus =
   | 'unverifiable'
   | 'error';
 
+/** The inferred HuggingFace source for a file, with links and expected values,
+ *  attached to a result so the UI can explain a failure. */
+export interface HfSummary {
+  repoId: string;
+  modelUrl: string; // repo page, e.g. https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF
+  fileUrl: string; // file blob page within the repo
+  expectedSize: number;
+  expectedSha256: string;
+  expectedPath: string; // <repoId>/<repoPath>
+}
+
 export interface AuditResult {
   file: string; // path relative to the storage root
   status: AuditStatus;
   message?: string;
+  hf?: HfSummary; // present whenever an HF source was inferred
 }
 
 export interface TjMeta {
@@ -36,6 +48,17 @@ export interface TjMeta {
  */
 export function expectedRelPath(hf: HfFileInfo): string {
   return `${hf.repoId}/${hf.repoPath}`;
+}
+
+export function hfSummary(hf: HfFileInfo): HfSummary {
+  return {
+    repoId: hf.repoId,
+    modelUrl: `https://huggingface.co/${hf.repoId}`,
+    fileUrl: `https://huggingface.co/${hf.repoId}/blob/${hf.branch}/${hf.repoPath}`,
+    expectedSize: hf.size,
+    expectedSha256: hf.sha256,
+    expectedPath: expectedRelPath(hf),
+  };
 }
 
 /**
@@ -149,11 +172,13 @@ export async function auditFile(
 
   const hf = await inferHfFile(modelName, filename);
   if (!hf) return {file: relPath, status: 'unverifiable'};
+  const summary = hfSummary(hf);
   if (actualSize !== hf.size) {
     return {
       file: relPath,
       status: 'incomplete',
       message: `size ${actualSize} != expected ${hf.size}`,
+      hf: summary,
     };
   }
 
@@ -161,7 +186,12 @@ export async function auditFile(
   try {
     computedSha256 = await localSha256(fullPath, signal);
   } catch {
-    return {file: relPath, status: 'error', message: 'sha256sum failed'};
+    return {
+      file: relPath,
+      status: 'error',
+      message: 'sha256sum failed',
+      hf: summary,
+    };
   }
 
   // Record the inferred HF source URL and cache its sha into the sidecar.
@@ -169,15 +199,20 @@ export async function auditFile(
   // future download-time flow records an authoritative origin.
   try {
     await writeMeta(fullPath, {
-      modelUrl: `https://huggingface.co/${hf.repoId}`,
-      originUrl: `https://huggingface.co/${hf.repoId}/blob/${hf.branch}/${hf.repoPath}`,
+      modelUrl: summary.modelUrl,
+      originUrl: summary.fileUrl,
       sourceSha256: hf.sha256,
       computedSha256,
     });
   } catch {
     // Non-fatal: still return the verdict, but note the metadata gap.
     const status = decideStatus({hf, actualSize, relPath, computedSha256});
-    return {file: relPath, status, message: 'metadata write failed'};
+    return {
+      file: relPath,
+      status,
+      message: 'metadata write failed',
+      hf: summary,
+    };
   }
 
   const status = decideStatus({hf, actualSize, relPath, computedSha256});
@@ -188,5 +223,6 @@ export async function auditFile(
       status === 'misplaced'
         ? `expected path ${expectedRelPath(hf)}`
         : undefined,
+    hf: summary,
   };
 }

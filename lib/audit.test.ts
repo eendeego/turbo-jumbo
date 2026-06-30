@@ -5,6 +5,7 @@ import path from 'path';
 import {
   decideStatus,
   expectedRelPath,
+  hfSummary,
   moveFileWithMeta,
   readMeta,
   writeMeta,
@@ -102,6 +103,17 @@ test('error when sha could not be computed despite matching size', () => {
 
 test('expectedRelPath joins repoId and repoPath', () => {
   expect(expectedRelPath(hf)).toBe('o/r/M.Q4.gguf');
+});
+
+test('hfSummary builds repo/file URLs and expected values', () => {
+  expect(hfSummary(hf)).toEqual({
+    repoId: 'o/r',
+    modelUrl: 'https://huggingface.co/o/r',
+    fileUrl: 'https://huggingface.co/o/r/blob/main/M.Q4.gguf',
+    expectedSize: 100,
+    expectedSha256: 'deadbeef',
+    expectedPath: 'o/r/M.Q4.gguf',
+  });
 });
 
 test('writeMeta/readMeta round-trip and metaPath naming', async () => {
