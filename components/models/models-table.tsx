@@ -39,12 +39,12 @@ export function getModelsTableData(
     }
   }
 
-  // Cold-storage paths as a fallback for quants not present locally.
+  // Cold-storage paths for every quant present there, so cold-tab deletions use
+  // the cold-storage-relative paths (not the local ones).
   const coldPathsMap = new Map<string, string[]>();
   for (const m of coldModels) {
     for (const f of m.files) {
       const key = `${m.name}::${f.quant}`;
-      if (localPathsMap.has(key)) continue;
       coldPathsMap.set(key, f.isSplit ? f.files.map((s) => s.path) : [f.path]);
     }
   }
@@ -70,6 +70,7 @@ export function getModelsTableData(
           size: f.isSplit ? f.totalSize : f.size,
           paths:
             localPathsMap.get(quantKey) ?? coldPathsMap.get(quantKey) ?? [],
+          coldPaths: coldPathsMap.get(quantKey) ?? [],
           shards: f.isSplit
             ? [...f.files]
                 .sort((a, b) => a.path.localeCompare(b.path))

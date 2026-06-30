@@ -31,6 +31,7 @@ export interface QuantInfo {
   inColdStorage: boolean;
   size: number;
   paths: string[];
+  coldPaths: string[];
   shards: ShardInfo[];
   totalShards: number;
   presentShards: number;
@@ -256,13 +257,20 @@ export function ModelsTableClient({
     if (activeLocation === 'all') return models;
     return models
       .map((m) => {
-        const quants = m.quants.filter((q) =>
-          activeLocation === 'cold-storage'
-            ? q.inColdStorage
-            : (peerQuantKeys
-                .get(activeLocation)
-                ?.has(`${m.name}::${q.label}`) ?? false),
-        );
+        const quants = m.quants
+          .filter((q) =>
+            activeLocation === 'cold-storage'
+              ? q.inColdStorage
+              : (peerQuantKeys
+                  .get(activeLocation)
+                  ?.has(`${m.name}::${q.label}`) ?? false),
+          )
+          // On the cold-storage tab, delete/select via the cold-storage paths.
+          .map((q) =>
+            activeLocation === 'cold-storage' && q.coldPaths.length > 0
+              ? {...q, paths: q.coldPaths}
+              : q,
+          );
         if (quants.length === 0) return null;
         const sizes = quants.map((q) => q.size).filter((s) => s > 0);
         return {
