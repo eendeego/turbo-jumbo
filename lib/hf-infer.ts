@@ -20,8 +20,9 @@ interface HfTreeEntry {
 const HEADERS = {'User-Agent': 'tj/1.0'};
 const cache = new Map<string, HfFileInfo | null>();
 
-/** Test-only: reset the per-run inference cache. */
-export function _clearHfCache(): void {
+/** Reset the inference cache. Call once at the start of each audit run so a
+ *  transient HF outage doesn't pin a file to `unverifiable` for the process life. */
+export function clearHfCache(): void {
   cache.clear();
 }
 
@@ -30,9 +31,10 @@ export async function inferHfFile(
   filename: string,
   branch = 'main',
 ): Promise<HfFileInfo | null> {
-  if (cache.has(filename)) return cache.get(filename) ?? null;
+  const key = `${modelName}\0${filename}\0${branch}`;
+  if (cache.has(key)) return cache.get(key) ?? null;
   const result = await resolveHfFile(modelName, filename, branch);
-  cache.set(filename, result);
+  cache.set(key, result);
   return result;
 }
 

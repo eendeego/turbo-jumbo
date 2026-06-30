@@ -1,10 +1,10 @@
 import {test, expect, afterEach} from 'bun:test';
-import {inferHfFile, _clearHfCache} from '@/lib/hf-infer';
+import {inferHfFile, clearHfCache} from '@/lib/hf-infer';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = realFetch;
-  _clearHfCache();
+  clearHfCache();
 });
 
 function jsonResponse(data: unknown) {

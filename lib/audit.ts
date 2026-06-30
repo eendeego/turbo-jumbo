@@ -46,8 +46,11 @@ export function decideStatus(input: {
   return 'pass';
 }
 
-export async function localSha256(fullPath: string): Promise<string> {
-  const {stdout} = await execFileP('sha256sum', [fullPath]);
+export async function localSha256(
+  fullPath: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const {stdout} = await execFileP('sha256sum', [fullPath], {signal});
   return stdout.split(/\s+/)[0];
 }
 
@@ -77,6 +80,7 @@ export async function auditFile(
   relPath: string,
   modelName: string,
   filename: string,
+  signal?: AbortSignal,
 ): Promise<AuditResult> {
   const fullPath = path.join(basePath, relPath);
 
@@ -99,7 +103,7 @@ export async function auditFile(
 
   let computedSha256: string | null = null;
   try {
-    computedSha256 = await localSha256(fullPath);
+    computedSha256 = await localSha256(fullPath, signal);
   } catch {
     return {file: relPath, status: 'error', message: 'sha256sum failed'};
   }
