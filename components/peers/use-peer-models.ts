@@ -2,7 +2,7 @@
 
 import {useEffect, useState, useCallback} from 'react';
 import type {Peer as PeerConfig} from '@/lib/config';
-import type {Model} from '@/lib/models';
+import type {Model} from '@/lib/model-types';
 import type {WsMessage} from '@/lib/ws-messages';
 import type {PeerModels} from '@/components/peers/peer';
 import {AsyncState} from '@/lib/async-state';

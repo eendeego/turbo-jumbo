@@ -5,7 +5,6 @@ import * as stylex from '@stylexjs/stylex';
 import {useRouter} from 'next/navigation';
 import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
-import {Section} from '@astryxdesign/core/Section';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Text';
 import {Divider} from '@astryxdesign/core/Divider';
@@ -35,7 +34,6 @@ import {
 import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
 import {Peers} from '@/components/peers/peers';
-import {ColdStorage} from '@/components/models/cold-storage';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
@@ -404,13 +402,6 @@ export function HomeClient({
             coldModels={coldModels}
             onModelsRefreshed={handleModelsRefreshed}
           />
-
-          <Section>
-            <VStack gap={3}>
-              <Heading level={2}>Models in cold storage</Heading>
-              <ColdStorage initialModels={coldModels} />
-            </VStack>
-          </Section>
         </VStack>
       </VStack>
 

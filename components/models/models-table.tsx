@@ -1,4 +1,4 @@
-import type {Model} from '@/lib/models';
+import type {Model} from '@/lib/model-types';
 import type {ModelRow, QuantInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",
