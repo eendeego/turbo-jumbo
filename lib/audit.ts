@@ -1,5 +1,5 @@
 import {execFile} from 'child_process';
-import {promises as fsp} from 'fs';
+import {createReadStream, createWriteStream, promises as fsp} from 'fs';
 import path from 'path';
 import {promisify} from 'util';
 import {
@@ -206,6 +206,38 @@ export async function moveFileWithMeta(
 }
 
 /**
+ * Copy a file and its `.tjmeta.json` sidecar (if present) to `dstFull`, creating
+ * intermediate directories. Unlike `moveFileWithMeta` this works across
+ * filesystems (a stream copy, not a rename), so it's used for the local → cold
+ * storage transfer. `onBytes` reports copied chunk sizes of the model file for
+ * progress; the sidecar is tiny and not counted.
+ */
+export async function copyFileWithMeta(
+  srcFull: string,
+  dstFull: string,
+  onBytes?: (n: number) => void,
+): Promise<void> {
+  await fsp.mkdir(path.dirname(dstFull), {recursive: true});
+  await new Promise<void>((resolve, reject) => {
+    const rs = createReadStream(srcFull);
+    const ws = createWriteStream(dstFull);
+    if (onBytes)
+      rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
+    rs.once('error', reject);
+    ws.once('error', reject);
+    ws.once('finish', resolve);
+    rs.pipe(ws);
+  });
+
+  // Copy the sidecar alongside if it exists; absence is fine.
+  try {
+    await fsp.copyFile(metaPath(srcFull), metaPath(dstFull));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
+}
+
+/**
  * Resolve a file's HuggingFace source, in order: name inference, then a fall
  * back to the file's own sidecar `originUrl`. The fallback is what lets a source
  * set by hand survive — both later audits and the Fix action rely on it, so the
@@ -275,9 +307,9 @@ export async function auditFile(
     };
   }
 
-  // Record the inferred HF source URL and cache its sha into the sidecar.
-  // Note: the URL is inferred from the filename, so it is a best guess until a
-  // future download-time flow records an authoritative origin.
+  // Record the HF source URL and cache its sha into the sidecar. The URL is
+  // authoritative when `source` was supplied (the download flow, or a pasted
+  // URL); otherwise it's inferred from the filename and a best guess.
   try {
     await writeMeta(fullPath, {
       modelUrl: summary.modelUrl,

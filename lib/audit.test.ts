@@ -6,6 +6,7 @@ import path from 'path';
 import {
   auditFile,
   cachedResultFromMeta,
+  copyFileWithMeta,
   decideStatus,
   expectedRelPath,
   hfSummary,
@@ -305,6 +306,44 @@ test('resolveSource falls back to the sidecar source when inference fails', asyn
     globalThis.fetch = realFetch;
     await fsp.rm(base, {recursive: true, force: true});
   }
+});
+
+test('copyFileWithMeta copies the file and its sidecar, reporting bytes', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-cp-'));
+  const src = path.join(base, 'm.gguf');
+  await fsp.writeFile(src, 'payload');
+  await writeMeta(src, {
+    modelUrl: 'https://huggingface.co/o/r',
+    originUrl: 'https://huggingface.co/o/r/blob/main/m.gguf',
+    sourceSha256: 's',
+    computedSha256: 'c',
+  });
+  const dst = path.join(base, 'cold', 'sub', 'm.gguf');
+
+  let bytes = 0;
+  await copyFileWithMeta(src, dst, (n) => {
+    bytes += n;
+  });
+
+  expect(await fsp.readFile(dst, 'utf8')).toBe('payload');
+  expect(bytes).toBe('payload'.length);
+  expect((await readMeta(dst))?.sourceSha256).toBe('s');
+  // Source untouched (this is a copy, not a move).
+  expect(await readMeta(src)).not.toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('copyFileWithMeta tolerates a file with no sidecar', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-cp-'));
+  const src = path.join(base, 'm.gguf');
+  await fsp.writeFile(src, 'data');
+  const dst = path.join(base, 'cold', 'm.gguf');
+
+  await copyFileWithMeta(src, dst);
+
+  expect(await fsp.readFile(dst, 'utf8')).toBe('data');
+  expect(await readMeta(dst)).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
 });
 
 test('auditFile verifies against an explicit source without any inference', async () => {
