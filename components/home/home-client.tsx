@@ -18,11 +18,17 @@ import type {
 } from '@/components/models/models-table-client';
 import {ModelsTableClient} from '@/components/models/models-table-client';
 import {ActionBar} from '@/components/models/action-bar';
+import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
 import {
   DeleteModal,
   anyMissingFromColdStorage,
   type FileInfo,
 } from '@/components/models/delete-modal';
+import {CopyModal, type CopyDestinations} from '@/components/models/copy-modal';
+import {
+  ConflictsModal,
+  type ConflictItem,
+} from '@/components/models/conflicts-modal';
 import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
 import {Peers} from '@/components/peers/peers';
@@ -74,6 +80,13 @@ export function HomeClient({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmingCopy, setConfirmingCopy] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copyProgress, setCopyProgress] = useState<CopyProgress | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [pendingConflicts, setPendingConflicts] = useState<ConflictItem[]>([]);
+  const [pendingDestinations, setPendingDestinations] =
+    useState<CopyDestinations | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const locations: LocationTab[] = useMemo(
@@ -170,6 +183,87 @@ export function HomeClient({
     }
   }
 
+  // The copy source for the active tab: the local peer on "All", otherwise the
+  // tab's own location.
+  const copyFromSource = useMemo(() => {
+    if (activeLocation === 'cold-storage') return 'cold-storage';
+    if (activeLocation === 'all') return localPeerAddress ?? '';
+    return activeLocation;
+  }, [activeLocation, localPeerAddress]);
+
+  async function onCopy(destinations: CopyDestinations) {
+    setConfirmingCopy(false);
+    setChecking(true);
+    setError(null);
+    let hasConflicts = false;
+    let hasError = false;
+    try {
+      const res = await fetch('/api/v1/copy/check', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          files: Array.from(selected),
+          from: copyFromSource,
+          toColdStorage: destinations.toColdStorage,
+          toPeers: destinations.toPeers,
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const {conflicts} = (await res.json()) as {conflicts: ConflictItem[]};
+      if (conflicts.length > 0) {
+        hasConflicts = true;
+        setPendingConflicts(conflicts);
+        setPendingDestinations(destinations);
+      }
+    } catch (e) {
+      hasError = true;
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChecking(false);
+    }
+    if (!hasConflicts && !hasError) await doCopy(destinations, []);
+  }
+
+  async function onConflictsConfirm(
+    skip: Array<{file: string; destination: string}>,
+  ) {
+    if (!pendingDestinations) return;
+    const dest = pendingDestinations;
+    setPendingConflicts([]);
+    setPendingDestinations(null);
+    await doCopy(dest, skip);
+  }
+
+  async function doCopy(
+    destinations: CopyDestinations,
+    skip: Array<{file: string; destination: string}>,
+  ) {
+    setCopying(true);
+    setCopyProgress(null);
+    setError(null);
+    try {
+      const res = await fetch('/api/v1/copy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          files: Array.from(selected),
+          from: copyFromSource,
+          ...destinations,
+          skip,
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      await readCopyProgress(res, setCopyProgress);
+      setSelected(new Set());
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCopying(false);
+      setCopyProgress(null);
+    }
+  }
+
   // Seed the local peer's models from server data so its location tokens are
   // active immediately, without waiting for the first client fetch.
   const seededPeerModels = useMemo(() => {
@@ -211,8 +305,10 @@ export function HomeClient({
           selected={selected}
           onDelete={() => setConfirming(true)}
           deleting={deleting}
-          onCopy={() => {}}
-          copying={false}
+          onCopy={() => setConfirmingCopy(true)}
+          copying={copying}
+          copyProgress={copyProgress}
+          checking={checking}
         />
 
         {confirming && (
@@ -226,6 +322,24 @@ export function HomeClient({
             }
             onConfirm={onDelete}
             onCancel={() => setConfirming(false)}
+          />
+        )}
+        {confirmingCopy && (
+          <CopyModal
+            files={fileInfo}
+            from={copyFromSource}
+            onCopy={onCopy}
+            onCancel={() => setConfirmingCopy(false)}
+          />
+        )}
+        {pendingConflicts.length > 0 && (
+          <ConflictsModal
+            conflicts={pendingConflicts}
+            onConfirm={onConflictsConfirm}
+            onCancel={() => {
+              setPendingConflicts([]);
+              setPendingDestinations(null);
+            }}
           />
         )}
 
