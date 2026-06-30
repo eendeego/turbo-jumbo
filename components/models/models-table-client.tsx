@@ -21,12 +21,15 @@ export interface QuantInfo {
   filename: string | null;
   isSingleFile: boolean;
   inColdStorage: boolean;
+  size: number;
 }
 
 export interface ModelRow extends Record<string, unknown> {
   name: string;
   quantizations: string;
   quants: QuantInfo[];
+  minSize: number;
+  maxSize: number;
   allInColdStorage: boolean;
   noneInColdStorage: boolean;
 }
@@ -39,6 +42,8 @@ interface DisplayRow extends Record<string, unknown> {
   filename: string | null;
   isChild: boolean;
   parentName: string;
+  size: number;
+  sizeRange: [number, number] | null;
   inColdStorage: boolean | null;
   allInColdStorage: boolean;
   noneInColdStorage: boolean;
@@ -47,6 +52,13 @@ interface DisplayRow extends Record<string, unknown> {
 const styles = stylex.create({
   indent: {paddingInlineStart: '1.5rem'},
 });
+
+function formatSize(bytes: number): string {
+  if (bytes <= 0) return '';
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
 
 function NameCell({
   row,
@@ -173,6 +185,8 @@ export function ModelsTableClient({
       filename: null,
       isChild: false,
       parentName: m.name,
+      size: m.minSize === m.maxSize ? m.minSize : -1,
+      sizeRange: m.minSize !== m.maxSize ? [m.minSize, m.maxSize] : null,
       inColdStorage: null,
       allInColdStorage: m.allInColdStorage,
       noneInColdStorage: m.noneInColdStorage,
@@ -187,6 +201,8 @@ export function ModelsTableClient({
           filename: q.filename,
           isChild: true,
           parentName: m.name,
+          size: q.size,
+          sizeRange: null,
           inColdStorage: q.inColdStorage,
           allInColdStorage: false,
           noneInColdStorage: false,
@@ -206,6 +222,19 @@ export function ModelsTableClient({
           isExpanded={expanded.has(item.parentName)}
           onToggle={toggle}
         />
+      ),
+    },
+    {
+      key: 'size',
+      header: 'Size',
+      width: pixel(120),
+      align: 'end',
+      renderCell: (item) => (
+        <Text type="body">
+          {item.sizeRange
+            ? `${formatSize(item.sizeRange[0])} – ${formatSize(item.sizeRange[1])}`
+            : formatSize(item.size)}
+        </Text>
       ),
     },
     {

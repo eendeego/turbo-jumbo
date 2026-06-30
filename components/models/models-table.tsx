@@ -34,6 +34,7 @@ export function getModelsTableData(
           isSingleFile: !f.isSplit,
           filename: f.isSplit ? null : f.filename,
           inColdStorage: coldQuantKeys.has(`${m.name}::${f.quant}`),
+          size: f.isSplit ? f.totalSize : f.size,
         });
       }
     }
@@ -45,10 +46,13 @@ export function getModelsTableData(
         (a, b) => Number(quantBits(a.label)) - Number(quantBits(b.label)),
       );
       const bits = [...new Set(quants.map((q) => quantBits(q.label)))];
+      const sizes = quants.map((q) => q.size).filter((s) => s > 0);
       return {
         name,
         quantizations: bits.join(', '),
         quants,
+        minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
+        maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
         allInColdStorage: quants.every((q) => q.inColdStorage),
         noneInColdStorage: quants.every((q) => !q.inColdStorage),
       };
