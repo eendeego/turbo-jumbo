@@ -1,0 +1,121 @@
+'use client';
+
+import {useEffect, useState, useCallback} from 'react';
+import type {Peer as PeerConfig} from '@/lib/config';
+import type {Model} from '@/lib/models';
+import type {WsMessage} from '@/lib/ws-messages';
+import type {PeerModels} from '@/components/peers/peer';
+import {AsyncState} from '@/lib/async-state';
+import {clientLog} from '@/lib/client-log';
+
+// Shared peer state: fetches the peer list, polls each peer's models through
+// the same-origin proxy, and reacts to peer-down WebSocket notifications. Lets
+// the models table and the Peers section render from one source of truth.
+export function usePeerModels() {
+  const [peers, setPeers] = useState<AsyncState<PeerConfig[]>>(
+    AsyncState.loading<PeerConfig[]>(),
+  );
+  const [peerModels, setPeerModels] = useState<Map<string, PeerModels>>(
+    new Map(),
+  );
+
+  useEffect(() => {
+    clientLog('debug', '[http] GET /api/v1/peers');
+    fetch('/api/v1/peers')
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        return r.json();
+      })
+      .then((data: PeerConfig[]) => {
+        clientLog('debug', `[http] GET /api/v1/peers → ${data.length} peer(s)`);
+        setPeers(AsyncState.value(data));
+        setPeerModels(
+          new Map(data.map((p) => [p.address, AsyncState.empty()])),
+        );
+      })
+      .catch((e: Error) => {
+        clientLog('debug', `[http] GET /api/v1/peers → error: ${e.message}`);
+        setPeers(AsyncState.error(e.message));
+      });
+  }, []);
+
+  const activePeers = peers.type === 'value' ? peers.value : null;
+
+  useEffect(() => {
+    if (!activePeers) return;
+    const peerList = activePeers;
+
+    const fetchPeer = (peer: PeerConfig) => {
+      const url = `/api/v1/peers/${encodeURIComponent(peer.name)}/models`;
+      clientLog('trace', `[http] GET ${url} (poll)`);
+      fetch(url)
+        .then((r) => {
+          if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+          return r.json();
+        })
+        .then((models: Model[]) => {
+          clientLog('trace', `[http] GET ${url} → ${models.length} model(s)`);
+          setPeerModels((prev) =>
+            new Map(prev).set(peer.address, AsyncState.value(models)),
+          );
+        })
+        .catch((e: Error) => {
+          clientLog('trace', `[http] GET ${url} → error: ${e.message}`);
+          setPeerModels((prev) =>
+            new Map(prev).set(peer.address, AsyncState.error(e.message)),
+          );
+        });
+    };
+
+    peerList.forEach(fetchPeer);
+    const id = setInterval(() => peerList.forEach(fetchPeer), 5000);
+    return () => clearInterval(id);
+  }, [activePeers]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    function connect() {
+      if (cancelled) return;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+      socket.onopen = () => clientLog('info', '[ws] connected');
+
+      socket.onmessage = (e: MessageEvent) => {
+        const msg = JSON.parse(e.data as string) as WsMessage;
+        if (msg.type === 'peer-down') {
+          clientLog('info', `[ws] peer-down: ${msg.address}`);
+          setPeerModels((prev) =>
+            new Map(prev).set(msg.address, AsyncState.error('Host is down')),
+          );
+        }
+      };
+
+      socket.onclose = () => {
+        clientLog('info', '[ws] disconnected, reconnecting in 3s');
+        if (!cancelled) setTimeout(connect, 3000);
+      };
+      socket.onerror = () => {
+        clientLog('warn', '[ws] connection error');
+        socket.close();
+      };
+    }
+
+    connect();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleModelsRefreshed = useCallback(
+    (address: string, models: Model[]) => {
+      setPeerModels((prev) =>
+        new Map(prev).set(address, AsyncState.value(models)),
+      );
+    },
+    [],
+  );
+
+  return {peers, peerModels, handleModelsRefreshed};
+}

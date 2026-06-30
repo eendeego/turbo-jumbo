@@ -1,16 +1,8 @@
 import type {Metadata} from 'next';
-import {AppShell} from '@astryxdesign/core/AppShell';
-import {Section} from '@astryxdesign/core/Section';
-import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
-import {Heading} from '@astryxdesign/core/Text';
 import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {scanModels} from '@/lib/models';
-import {ColdStorage} from '@/components/models/cold-storage';
-import {ModelsTable} from '@/components/models/models-table';
-import {Peers} from '@/components/peers/peers';
-import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
-import {Log} from '@/components/log/log';
-import {ThemeToggle} from '@/components/theme/theme-toggle';
+import {getModelsTableData} from '@/components/models/models-table';
+import {HomeClient} from '@/components/home/home-client';
 
 export function generateMetadata(): Metadata {
   return {title: `Turbo Jumbo - ${localPeer?.name ?? 'unknown'}`};
@@ -23,35 +15,21 @@ export const dynamic = 'force-dynamic';
 export default function Home() {
   const coldModels = scanModels(coldStorageDir);
   const localModels = scanModels(localModelsDir);
+  const modelsTableData = getModelsTableData(localModels, coldModels);
+  const peerConfigs = config.peers.map((p) => ({
+    ...p,
+    isLocal: p === localPeer,
+  }));
 
   return (
-    <AppShell contentPadding={6} height="auto">
-      <VStack gap={6}>
-        <HStack vAlign="center">
-          <StackItem size="fill">
-            <Heading level={1}>Turbo Jumbo</Heading>
-          </StackItem>
-          <ThemeToggle />
-        </HStack>
-
-        <ModelsTable coldModels={coldModels} localModels={localModels} />
-
-        {/* The local machine appears here as a peer marked "— local". */}
-        <Peers coldModels={coldModels} />
-
-        {localModelsDir && (
-          <HuggingFaceDownload localModelsPath={localModelsDir} />
-        )}
-
-        <Section>
-          <VStack gap={3}>
-            <Heading level={2}>Models in cold storage</Heading>
-            <ColdStorage initialModels={coldModels} />
-          </VStack>
-        </Section>
-
-        <Log logLevel={config.log_level ?? 'info'} />
-      </VStack>
-    </AppShell>
+    <HomeClient
+      coldModels={coldModels}
+      localModelsPath={localModelsDir ?? null}
+      logLevel={config.log_level ?? 'info'}
+      modelsTableData={modelsTableData}
+      peerConfigs={peerConfigs}
+      localPeerAddress={localPeer?.address ?? null}
+      localPeerModels={localModels}
+    />
   );
 }
