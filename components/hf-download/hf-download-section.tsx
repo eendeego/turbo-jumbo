@@ -1,41 +1,38 @@
 'use client';
 
-import {useRef, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {Section} from '@astryxdesign/core/Section';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
-import {Heading} from '@astryxdesign/core/Text';
+import {Heading, Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Button} from '@astryxdesign/core/Button';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
+import {List, ListItem} from '@astryxdesign/core/List';
+import {Spinner} from '@astryxdesign/core/Spinner';
 
-function parseHfUrl(
-  url: string,
-): {repoId: string; folder: string | null} | null {
-  // https://huggingface.co/{owner}/{repo}/blob/{branch}/{...path}
-  // https://huggingface.co/{owner}/{repo}/resolve/{branch}/{...path}
+type ParsedUrl = {repoId: string; branch: string; folder: string | null};
+type HfFile = {path: string; size: number};
+type TermState = {lines: string[]; col: number};
+
+function parseHfUrl(url: string): ParsedUrl | null {
   const match = url.match(
-    /^https?:\/\/huggingface\.co\/([^/]+\/[^/]+)\/(blob|resolve)\/[^/]+\/(.+)$/,
+    /^https?:\/\/huggingface\.co\/([^/]+\/[^/]+)\/(blob|resolve)\/([^/]+)\/(.+)$/,
   );
   if (!match) return null;
-
   const repoId = match[1];
-  const filePath = match[3];
-
+  const branch = match[3];
+  const filePath = match[4];
   const slashIdx = filePath.indexOf('/');
   const folder = slashIdx !== -1 ? filePath.slice(0, slashIdx) : null;
-
-  return {repoId, folder};
+  return {repoId, branch, folder};
 }
 
 // Minimal terminal emulator: handles \r (go to column 0) and \n (new line).
 // Keeps lines as an array of strings so \r-based progress bars update in place.
-type TermState = {lines: string[]; col: number};
-
 function applyChunk(state: TermState, chunk: string): TermState {
   const lines = [...state.lines];
   let col = state.col;
-
   for (let i = 0; i < chunk.length; i++) {
     const ch = chunk[i];
     if (ch === '\r') {
@@ -60,8 +57,14 @@ function applyChunk(state: TermState, chunk: string): TermState {
       col++;
     }
   }
-
   return {lines, col};
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${(bytes / 1e3).toFixed(1)} KB`;
 }
 
 export function HfDownloadSection({
@@ -74,22 +77,83 @@ export function HfDownloadSection({
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
   const [running, setRunning] = useState(false);
   const [term, setTerm] = useState<TermState | null>(null);
+  const [files, setFiles] = useState<HfFile[] | null>(null);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [filesError, setFilesError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const parsed = url.trim() ? parseHfUrl(url.trim()) : null;
+  // Debounce so we don't hit the HF API on every keypress
+  const [debouncedUrl, setDebouncedUrl] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedUrl(url), 400);
+    return () => clearTimeout(t);
+  }, [url]);
 
-  let command: string | null = null;
-  if (parsed) {
+  const parsed = useMemo(
+    () => (debouncedUrl.trim() ? parseHfUrl(debouncedUrl.trim()) : null),
+    [debouncedUrl],
+  );
+
+  // Only show invalid after the debounce has settled (avoids flashing mid-type)
+  const isInvalid =
+    url.trim() !== '' && url === debouncedUrl && parsed === null;
+
+  // Fetch file list from HF API whenever parsed URL changes
+  useEffect(() => {
+    if (!parsed) {
+      setFiles(null);
+      setFilesError(null);
+      setFilesLoading(false);
+      return;
+    }
+    setFiles(null);
+    setFilesError(null);
+    setFilesLoading(true);
+
+    const params = new URLSearchParams({
+      repoId: parsed.repoId,
+      branch: parsed.branch,
+    });
+    if (parsed.folder) params.set('folder', parsed.folder);
+
+    let cancelled = false;
+    fetch(`/api/v1/hf-files?${params}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        return r.json() as Promise<HfFile[]>;
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setFiles(data);
+          setFilesLoading(false);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setFilesError(String(e.message ?? e));
+          setFilesLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [parsed]);
+
+  const totalSize = files?.reduce((s, f) => s + f.size, 0) ?? 0;
+
+  const command = useMemo(() => {
+    if (!parsed || files === null) return null;
     const include = parsed.folder
       ? `--include "${parsed.folder}/*"`
       : `--include "*.gguf"`;
-    command = `HF_HUB_ENABLE_HF_TRANSFER=1 hf download ${parsed.repoId} ${include} --local-dir ${localModelsPath}`;
-  }
+    const rev = parsed.branch !== 'main' ? ` --revision ${parsed.branch}` : '';
+    return `HF_HUB_ENABLE_HF_TRANSFER=1 hf download ${parsed.repoId} ${include} --local-dir ${localModelsPath}${rev}`;
+  }, [parsed, files, localModelsPath]);
 
   const handleCancel = () => abortRef.current?.abort();
 
   const handleRun = async () => {
-    if (!parsed || running) return;
+    if (!parsed || !files || running) return;
     const abort = new AbortController();
     abortRef.current = abort;
     setRunning(true);
@@ -102,7 +166,9 @@ export function HfDownloadSection({
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           repoId: parsed.repoId,
+          branch: parsed.branch,
           folder: parsed.folder,
+          filePaths: files.map((f) => f.path),
           sendToCold,
           deleteAfterTransfer,
         }),
@@ -115,7 +181,6 @@ export function HfDownloadSection({
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-
       let state: TermState = {lines: [''], col: 0};
 
       while (true) {
@@ -134,7 +199,7 @@ export function HfDownloadSection({
     }
   };
 
-  const isInvalid = url.trim() !== '' && parsed === null;
+  const hasFiles = files !== null && files.length > 0;
 
   return (
     <Section>
@@ -154,6 +219,33 @@ export function HfDownloadSection({
               : undefined
           }
         />
+
+        {filesLoading && <Spinner label="Fetching file list…" />}
+
+        {filesError && (
+          <Text type="supporting" color="accent">
+            Error: {filesError}
+          </Text>
+        )}
+
+        {hasFiles && (
+          <VStack gap={1}>
+            <List hasDividers>
+              {files!.map((f) => (
+                <ListItem
+                  key={f.path}
+                  label={f.path.split('/').pop()}
+                  description={formatBytes(f.size)}
+                />
+              ))}
+            </List>
+            <HStack gap={2} hAlign="between">
+              <Text type="supporting">Total</Text>
+              <Text type="label">{formatBytes(totalSize)}</Text>
+            </HStack>
+          </VStack>
+        )}
+
         {command && (
           <VStack gap={2}>
             <CodeBlock code={command} language="bash" isWrapped width="100%" />
@@ -170,7 +262,8 @@ export function HfDownloadSection({
             </HStack>
           </VStack>
         )}
-        {parsed?.folder && (
+
+        {hasFiles && (
           <VStack gap={2}>
             <CheckboxInput
               label="Copy to cold storage when done"
@@ -191,6 +284,7 @@ export function HfDownloadSection({
             )}
           </VStack>
         )}
+
         {term !== null && (
           <CodeBlock
             code={term.lines.join('\n') || ' '}

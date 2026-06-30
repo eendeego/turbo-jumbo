@@ -3,16 +3,13 @@ import {createReadStream, createWriteStream, promises as fsp} from 'fs';
 import path from 'path';
 import {localModelsDir, coldStorageDir} from '@/lib/config';
 
-// Matches CSI sequences (\x1b[...X), OSC sequences (\x1b]...\x07), and other 2-char escapes
 const ANSI_RE = /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07]*\x07|[^[\]])/g;
-
 function stripAnsi(s: string): string {
   return s.replace(ANSI_RE, '');
 }
 
-// repoId must be owner/repo with only safe characters
 const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-// folder is a single path segment (no slashes)
+const BRANCH_RE = /^[A-Za-z0-9_./-]+$/;
 const FOLDER_RE = /^[A-Za-z0-9_. -]+$/;
 
 function fmtBytes(b: number): string {
@@ -33,6 +30,23 @@ async function getDirSize(dir: string): Promise<number> {
   return total;
 }
 
+async function copyFile(
+  src: string,
+  dst: string,
+  onBytes: (n: number) => void,
+): Promise<void> {
+  await fsp.mkdir(path.dirname(dst), {recursive: true});
+  await new Promise<void>((resolve, reject) => {
+    const rs = createReadStream(src);
+    const ws = createWriteStream(dst);
+    rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
+    rs.once('error', reject);
+    ws.once('error', reject);
+    ws.once('finish', resolve);
+    rs.pipe(ws);
+  });
+}
+
 async function copyDir(
   src: string,
   dst: string,
@@ -45,65 +59,89 @@ async function copyDir(
     if (entry.isDirectory()) {
       await copyDir(s, d, onBytes);
     } else {
-      await new Promise<void>((resolve, reject) => {
-        const rs = createReadStream(s);
-        const ws = createWriteStream(d);
-        rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
-        rs.once('error', reject);
-        ws.once('error', reject);
-        ws.once('finish', resolve);
-        rs.pipe(ws);
-      });
+      await copyFile(s, d, onBytes);
     }
   }
 }
 
 async function moveToColdstorage(
-  folder: string,
+  folder: string | null,
+  filePaths: string[],
   deleteAfterTransfer: boolean,
   enqueue: (s: string) => void,
 ): Promise<void> {
-  const src = path.join(localModelsDir!, folder);
-  const dst = path.join(coldStorageDir!, folder);
+  const label = deleteAfterTransfer ? 'Moving' : 'Copying';
+  enqueue(`\n${label} to cold storage...\n`);
 
-  // On the same filesystem a rename is instant — use it only when we're deleting anyway
-  if (deleteAfterTransfer) {
-    enqueue(`\nMoving to cold storage...\n`);
+  const localBase = localModelsDir!;
+  const coldBase = coldStorageDir!;
+
+  // For deletes with a folder, try an atomic rename first (instant on same filesystem)
+  if (deleteAfterTransfer && folder) {
+    const src = path.join(localBase, folder);
+    const dst = path.join(coldBase, folder);
     try {
+      await fsp.mkdir(path.dirname(dst), {recursive: true});
       await fsp.rename(src, dst);
-      enqueue(`Done.\n`);
+      enqueue('Done.\n');
       return;
-    } catch (err: unknown) {
+    } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
       // Cross-filesystem: fall through to copy + delete
     }
-  } else {
-    enqueue(`\nCopying to cold storage...\n`);
   }
 
-  const total = await getDirSize(src);
-  let copied = 0;
-  let lastPct = -1;
+  // Streaming copy with progress bar
+  let total = 0;
+  if (folder) {
+    total = await getDirSize(path.join(localBase, folder));
+  } else {
+    for (const fp of filePaths) {
+      total += (await fsp.stat(path.join(localBase, fp))).size;
+    }
+  }
 
+  let done = 0;
+  let lastPct = -1;
   const onBytes = (n: number) => {
-    copied += n;
-    const pct = total > 0 ? Math.round((copied / total) * 100) : 100;
+    done += n;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 100;
     if (pct === lastPct) return;
     lastPct = pct;
-    const filled = Math.round(pct / 5); // 20-char bar
+    const filled = Math.round(pct / 5);
     const bar = '█'.repeat(filled) + '░'.repeat(20 - filled);
-    enqueue(`\r[${bar}] ${pct}%  ${fmtBytes(copied)} / ${fmtBytes(total)}`);
+    enqueue(`\r[${bar}] ${pct}%  ${fmtBytes(done)} / ${fmtBytes(total)}`);
   };
 
-  await copyDir(src, dst, onBytes);
+  if (folder) {
+    await copyDir(
+      path.join(localBase, folder),
+      path.join(coldBase, folder),
+      onBytes,
+    );
+  } else {
+    for (const fp of filePaths) {
+      await copyFile(
+        path.join(localBase, fp),
+        path.join(coldBase, fp),
+        onBytes,
+      );
+    }
+  }
   enqueue('\n');
 
   if (deleteAfterTransfer) {
-    enqueue(`Cleaning up local copy...\n`);
-    await fsp.rm(src, {recursive: true});
+    enqueue('Cleaning up local copy...\n');
+    if (folder) {
+      await fsp.rm(path.join(localBase, folder), {recursive: true});
+    } else {
+      for (const fp of filePaths) {
+        await fsp.rm(path.join(localBase, fp));
+      }
+    }
   }
 
-  enqueue(`Done.\n`);
+  enqueue('Done.\n');
 }
 
 export async function POST(req: Request) {
@@ -111,21 +149,20 @@ export async function POST(req: Request) {
     return new Response('No local peer configured', {status: 400});
   }
 
-  const {repoId, folder, sendToCold, deleteAfterTransfer} = await req.json();
+  const {repoId, branch, folder, filePaths, sendToCold, deleteAfterTransfer} =
+    await req.json();
 
-  if (!repoId || typeof repoId !== 'string' || !REPO_ID_RE.test(repoId)) {
+  if (!repoId || typeof repoId !== 'string' || !REPO_ID_RE.test(repoId))
     return new Response('Invalid repoId', {status: 400});
-  }
+  if (!branch || typeof branch !== 'string' || !BRANCH_RE.test(branch))
+    return new Response('Invalid branch', {status: 400});
   if (
     folder !== null &&
     (typeof folder !== 'string' || !FOLDER_RE.test(folder))
-  ) {
+  )
     return new Response('Invalid folder', {status: 400});
-  }
 
   const include = folder ? `${folder}/*` : '*.gguf';
-
-  // Run inside `script` to allocate a PTY so that hf/tqdm outputs live progress bars
   const cmd = [
     'hf',
     'download',
@@ -134,6 +171,8 @@ export async function POST(req: Request) {
     include,
     '--local-dir',
     localModelsDir,
+    '--revision',
+    branch,
   ].join(' ');
 
   const encode = (s: string) => new TextEncoder().encode(s);
@@ -164,8 +203,18 @@ export async function POST(req: Request) {
       proc.on('close', async (code) => {
         enqueue(`\nProcess exited with code ${code}\n`);
         try {
-          if (code === 0 && sendToCold && folder && coldStorageDir) {
-            await moveToColdstorage(folder, !!deleteAfterTransfer, enqueue);
+          if (
+            code === 0 &&
+            sendToCold &&
+            coldStorageDir &&
+            (folder || filePaths?.length > 0)
+          ) {
+            await moveToColdstorage(
+              folder ?? null,
+              filePaths ?? [],
+              !!deleteAfterTransfer,
+              enqueue,
+            );
           }
         } catch (err: unknown) {
           enqueue(`\nError: ${(err as Error).message}\n`);

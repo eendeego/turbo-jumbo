@@ -1,0 +1,36 @@
+const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const BRANCH_RE = /^[A-Za-z0-9_./-]+$/;
+const FOLDER_RE = /^[A-Za-z0-9_. -]+$/;
+
+type HfEntry = {type: string; path: string; size: number};
+
+export async function GET(req: Request) {
+  const {searchParams} = new URL(req.url);
+  const repoId = searchParams.get('repoId') ?? '';
+  const branch = searchParams.get('branch') ?? 'main';
+  const folder = searchParams.get('folder') ?? '';
+
+  if (!REPO_ID_RE.test(repoId))
+    return new Response('Invalid repoId', {status: 400});
+  if (!BRANCH_RE.test(branch))
+    return new Response('Invalid branch', {status: 400});
+  if (folder && !FOLDER_RE.test(folder))
+    return new Response('Invalid folder', {status: 400});
+
+  const treePath = folder ? `${branch}/${folder}` : branch;
+  const hfRes = await fetch(
+    `https://huggingface.co/api/models/${repoId}/tree/${treePath}`,
+    {headers: {'User-Agent': 'turbo-jumbo/1.0'}},
+  );
+
+  if (!hfRes.ok)
+    return new Response(await hfRes.text(), {status: hfRes.status});
+
+  const entries: HfEntry[] = await hfRes.json();
+
+  const files = entries
+    .filter((e) => e.type === 'file' && (folder || e.path.endsWith('.gguf')))
+    .map((e) => ({path: e.path, size: e.size}));
+
+  return Response.json(files);
+}
