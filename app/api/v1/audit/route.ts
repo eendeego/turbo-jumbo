@@ -5,7 +5,10 @@ import {auditFile, type AuditResult} from '@/lib/audit';
 import {clearHfCache} from '@/lib/hf-infer';
 
 export async function POST(req: Request) {
-  const {location} = (await req.json()) as {location?: string};
+  const {location, files} = (await req.json()) as {
+    location?: string;
+    files?: string[];
+  };
 
   let basePath: string | undefined;
   if (location === 'cold-storage') {
@@ -19,6 +22,10 @@ export async function POST(req: Request) {
     return new Response('Location not configured', {status: 400});
   }
   const root = basePath;
+
+  // Audit only the explicitly selected files (relative paths from the storage
+  // root, the same identifiers copy/delete use).
+  const selected = new Set(files ?? []);
 
   // Fresh inference cache per run; abort the (multi-GB) hashing if the client
   // disconnects so we don't keep working on a response nobody is reading.
@@ -48,28 +55,32 @@ export async function POST(req: Request) {
       for (const file of model.files) {
         if (signal.aborted) break outer;
         if (file.isSplit) {
-          // A split model with missing shards fails fast at the model level.
-          if (file.missingIndices.length > 0) {
-            await emit({
-              file: file.representativeFilename,
-              status: 'incomplete',
-              message: `missing shards: ${file.missingIndices.join(', ')}`,
-            });
-            continue;
-          }
+          // A split with missing shards fails fast: every selected shard of it
+          // is reported incomplete (keyed by its own path so the row matches).
+          const incomplete = file.missingIndices.length > 0;
           for (const shard of file.files) {
             if (signal.aborted) break outer;
-            await emit(
-              await auditFile(
-                root,
-                shard.path,
-                model.name,
-                path.basename(shard.path),
-                signal,
-              ),
-            );
+            if (!selected.has(shard.path)) continue;
+            if (incomplete) {
+              await emit({
+                file: shard.path,
+                status: 'incomplete',
+                message: `missing shards: ${file.missingIndices.join(', ')}`,
+              });
+            } else {
+              await emit(
+                await auditFile(
+                  root,
+                  shard.path,
+                  model.name,
+                  path.basename(shard.path),
+                  signal,
+                ),
+              );
+            }
           }
         } else {
+          if (!selected.has(file.path)) continue;
           await emit(
             await auditFile(root, file.path, model.name, file.filename, signal),
           );

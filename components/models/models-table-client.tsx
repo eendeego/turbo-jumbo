@@ -13,9 +13,11 @@ import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
 import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
+import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
+import type {AuditResult, AuditStatus} from '@/lib/audit';
 
 export interface ShardInfo {
   filename: string;
@@ -79,6 +81,70 @@ function formatSize(bytes: number): string {
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+const AUDIT_BADGE: Record<
+  AuditStatus,
+  {label: string; variant: 'success' | 'error' | 'warning' | 'neutral'}
+> = {
+  pass: {label: 'Pass', variant: 'success'},
+  incomplete: {label: 'Incomplete', variant: 'error'},
+  'checksum-mismatch': {label: 'Mismatch', variant: 'error'},
+  misplaced: {label: 'Misplaced', variant: 'warning'},
+  unverifiable: {label: 'Unverifiable', variant: 'neutral'},
+  error: {label: 'Error', variant: 'error'},
+};
+
+// Higher = more severe; a row aggregating several files shows its worst result.
+const AUDIT_SEVERITY: Record<AuditStatus, number> = {
+  error: 5,
+  'checksum-mismatch': 4,
+  incomplete: 3,
+  misplaced: 2,
+  unverifiable: 1,
+  pass: 0,
+};
+
+type RowAudit =
+  | {kind: 'pending'}
+  | {kind: 'result'; status: AuditStatus; message?: string}
+  | null;
+
+function rowAudit(
+  paths: string[],
+  auditedPaths: Set<string>,
+  auditResults: Map<string, AuditResult>,
+  auditing: boolean,
+): RowAudit {
+  const relevant = paths.filter((p) => auditedPaths.has(p));
+  if (relevant.length === 0) return null;
+  const results = relevant
+    .map((p) => auditResults.get(p))
+    .filter((r): r is AuditResult => r != null);
+  if (results.length === 0) return {kind: 'pending'};
+  if (results.length < relevant.length && auditing) return {kind: 'pending'};
+  const worst = results.reduce((a, b) =>
+    AUDIT_SEVERITY[b.status] > AUDIT_SEVERITY[a.status] ? b : a,
+  );
+  return {kind: 'result', status: worst.status, message: worst.message};
+}
+
+function AuditCell({audit}: {audit: RowAudit}) {
+  if (audit == null) return null;
+  if (audit.kind === 'pending') {
+    return <Badge label="Auditing…" variant="neutral" />;
+  }
+  const {label, variant} = AUDIT_BADGE[audit.status];
+  const badge = <Badge label={label} variant={variant} />;
+  if (!audit.message) return badge;
+  return (
+    <HoverCard
+      placement="above"
+      content={<Text type="supporting">{audit.message}</Text>}
+    >
+      {badge}
+    </HoverCard>
+  );
 }
 
 function NameCell({
@@ -202,6 +268,9 @@ export function ModelsTableClient({
   onToggleSelected,
   locations,
   activeLocation = 'all',
+  auditResults,
+  auditedPaths,
+  auditing = false,
 }: {
   models: ModelRow[];
   peers: PeerConfig[];
@@ -210,6 +279,9 @@ export function ModelsTableClient({
   onToggleSelected?: (paths: string[]) => void;
   locations?: LocationTab[];
   activeLocation?: string;
+  auditResults?: Map<string, AuditResult>;
+  auditedPaths?: Set<string>;
+  auditing?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -434,6 +506,27 @@ export function ModelsTableClient({
             width: pixel(100),
             align: 'center' as const,
             renderCell: (item: DisplayRow) => <ColdStorageCell row={item} />,
+          } satisfies TableColumn<DisplayRow>,
+        ]
+      : []),
+    // Audit column appears only once an audit has been run on some selection.
+    ...(auditedPaths && auditedPaths.size > 0
+      ? [
+          {
+            key: 'audit',
+            header: 'Audit',
+            width: pixel(140),
+            align: 'center' as const,
+            renderCell: (item: DisplayRow) => (
+              <AuditCell
+                audit={rowAudit(
+                  item.paths,
+                  auditedPaths,
+                  auditResults ?? new Map(),
+                  auditing,
+                )}
+              />
+            ),
           } satisfies TableColumn<DisplayRow>,
         ]
       : []),

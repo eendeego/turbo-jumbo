@@ -20,6 +20,9 @@ interface ActionBarProps {
   copying: boolean;
   copyProgress?: CopyProgress | null;
   checking?: boolean;
+  onAudit?: () => void;
+  auditing?: boolean;
+  auditSupported?: boolean;
 }
 
 export function ActionBar({
@@ -30,6 +33,9 @@ export function ActionBar({
   copying,
   copyProgress,
   checking,
+  onAudit,
+  auditing = false,
+  auditSupported = false,
 }: ActionBarProps) {
   // Derive a live transfer speed from successive byte-progress samples. The
   // result lives in a ref (no setState in the effect) and is read during the
@@ -74,16 +80,34 @@ export function ActionBar({
               label={copying ? 'Copying…' : checking ? 'Checking…' : 'Copy to…'}
               variant="secondary"
               size="sm"
-              isDisabled={noneSelected || copying || deleting || checking}
+              isDisabled={
+                noneSelected || copying || deleting || checking || auditing
+              }
               onClick={onCopy}
             />
             <Button
               label={deleting ? 'Deleting…' : 'Delete…'}
               variant="destructive"
               size="sm"
-              isDisabled={noneSelected || deleting || copying}
+              isDisabled={noneSelected || deleting || copying || auditing}
               onClick={onDelete}
             />
+            {onAudit && (
+              <Button
+                label={auditing ? 'Auditing…' : 'Audit'}
+                variant="secondary"
+                size="sm"
+                isDisabled={
+                  noneSelected ||
+                  auditing ||
+                  copying ||
+                  deleting ||
+                  checking ||
+                  !auditSupported
+                }
+                onClick={onAudit}
+              />
+            )}
           </HStack>
         </HStack>
         {showProgress && (

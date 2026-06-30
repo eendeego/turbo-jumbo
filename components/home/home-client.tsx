@@ -5,8 +5,7 @@ import {useRouter} from 'next/navigation';
 import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
-import {Heading, Text} from '@astryxdesign/core/Text';
-import {Button} from '@astryxdesign/core/Button';
+import {Heading} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
@@ -33,7 +32,7 @@ import {
 import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
-import {AuditView} from '@/components/audit/audit-view';
+import type {AuditResult} from '@/lib/audit';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
 
@@ -92,7 +91,11 @@ export function HomeClient({
   const {peerModels} = usePeerModels();
   const [models, setModels] = useState(modelsTableData);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [auditMode, setAuditMode] = useState(false);
+  const [auditResults, setAuditResults] = useState<Map<string, AuditResult>>(
+    new Map(),
+  );
+  const [auditedPaths, setAuditedPaths] = useState<Set<string>>(new Set());
+  const [auditing, setAuditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingCopy, setConfirmingCopy] = useState(false);
@@ -123,6 +126,11 @@ export function HomeClient({
     [router, peerConfigs],
   );
 
+  const resetAudit = useCallback(() => {
+    setAuditResults(new Map());
+    setAuditedPaths(new Set());
+  }, []);
+
   // Clear any selection whenever the active tab (URL) or the underlying model
   // data changes, using a render-phase reset rather than an effect.
   const [prevLocation, setPrevLocation] = useState(activeLocation);
@@ -132,7 +140,7 @@ export function HomeClient({
     setPrevModels(modelsTableData);
     setModels(modelsTableData);
     setSelected(new Set());
-    setAuditMode(false);
+    resetAudit();
   }
 
   const auditLocation: 'local' | 'cold-storage' | null =
@@ -141,6 +149,48 @@ export function HomeClient({
       : activeLocation === localPeerAddress
         ? 'local'
         : null;
+
+  async function onAudit() {
+    if (!auditLocation) return;
+    const paths = Array.from(selected);
+    setAuditing(true);
+    setError(null);
+    setAuditedPaths(new Set(paths));
+    setAuditResults(new Map());
+    try {
+      const res = await fetch('/api/v1/audit', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({location: auditLocation, files: paths}),
+      });
+      if (!res.ok || !res.body) {
+        throw new Error(`${res.status} ${res.statusText}`);
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream: true});
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const result = JSON.parse(line) as AuditResult;
+          setAuditResults((prev) => {
+            const next = new Map(prev);
+            next.set(result.file, result);
+            return next;
+          });
+        }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAuditing(false);
+    }
+  }
 
   // Re-fetch the table data after a mutation (e.g. copy) without a full
   // server round-trip / page reload.
@@ -291,6 +341,7 @@ export function HomeClient({
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       await readCopyProgress(res, setCopyProgress);
       setSelected(new Set());
+      resetAudit();
       await refreshModels();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -331,41 +382,21 @@ export function HomeClient({
           activeLocation={activeLocation}
           onLocationChange={handleLocationChange}
         />
-        {activeLocation !== 'all' && (
-          <HStack gap={2} vAlign="center">
-            <Button
-              label={auditMode ? 'Exit audit' : 'Audit'}
-              variant="secondary"
-              size="sm"
-              isDisabled={auditLocation === null}
-              onClick={() => setAuditMode((on) => !on)}
-            />
-            {auditLocation === null && (
-              <Text type="supporting">
-                Audit not yet supported for remote peers
-              </Text>
-            )}
-          </HStack>
+        {localModelsPath && activeLocation !== 'cold-storage' && (
+          <HuggingFaceDownload localModelsPath={localModelsPath} />
         )}
-
-        {auditMode && auditLocation ? (
-          <AuditView location={auditLocation} />
-        ) : (
-          <>
-            {localModelsPath && activeLocation !== 'cold-storage' && (
-              <HuggingFaceDownload localModelsPath={localModelsPath} />
-            )}
-            <ModelsTableClient
-              models={models}
-              peers={peerConfigs}
-              peerModels={seededPeerModels}
-              selected={selected}
-              onToggleSelected={onToggleSelected}
-              locations={locations}
-              activeLocation={activeLocation}
-            />
-          </>
-        )}
+        <ModelsTableClient
+          models={models}
+          peers={peerConfigs}
+          peerModels={seededPeerModels}
+          selected={selected}
+          onToggleSelected={onToggleSelected}
+          locations={locations}
+          activeLocation={activeLocation}
+          auditResults={auditResults}
+          auditedPaths={auditedPaths}
+          auditing={auditing}
+        />
         {error && <Banner status="error" title={`Error: ${error}`} />}
         <ActionBar
           selected={selected}
@@ -375,6 +406,9 @@ export function HomeClient({
           copying={copying}
           copyProgress={copyProgress}
           checking={checking}
+          onAudit={onAudit}
+          auditing={auditing}
+          auditSupported={auditLocation !== null}
         />
         {isDev && selected.size > 0 && (
           <CheckboxInput
