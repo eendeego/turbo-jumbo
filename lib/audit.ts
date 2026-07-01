@@ -12,6 +12,12 @@ import {
   resolveHfFileByPath,
   type HfFileInfo,
 } from '@/lib/hf-infer';
+import {
+  metaToEntry,
+  modelDirForRepo,
+  readFileMetaByPath,
+  upsertFileMeta,
+} from '@/lib/model-sidecar';
 
 export type AuditStatus =
   | 'pass'
@@ -125,7 +131,7 @@ export async function auditFileUpdate(
   basePath: string,
   relPath: string,
 ): Promise<UpdateResult | null> {
-  const meta = await readMeta(path.join(basePath, relPath));
+  const meta = await readMetaResolved(basePath, relPath);
   if (!meta?.originUrl || !meta.sourceCommit) return null;
   const ref = parseHfFileUrl(meta.originUrl);
   if (!ref) return null;
@@ -410,6 +416,40 @@ export async function updateMeta(
   next: TjMeta,
 ): Promise<void> {
   await writeMeta(fullPath, mergeMeta(await readMeta(fullPath), next));
+}
+
+/**
+ * Provenance for a file, from its model sidecar (`tjmodel.json`), falling back
+ * to a legacy per-file `.tjmeta.json` while the migration is in flight.
+ */
+export async function readMetaResolved(
+  basePath: string,
+  relPath: string,
+): Promise<TjMeta | null> {
+  return (
+    (await readFileMetaByPath(basePath, relPath)) ??
+    (await readMeta(path.join(basePath, relPath)))
+  );
+}
+
+/**
+ * Read-merge-write a file's provenance into its model sidecar, keyed by its
+ * resolved `repoId`. A file with no model dir (a stray at the storage root)
+ * falls back to a legacy per-file sidecar — it carries no model sidecar by
+ * design (see the model-sidecars spec).
+ */
+export async function updateMetaResolved(
+  basePath: string,
+  relPath: string,
+  repoId: string,
+  next: TjMeta,
+): Promise<void> {
+  const loc = modelDirForRepo(relPath, repoId);
+  if (loc) {
+    await upsertFileMeta(basePath, loc.dir, repoId, metaToEntry(loc.key, next));
+    return;
+  }
+  await updateMeta(path.join(basePath, relPath), next);
 }
 
 /**
@@ -715,7 +755,14 @@ export async function resolveSource(
   }
   const inferred = await inferHfFile(modelName, filename);
   if (inferred) return inferred;
-  const meta = await readMeta(fullPath);
+  // fullPath is always path.join(basePath, relPath); recover basePath so the
+  // sidecar fallback reads the model sidecar (then a legacy per-file one).
+  const meta = fullPath.endsWith(relPath)
+    ? await readMetaResolved(
+        fullPath.slice(0, fullPath.length - relPath.length - 1),
+        relPath,
+      )
+    : await readMeta(fullPath);
   const ref = meta?.originUrl ? parseHfFileUrl(meta.originUrl) : null;
   if (!ref) return null;
   // A sidecar may carry a commit permalink; audit against the branch head so
@@ -795,7 +842,12 @@ export async function auditFile(
   // the expensive hash, so an interruption mid-audit doesn't lose it. The
   // merge keeps a prior source alive when this run resolved none.
   try {
-    await updateMeta(fullPath, observedMeta(latest, actualSize, ''));
+    await updateMetaResolved(
+      basePath,
+      relPath,
+      modelName,
+      observedMeta(latest, actualSize, ''),
+    );
   } catch {
     // best-effort: the final write reports a persistent failure
   }
@@ -877,8 +929,10 @@ export async function auditFile(
   // merge preserves whatever a prior sidecar knew.
   let metaWriteFailed = false;
   try {
-    await updateMeta(
-      fullPath,
+    await updateMetaResolved(
+      basePath,
+      relPath,
+      modelName,
       observedMeta(hf ?? null, actualSize, computedSha256 ?? ''),
     );
   } catch {

@@ -3,7 +3,7 @@ import {duplicateBasenames, scanModels} from '@/lib/models';
 import {
   cachedResultFromMeta,
   duplicateResult,
-  readMeta,
+  readMetaResolved,
   type AuditResult,
 } from '@/lib/audit';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       results.push(duplicateResult(relPath, dupPaths, true));
       return;
     }
-    const meta = await readMeta(path.join(root, relPath));
+    const meta = await readMetaResolved(root, relPath);
     if (meta) results.push(cachedResultFromMeta(relPath, meta));
   };
 
