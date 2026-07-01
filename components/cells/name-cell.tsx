@@ -1,6 +1,6 @@
 'use client';
 
-import {useState} from 'react';
+import {useState, type ReactNode} from 'react';
 import * as stylex from '@stylexjs/stylex';
 import {HStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
@@ -9,10 +9,13 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
+import {Link} from '@astryxdesign/core/Link';
+import {VStack} from '@astryxdesign/core/Stack';
 import {copyToClipboard} from '@/lib/clipboard';
 import {modelDisplayName} from '@/lib/model-name';
 import type {RepoFileState} from '@/lib/repo-files';
-import type {DisplayRow} from '@/lib/model-row';
+import {formatSize, type DisplayRow} from '@/lib/model-row';
+import {MIXED_COMMIT, type SidecarSummary} from '@/lib/sidecar-types';
 
 const styles = stylex.create({
   indent1: {paddingInlineStart: '1.5rem'},
@@ -79,6 +82,57 @@ function OpenHfButton({repoId}: {repoId: string}) {
         );
       }}
     />
+  );
+}
+
+/** The Hugging Face commit page URL for a sidecar's model and a commit sha. */
+function commitUrl(modelUrl: string, sha: string): string {
+  return `${modelUrl}/commit/${sha}`;
+}
+
+/** A short commit hash linking to its Hugging Face commit page. */
+function CommitLink({modelUrl, sha}: {modelUrl: string; sha: string}) {
+  return (
+    <Link href={commitUrl(modelUrl, sha)} isExternalLink>
+      {sha.slice(0, 12)}
+    </Link>
+  );
+}
+
+/** A label/value pair row inside the model-name hovercard. */
+function InfoRow({label, children}: {label: string; children: ReactNode}) {
+  return (
+    <HStack gap={4} hAlign="between">
+      <Text type="supporting">{label}</Text>
+      <Text type="body">{children}</Text>
+    </HStack>
+  );
+}
+
+/** The model-level sidecar provenance block appended to the name hovercard. */
+function SidecarInfo({sidecar}: {sidecar: SidecarSummary}) {
+  const {sourceCommit, repoCommit, repoCommitDate, modelUrl} = sidecar;
+  return (
+    <VStack gap={1}>
+      {sourceCommit && (
+        <InfoRow label="Source revision">
+          {sourceCommit === MIXED_COMMIT ? (
+            'mixed'
+          ) : (
+            <CommitLink modelUrl={modelUrl} sha={sourceCommit} />
+          )}
+        </InfoRow>
+      )}
+      {repoCommit && (
+        <InfoRow label="Repo HEAD">
+          <CommitLink modelUrl={modelUrl} sha={repoCommit} />
+          {repoCommitDate && ` (${repoCommitDate.slice(0, 10)})`}
+        </InfoRow>
+      )}
+      <InfoRow label="Files">
+        {sidecar.fileCount} · {formatSize(sidecar.totalSourceSize)}
+      </InfoRow>
+    </VStack>
   );
 }
 
@@ -166,21 +220,31 @@ export function NameCell({
     );
   }
 
-  // Model row. Show the repo segment of an org/repo identity; the full repo (when
-  // the name carries one) and the quantizations live in the tooltip.
-  const tooltip = row.label.includes('/')
-    ? `Repository: ${row.label} · Quantizations: ${row.quantizations}`
-    : `Quantizations: ${row.quantizations}`;
+  // Model row. Show the repo segment of an org/repo identity; the full repo
+  // (when the name carries one), the quantizations, and the sidecar provenance
+  // live in the hovercard.
   return (
     <HStack gap={2} vAlign="center">
-      <Button
-        label={modelDisplayName(row.label)}
-        variant="ghost"
-        size="sm"
-        icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
-        tooltip={tooltip}
-        onClick={() => onToggle(row.parentName)}
-      />
+      <HoverCard
+        placement="above"
+        content={
+          <VStack gap={1}>
+            {row.label.includes('/') && (
+              <InfoRow label="Repository">{row.label}</InfoRow>
+            )}
+            <InfoRow label="Quantizations">{row.quantizations}</InfoRow>
+            {row.sidecar && <SidecarInfo sidecar={row.sidecar} />}
+          </VStack>
+        }
+      >
+        <Button
+          label={modelDisplayName(row.label)}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
+          onClick={() => onToggle(row.parentName)}
+        />
+      </HoverCard>
       {row.orgSuffix && <Text type="supporting">({row.orgSuffix})</Text>}
       {incomplete && <Badge variant="error" label="incomplete" />}
       {invalid && (
