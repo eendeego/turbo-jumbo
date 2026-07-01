@@ -155,6 +155,45 @@ test('scanModels ignores the cache blobs and refs entries', async () => {
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('scanModels groups sharded safetensors into one split group', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  const repo = 'models--unsloth--Big-Model/snapshots/r1';
+  for (let i = 1; i <= 4; i++) {
+    const n = String(i).padStart(5, '0');
+    await writeFile(base, `${repo}/model-${n}-of-00004.safetensors`);
+  }
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['unsloth/Big-Model']);
+  const file = models[0].files[0];
+  expect(file.isSplit).toBe(true);
+  if (file.isSplit) {
+    expect(file.totalShards).toBe(4);
+    expect(file.presentShards).toBe(4);
+    expect(file.missingIndices).toEqual([]);
+    expect(file.files).toHaveLength(4);
+  }
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('scanModels reports a missing safetensors shard', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  const repo = 'models--unsloth--Big-Model/snapshots/r1';
+  // Shards 1, 2, 4 present; 3 missing.
+  for (const i of [1, 2, 4]) {
+    const n = String(i).padStart(5, '0');
+    await writeFile(base, `${repo}/model-${n}-of-00004.safetensors`);
+  }
+
+  const file = scanModels(base)[0].files[0];
+  expect(file.isSplit).toBe(true);
+  if (file.isSplit) {
+    expect(file.presentShards).toBe(3);
+    expect(file.missingIndices).toEqual([3]);
+  }
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('duplicateBasenames flags a root copy and a nested copy of the same file', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
   const fname = 'gemma-4-26B-A4B-it-UD-IQ2_M.gguf';

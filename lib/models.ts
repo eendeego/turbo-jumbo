@@ -53,7 +53,7 @@ const QUANT_TOKEN =
 // the final token, but may be followed by descriptor suffixes — e.g.
 // "GPT-OSS-20B-…-MXFP4-Aggressive" carries the quant before "-Aggressive".
 const QUANT_RE = new RegExp(`[-_.](${QUANT_TOKEN})(?=[-_.]|$)`, 'gi');
-const SPLIT_RE = /^(.+)-(\d+)-of-(\d+)\.gguf$/i;
+const SPLIT_RE = /^(.+)-(\d+)-of-(\d+)\.(gguf|safetensors|bin)$/i;
 
 function stripExtension(filename: string): string {
   return filename.replace(/\.(gguf|safetensors|bin)$/i, '');
