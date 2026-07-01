@@ -9,10 +9,12 @@ import {
 } from '@/lib/locations';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
+import {LEMONADE_CATALOG_URL} from '@/lib/lemonade';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
-import {Heading} from '@astryxdesign/core/Text';
+import {Heading, Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
+import {Link} from '@astryxdesign/core/Link';
 import {
   LocationTabs,
   type LocationTab,
@@ -177,6 +179,14 @@ export function LemonadeClient({
             onClick={backToTable}
           />
         </HStack>
+
+        {/* Where the catalog driving this page comes from. */}
+        <Text type="supporting">
+          Catalog:{' '}
+          <Link href={LEMONADE_CATALOG_URL} isExternalLink>
+            {LEMONADE_CATALOG_URL.split('/').pop()}
+          </Link>
+        </Text>
 
         <LemonadeBrowser
           hfTokenSet={hfTokenSet}
