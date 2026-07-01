@@ -7,6 +7,7 @@ import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
+import {Button} from '@astryxdesign/core/Button';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {withPeerPaths} from '@/lib/peer-paths';
@@ -40,6 +41,7 @@ import {useInventoryLocations} from '@/components/models/use-inventory-locations
 import {AddModelMenu} from '@/components/models/add-model-menu';
 import {SetSourceModal} from '@/components/models/set-source-modal';
 import {RevisionsModal} from '@/components/models/revisions-modal';
+import {LemonadeSyncModal} from '@/components/lemonade/lemonade-sync-modal';
 import {
   DownloadModal,
   useDownloadRunner,
@@ -254,6 +256,8 @@ export function HomeClient({
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The "Sync from Lemonade" modal (move Lemonade-only models into Turbo Jumbo).
+  const [syncOpen, setSyncOpen] = useState(false);
 
   const locations: LocationTab[] = useMemo(
     () =>
@@ -1043,7 +1047,13 @@ export function HomeClient({
           onLocationChange={handleLocationChange}
         />
         {localModelsPath && canDownloadLocally && (
-          <HStack hAlign="end">
+          <HStack gap={2} hAlign="end">
+            <Button
+              label="Sync from Lemonade…"
+              variant="secondary"
+              size="sm"
+              onClick={() => setSyncOpen(true)}
+            />
             <AddModelMenu
               activeLocation={activeLocation}
               peerConfigs={peerConfigs}
@@ -1152,6 +1162,16 @@ export function HomeClient({
           <RevisionsModal
             file={revisionsFile}
             onClose={() => setRevisionsFile(null)}
+          />
+        )}
+        {syncOpen && (
+          <LemonadeSyncModal
+            onClose={() => setSyncOpen(false)}
+            onSynced={() => {
+              void refreshModels();
+              void refreshInvalid();
+              void refreshIncomplete();
+            }}
           />
         )}
         {redownloadOpen && (
