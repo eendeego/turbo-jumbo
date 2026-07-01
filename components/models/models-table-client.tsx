@@ -93,6 +93,7 @@ interface DisplayRow extends Record<string, unknown> {
   sizeMismatch: boolean;
   sizeBreakdown: SizeEntry[] | null;
   undersizedLocations: Set<string>;
+  projectors?: ProjectorInfo[];
 }
 
 const styles = stylex.create({
@@ -467,10 +468,19 @@ function NameCell({
   }
 
   // Model row. Show the repo segment of an org/repo identity; the full repo (when
-  // the name carries one) and the quantizations live in the tooltip.
-  const tooltip = row.label.includes('/')
-    ? `Repository: ${row.label} · Quantizations: ${row.quantizations}`
-    : `Quantizations: ${row.quantizations}`;
+  // the name carries one), the quantizations, and any projector files live in
+  // the tooltip.
+  const tooltip = [
+    row.label.includes('/') ? `Repository: ${row.label}` : null,
+    `Quantizations: ${row.quantizations}`,
+    row.projectors && row.projectors.length > 0
+      ? `${row.projectors.length > 1 ? 'Projectors' : 'Projector'}: ${row.projectors
+          .map((p) => `${p.filename} · ${formatSize(p.size)}`)
+          .join(', ')}`
+      : null,
+  ]
+    .filter((s): s is string => s != null)
+    .join(' · ');
   return (
     <Button
       label={modelDisplayName(row.label)}
@@ -981,6 +991,7 @@ export function ModelsTableClient({
         sizeMismatch: anyQuantMismatch,
         sizeBreakdown: null,
         undersizedLocations: new Set<string>(),
+        projectors: m.projectors,
       });
       if (!expanded.has(m.name)) continue;
       for (const q of m.quants) {
