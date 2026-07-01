@@ -189,11 +189,14 @@ export function scanModels(storagePath: string | undefined): Model[] {
       const cacheRepoId = parseHubCachePath(relPath)?.repoId ?? null;
       // Flat-layout safetensors/bin weights have generic filenames
       // (model.safetensors), so derive their repo from the `<org>/<repo>/`
-      // directory the flat mirror stores them under. GGUF filenames carry the
-      // model name, so they keep their filename-derived name.
-      const flatRepoId = /\.(safetensors|bin)$/i.test(entry.name)
-        ? (pathImpliedRepo(relPath)?.repoId ?? null)
-        : null;
+      // directory the flat mirror stores them under. Most GGUF filenames carry
+      // the model name, so they keep their filename-derived name — but mmproj
+      // projectors (mmproj-F16.gguf) are just as generic, so they too take the
+      // directory's repo rather than collapsing into a phantom "mmproj" model.
+      const flatRepoId =
+        /\.(safetensors|bin)$/i.test(entry.name) || isMmprojFilename(entry.name)
+          ? (pathImpliedRepo(relPath)?.repoId ?? null)
+          : null;
       const splitMatch = entry.name.match(SPLIT_RE);
 
       if (splitMatch) {

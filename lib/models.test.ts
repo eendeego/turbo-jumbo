@@ -363,6 +363,31 @@ test('scanModels still names a flat gguf by its filename, not its directory', as
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('scanModels names a flat sidecar-less mmproj by its repo directory', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  // mmproj filenames are generic and carry no model identity, so without a
+  // sidecar they must be named by their repo directory, never collapsed into
+  // a phantom "mmproj" model by the filename fallback.
+  await writeFile(base, 'unsloth/Qwen3.6-27B-MTP-GGUF/mmproj-F16.gguf');
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['unsloth/Qwen3.6-27B-MTP-GGUF']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('scanModels keeps sidecar-less mmproj files in separate repos apart', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  await writeFile(base, 'unsloth/Model-A-GGUF/mmproj-F16.gguf');
+  await writeFile(base, 'unsloth/Model-B-GGUF/mmproj-F16.gguf');
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name).sort()).toEqual([
+    'unsloth/Model-A-GGUF',
+    'unsloth/Model-B-GGUF',
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 // --- normalizeModelNames ---
 
 function single(filename: string, p: string, size = 100): SingleFile {
