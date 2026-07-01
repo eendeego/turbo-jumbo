@@ -19,7 +19,7 @@ export function LocationTabs({
   onLocationChange: (id: string) => void;
 }) {
   return (
-    <TabList value={activeLocation} onChange={onLocationChange} hasDivider>
+    <TabList value={activeLocation} onChange={onLocationChange}>
       <Tab value="all" label="All" />
       {locations.map((loc) => (
         <Tab

@@ -1049,6 +1049,13 @@ export function HomeClient({
               }
             />
           }
+          centerContent={
+            <LocationTabs
+              locations={locations}
+              activeLocation={activeLocation}
+              onLocationChange={handleLocationChange}
+            />
+          }
           endContent={
             <HStack gap={2} vAlign="center">
               {localModelsPath && canDownloadLocally && (
@@ -1072,11 +1079,6 @@ export function HomeClient({
       }
     >
       <VStack gap={4}>
-        <LocationTabs
-          locations={locations}
-          activeLocation={activeLocation}
-          onLocationChange={handleLocationChange}
-        />
         {checkingUpdates && (
           <Text type="supporting">Checking Hugging Face for updates…</Text>
         )}
