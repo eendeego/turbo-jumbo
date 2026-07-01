@@ -4,6 +4,7 @@ import {
   lemonadeGgufModels,
   lemonadeStatusTooltip,
   matchVariantFiles,
+  missingVariantFiles,
   parseCheckpoint,
   type InventoryLocation,
   type LemonadeModel,
@@ -349,4 +350,105 @@ test('lemonadeDownloadStatus matches an exact-filename variant against a split g
     [local],
   );
   expect(info.status).toBe('complete');
+});
+
+// --- missingVariantFiles ------------------------------------------------
+
+// A present split group: every shard listed in `files`.
+function splitGroup(
+  representativeFilename: string,
+  quant: string,
+  shardPaths: string[],
+  totalShards: number,
+): Model['files'][number] {
+  return {
+    isSplit: true,
+    representativeFilename,
+    files: shardPaths.map((path) => ({path, size: 1})),
+    quant,
+    totalShards,
+    presentShards: shardPaths.length,
+    missingIndices: [],
+    totalSize: shardPaths.length,
+  };
+}
+
+test('missingVariantFiles: returns [] when every variant file is present locally', () => {
+  const local = [
+    repoModel('org/Repo-GGUF', [single('Model-Q4_K_M.gguf', 'Q4_K_M')]),
+  ];
+  expect(
+    missingVariantFiles(['Model-Q4_K_M.gguf'], local, 'org/Repo-GGUF'),
+  ).toEqual([]);
+});
+
+test('missingVariantFiles: returns all paths when none are present locally', () => {
+  const local: Model[] = [];
+  expect(
+    missingVariantFiles(
+      ['Model-Q4_K_M.gguf', 'mmproj.gguf'],
+      local,
+      'org/Repo-GGUF',
+    ),
+  ).toEqual(['Model-Q4_K_M.gguf', 'mmproj.gguf']);
+});
+
+test('missingVariantFiles: a present single file is excluded, an absent one included', () => {
+  const local = [
+    repoModel('org/Repo-GGUF', [single('Model-Q4_K_M.gguf', 'Q4_K_M')]),
+  ];
+  expect(
+    missingVariantFiles(
+      ['Model-Q4_K_M.gguf', 'mmproj.gguf'],
+      local,
+      'org/Repo-GGUF',
+    ),
+  ).toEqual(['mmproj.gguf']);
+});
+
+test('missingVariantFiles: a missing single file (missing=true) is treated as absent', () => {
+  const local = [
+    repoModel('org/Repo-GGUF', [single('Model-Q4_K_M.gguf', 'Q4_K_M', true)]),
+  ];
+  expect(
+    missingVariantFiles(['Model-Q4_K_M.gguf'], local, 'org/Repo-GGUF'),
+  ).toEqual(['Model-Q4_K_M.gguf']);
+});
+
+test('missingVariantFiles: a partial split returns only the missing shards', () => {
+  const local = [
+    repoModel('org/Repo-GGUF', [
+      splitGroup(
+        'Model-Q4_0-00001-of-00002.gguf',
+        'Q4_0',
+        ['Model-Q4_0-00001-of-00002.gguf'], // only shard 1 present
+        2,
+      ),
+    ]),
+  ];
+  expect(
+    missingVariantFiles(
+      ['Model-Q4_0-00001-of-00002.gguf', 'Model-Q4_0-00002-of-00002.gguf'],
+      local,
+      'org/Repo-GGUF',
+    ),
+  ).toEqual(['Model-Q4_0-00002-of-00002.gguf']);
+});
+
+test('missingVariantFiles: ignores files belonging to a different repo', () => {
+  const local = [
+    repoModel('org/Other-GGUF', [single('Model-Q4_K_M.gguf', 'Q4_K_M')]),
+  ];
+  expect(
+    missingVariantFiles(['Model-Q4_K_M.gguf'], local, 'org/Repo-GGUF'),
+  ).toEqual(['Model-Q4_K_M.gguf']);
+});
+
+test('missingVariantFiles: matches by basename when paths carry subdirs', () => {
+  const local = [
+    repoModel('org/Repo-GGUF', [single('Model-Q4_K_M.gguf', 'Q4_K_M')]),
+  ];
+  expect(
+    missingVariantFiles(['sub/Model-Q4_K_M.gguf'], local, 'org/Repo-GGUF'),
+  ).toEqual([]);
 });

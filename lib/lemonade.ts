@@ -118,12 +118,42 @@ export function matchVariantFiles(
   return picked;
 }
 
+/**
+ * Of a variant's repo file paths, the ones not already present in the local
+ * scan for `repoId` — the files a download still needs to fetch. Presence is
+ * judged per file by existence (no size check): a non-`missing` single file
+ * contributes its basename; a split group contributes each present shard's
+ * basename. Matching is by basename, so `paths` is expected to be the per-shard
+ * repo paths produced by `matchVariantFiles`, not representative names. An empty
+ * result means every file is already present locally.
+ */
+export function missingVariantFiles(
+  paths: string[],
+  localModels: Model[],
+  repoId: string,
+): string[] {
+  const basename = (p: string) => p.split('/').pop() ?? p;
+  const present = new Set<string>();
+  for (const m of localModels) {
+    if (m.name !== repoId) continue;
+    for (const f of m.files) {
+      if (f.isSplit) {
+        for (const s of f.files) present.add(basename(s.path));
+      } else if (!f.missing) {
+        present.add(basename(f.filename));
+      }
+    }
+  }
+  return paths.filter((fp) => !present.has(basename(fp)));
+}
+
 export type DownloadStatus = 'none' | 'partial' | 'complete';
 
 /** One storage location's scan, labeled for display in the marker tooltip. */
 export interface InventoryLocation {
   name: string; // "local", "cold storage", a peer name like "my-server"
   models: Model[];
+  isLocal?: boolean; // the location downloads land in
 }
 
 /** Where a catalog entry is present, and how complete each copy is. */
