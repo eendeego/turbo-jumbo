@@ -85,6 +85,50 @@ test("buildModelRows does not borrow a different model's projector cold copy", (
   expect(projector.inColdStorage).toBe(false);
 });
 
+test('a model is Partial, not Complete, when its mmproj is missing from cold storage', () => {
+  const local: Model[] = [
+    {
+      name: 'org/repo',
+      files: [
+        single('repo-Q4_K_M.gguf', 'Q4_K_M', 100),
+        single('mmproj-F16.gguf', 'F16', 50),
+      ],
+    },
+  ];
+  // Cold storage has the weight but not the projector.
+  const cold: Model[] = [
+    {name: 'org/repo', files: [single('repo-Q4_K_M.gguf', 'Q4_K_M', 100)]},
+  ];
+
+  const row = buildModelRows(local, cold).find((r) => r.name === 'org/repo')!;
+  expect(row.allInColdStorage).toBe(false); // Partial, because the mmproj isn't cold
+  expect(row.noneInColdStorage).toBe(false);
+});
+
+test('a model is Complete when both its weight and mmproj are in cold storage', () => {
+  const local: Model[] = [
+    {
+      name: 'org/repo',
+      files: [
+        single('repo-Q4_K_M.gguf', 'Q4_K_M', 100),
+        single('mmproj-F16.gguf', 'F16', 50),
+      ],
+    },
+  ];
+  const cold: Model[] = [
+    {
+      name: 'org/repo',
+      files: [
+        single('repo-Q4_K_M.gguf', 'Q4_K_M', 100),
+        single('mmproj-F16.gguf', 'F16', 50),
+      ],
+    },
+  ];
+
+  const row = buildModelRows(local, cold).find((r) => r.name === 'org/repo')!;
+  expect(row.allInColdStorage).toBe(true);
+});
+
 test('buildModelRows leaves no projector quant for a weights-only model', () => {
   const local: Model[] = [
     {name: 'org/repo', files: [single('repo-Q8_0.gguf', 'Q8_0')]},

@@ -704,8 +704,11 @@ export function augmentWithPeerOnlyQuants(
         ].join(', '),
         minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
         maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
+        // Complete only when every file — weights AND any companion mmproj
+        // projector — has a matching cold copy. A projector present locally or
+        // on a peer but absent from cold storage drops the model to Partial.
         allInColdStorage:
-          weights.length > 0 && weights.every((q) => q.coldComplete),
+          weights.length > 0 && quants.every((q) => q.coldComplete),
         noneInColdStorage:
           weights.length === 0 || weights.every((q) => !q.inColdStorage),
       };
