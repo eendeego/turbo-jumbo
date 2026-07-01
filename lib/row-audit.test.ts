@@ -1,6 +1,6 @@
 import {test, expect} from 'bun:test';
-import {rowAudit} from '@/lib/row-audit';
-import type {AuditProgressEvent, AuditResult} from '@/lib/audit';
+import {rowAudit, rowUpdates} from '@/lib/row-audit';
+import type {AuditProgressEvent, AuditResult, UpdateResult} from '@/lib/audit';
 
 const result = (file: string, status: AuditResult['status']): AuditResult => ({
   file,
@@ -219,4 +219,27 @@ test('ignores progress of paths that do not belong to the row', () => {
   expect(
     rowAudit(['a.gguf'], new Set(['a.gguf']), new Map(), true, progress),
   ).toEqual({kind: 'pending'});
+});
+
+const upd = (file: string, status: UpdateResult['status']): UpdateResult => ({
+  file,
+  status,
+});
+
+test('rowUpdates returns only the update-status results for the row paths', () => {
+  const map = new Map<string, UpdateResult>([
+    ['a.gguf', upd('a.gguf', 'update')],
+    ['b.gguf', upd('b.gguf', 'current')],
+    ['c.gguf', upd('c.gguf', 'unknown')],
+  ]);
+  const result = rowUpdates(['a.gguf', 'b.gguf', 'c.gguf'], map);
+  expect(result).toEqual([upd('a.gguf', 'update')]);
+});
+
+test('rowUpdates ignores paths not in the row and is empty without a map', () => {
+  const map = new Map<string, UpdateResult>([
+    ['a.gguf', upd('a.gguf', 'update')],
+  ]);
+  expect(rowUpdates(['b.gguf'], map)).toEqual([]);
+  expect(rowUpdates(['a.gguf'], undefined)).toEqual([]);
 });

@@ -1,4 +1,9 @@
-import type {AuditProgressEvent, AuditResult, AuditStatus} from '@/lib/audit';
+import type {
+  AuditProgressEvent,
+  AuditResult,
+  AuditStatus,
+  UpdateResult,
+} from '@/lib/audit';
 
 // Ordering for aggregating a row's verdicts: the row shows its worst one.
 const AUDIT_SEVERITY: Record<AuditStatus, number> = {
@@ -84,4 +89,20 @@ export function rowAudit(
     message: worst.message,
     cached: !!worst.cached,
   };
+}
+
+/**
+ * The "update available" results for a table row: the entries among the row's
+ * paths whose update check came back `update`. Empty when no check has run or
+ * none are behind. Mirrors `rowAudit`'s per-row aggregation so the table can
+ * show one marker for a multi-shard row.
+ */
+export function rowUpdates(
+  paths: string[],
+  updateResults?: Map<string, UpdateResult>,
+): UpdateResult[] {
+  if (!updateResults) return [];
+  return paths
+    .map((p) => updateResults.get(p))
+    .filter((r): r is UpdateResult => r?.status === 'update');
 }
