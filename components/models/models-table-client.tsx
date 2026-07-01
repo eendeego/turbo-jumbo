@@ -60,6 +60,9 @@ export interface ModelRow extends Record<string, unknown> {
   noneInColdStorage: boolean;
 }
 
+// One location's copy of a quant, for the size-mismatch breakdown.
+type SizeEntry = {id: string; location: string; size: number};
+
 interface DisplayRow extends Record<string, unknown> {
   key: string;
   label: string;
@@ -80,6 +83,8 @@ interface DisplayRow extends Record<string, unknown> {
   presentShards: number;
   missingIndices: number[];
   sizeMismatch: boolean;
+  sizeBreakdown: SizeEntry[] | null;
+  undersizedLocations: Set<string>;
 }
 
 const styles = stylex.create({
@@ -435,11 +440,13 @@ function PeersCell({
         const names = peerBasenames.get(peer.address);
         const hasPeer =
           names != null && row.paths.some((p) => names.has(fileBasename(p)));
+        const undersized = row.undersizedLocations.has(peer.address);
         return (
           <Badge
             key={peer.address}
             label={peer.name}
             variant={hasPeer ? (peer.isLocal ? 'blue' : 'cyan') : 'neutral'}
+            icon={undersized ? <Icon icon="warning" size="sm" /> : undefined}
           />
         );
       })}
@@ -459,7 +466,16 @@ function ColdStorageCell({
   if (row.depth === 2) return null; // shards don't show cold storage status
   if (row.depth === 1) {
     if (!row.inColdStorage) return <Badge label="Missing" variant="red" />;
-    if (row.coldComplete) return <Badge label="Yes" variant="green" />;
+    if (row.coldComplete) {
+      const undersized = row.undersizedLocations.has('cold-storage');
+      return (
+        <Badge
+          label="Yes"
+          variant="green"
+          icon={undersized ? <Icon icon="warning" size="sm" /> : undefined}
+        />
+      );
+    }
     // Present by name but a different size — a partial/mismatched cold copy.
     const incomplete = <Badge label="Incomplete" variant="orange" />;
     if (row.coldSize == null) return incomplete;
@@ -684,24 +700,30 @@ export function ModelsTableClient({
     return map;
   }, [peerModels]);
 
-  // Build lookup: "modelName::quant" -> size[] across all peers (split groups
-  // summed), to flag cold copies whose size disagrees with a peer's copy.
+  // Build lookup: "modelName::quant" -> [{address, size}] across all peers
+  // (split groups summed), to flag copies whose sizes disagree by location.
   const peerQuantSizes = useMemo(() => {
-    const map = new Map<string, number[]>();
-    for (const [, lo] of peerModels) {
+    const map = new Map<string, Array<{address: string; size: number}>>();
+    for (const [address, lo] of peerModels) {
       if (lo.type !== 'value') continue;
       for (const m of lo.value) {
         for (const f of m.files) {
           const key = `${m.name}::${f.quant}`;
           const size = f.isSplit ? f.totalSize : f.size;
           const existing = map.get(key);
-          if (existing) existing.push(size);
-          else map.set(key, [size]);
+          if (existing) existing.push({address, size});
+          else map.set(key, [{address, size}]);
         }
       }
     }
     return map;
   }, [peerModels]);
+
+  const peerNameByAddr = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of peers) map.set(p.address, p.name);
+    return map;
+  }, [peers]);
 
   // Synthesize rows for quants that exist only on peers — absent from local
   // and cold storage — so the table shows everything reachable.
@@ -778,22 +800,66 @@ export function ModelsTableClient({
   const rows: DisplayRow[] = useMemo(() => {
     const out: DisplayRow[] = [];
     for (const m of effectiveModels) {
-      // A quant's cold copy disagreeing in size with any peer's copy marks the
-      // quant — and, rolled up, the model row.
+      // Per-quant size breakdown across cold storage and peers. Locations
+      // disagreeing mark the quant — and, rolled up, the model row. The
+      // effective size is the largest known copy; smaller copies are
+      // undersized.
+      type QuantSizeInfo = {
+        effectiveSize: number;
+        breakdown: SizeEntry[];
+        mismatch: boolean;
+        undersized: Set<string>;
+      };
+      const quantInfo = new Map<string, QuantSizeInfo>();
       let anyQuantMismatch = false;
-      const quantMismatches = new Map<string, boolean>();
       for (const q of m.quants) {
         const quantKey = `${m.name}::${q.label}`;
-        let mismatch = false;
-        if (q.inColdStorage && q.coldTotalSize > 0) {
-          const peerSizes = peerQuantSizes.get(quantKey);
-          if (peerSizes) {
-            mismatch = peerSizes.some((ps) => ps !== q.coldTotalSize);
+        const breakdown: SizeEntry[] = [];
+        if (q.coldTotalSize > 0) {
+          breakdown.push({
+            id: 'cold-storage',
+            location: 'Cold storage',
+            size: q.coldTotalSize,
+          });
+        }
+        for (const ps of peerQuantSizes.get(quantKey) ?? []) {
+          breakdown.push({
+            id: ps.address,
+            location: peerNameByAddr.get(ps.address) ?? ps.address,
+            size: ps.size,
+          });
+        }
+        const distinct = new Set(breakdown.map((e) => e.size));
+        const mismatch = distinct.size > 1;
+        const effectiveSize =
+          breakdown.length > 0
+            ? Math.max(...breakdown.map((e) => e.size))
+            : q.size;
+        const undersized = new Set<string>();
+        if (mismatch) {
+          for (const e of breakdown) {
+            if (e.size < effectiveSize) undersized.add(e.id);
           }
         }
-        quantMismatches.set(quantKey, mismatch);
+        quantInfo.set(quantKey, {
+          effectiveSize,
+          breakdown,
+          mismatch,
+          undersized,
+        });
         if (mismatch) anyQuantMismatch = true;
       }
+
+      const effectiveQuantSizes = m.quants
+        .map(
+          (q) =>
+            quantInfo.get(`${m.name}::${q.label}`)?.effectiveSize ?? q.size,
+        )
+        .filter((s) => s > 0);
+      const minSize =
+        effectiveQuantSizes.length > 0 ? Math.min(...effectiveQuantSizes) : 0;
+      const maxSize =
+        effectiveQuantSizes.length > 0 ? Math.max(...effectiveQuantSizes) : 0;
 
       out.push({
         key: m.name,
@@ -803,8 +869,8 @@ export function ModelsTableClient({
         filename: null,
         depth: 0,
         parentName: m.name,
-        size: m.minSize === m.maxSize ? m.minSize : -1,
-        sizeRange: m.minSize !== m.maxSize ? [m.minSize, m.maxSize] : null,
+        size: minSize === maxSize ? minSize : -1,
+        sizeRange: minSize !== maxSize ? [minSize, maxSize] : null,
         inColdStorage: null,
         coldComplete: null,
         coldSize: null,
@@ -815,10 +881,13 @@ export function ModelsTableClient({
         presentShards: 0,
         missingIndices: [],
         sizeMismatch: anyQuantMismatch,
+        sizeBreakdown: null,
+        undersizedLocations: new Set<string>(),
       });
       if (!expanded.has(m.name)) continue;
       for (const q of m.quants) {
         const quantKey = `${m.name}::${q.label}`;
+        const info = quantInfo.get(quantKey);
         out.push({
           key: quantKey,
           label: q.label,
@@ -827,7 +896,7 @@ export function ModelsTableClient({
           filename: q.filename,
           depth: 1,
           parentName: m.name,
-          size: q.size,
+          size: info?.effectiveSize ?? q.size,
           sizeRange: null,
           inColdStorage: q.inColdStorage,
           coldComplete: q.coldComplete,
@@ -838,7 +907,9 @@ export function ModelsTableClient({
           totalShards: q.totalShards,
           presentShards: q.presentShards,
           missingIndices: q.missingIndices,
-          sizeMismatch: quantMismatches.get(quantKey) ?? false,
+          sizeMismatch: info?.mismatch ?? false,
+          sizeBreakdown: info?.mismatch ? info.breakdown : null,
+          undersizedLocations: info?.undersized ?? new Set<string>(),
         });
         if (!q.isSingleFile && expanded.has(quantKey)) {
           for (const shard of q.shards) {
@@ -862,13 +933,15 @@ export function ModelsTableClient({
               presentShards: 0,
               missingIndices: [],
               sizeMismatch: false,
+              sizeBreakdown: null,
+              undersizedLocations: new Set<string>(),
             });
           }
         }
       }
     }
     return out;
-  }, [effectiveModels, expanded, peerQuantSizes]);
+  }, [effectiveModels, expanded, peerQuantSizes, peerNameByAddr]);
 
   const columns: TableColumn<DisplayRow>[] = [
     ...(showCheckboxes
@@ -960,7 +1033,27 @@ export function ModelsTableClient({
       align: 'end',
       renderCell: (item) => (
         <HStack gap={1} vAlign="center" hAlign="end">
-          {item.sizeMismatch && <Icon icon="warning" size="sm" />}
+          {item.sizeMismatch &&
+            (item.sizeBreakdown ? (
+              <HoverCard
+                placement="above"
+                content={
+                  <VStack gap={1}>
+                    <Text type="supporting">Sizes differ across locations</Text>
+                    {item.sizeBreakdown.map((e) => (
+                      <HStack key={e.id} gap={4} hAlign="between">
+                        <Text type="body">{e.location}</Text>
+                        <Text type="body">{formatSize(e.size)}</Text>
+                      </HStack>
+                    ))}
+                  </VStack>
+                }
+              >
+                <Icon icon="warning" size="sm" />
+              </HoverCard>
+            ) : (
+              <Icon icon="warning" size="sm" />
+            ))}
           <Text type="body">
             {item.sizeRange
               ? `${formatSize(item.sizeRange[0])} – ${formatSize(item.sizeRange[1])}`
