@@ -182,6 +182,20 @@ test('scanModels names a cache-layout file by its decoded repo id', async () => 
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('scanModels names a sidecar-less flat-layout mmproj by its path repo', async () => {
+  // An mmproj GGUF has a generic filename that doesn't carry the model name, so
+  // without a sidecar it must take the repo implied by its <org>/<repo>/ path —
+  // otherwise a cold copy is named "mmproj" and fails to join its local twin.
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  await writeFile(base, 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF/mmproj-F16.gguf');
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual([
+    'unsloth/Qwen3.6-35B-A3B-MTP-GGUF',
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('scanModels ignores the cache blobs and refs entries', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
   await writeFile(

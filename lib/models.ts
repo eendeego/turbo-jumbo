@@ -194,12 +194,11 @@ export function scanModels(
       // In the hub cache layout the repo is encoded in the directory, so it's
       // the authoritative name regardless of the (often generic) filename.
       const cacheRepoId = parseHubCachePath(relPath)?.repoId ?? null;
-      // Flat-layout safetensors/bin weights have generic filenames
-      // (model.safetensors), so derive their repo from the `<org>/<repo>/`
-      // directory the flat mirror stores them under. Most GGUF filenames carry
-      // the model name, so they keep their filename-derived name — but mmproj
-      // projectors (mmproj-F16.gguf) are just as generic, so they too take the
-      // directory's repo rather than collapsing into a phantom "mmproj" model.
+      // Flat-layout files with generic filenames — safetensors/bin weights
+      // (model.safetensors) and mmproj projector GGUFs (mmproj-F16.gguf) —
+      // don't carry the model name, so derive their repo from the
+      // `<org>/<repo>/` directory the flat mirror stores them under. Other GGUF
+      // filenames carry the model name, so they keep their filename-derived one.
       const flatRepoId =
         /\.(safetensors|bin)$/i.test(entry.name) || isMmprojFilename(entry.name)
           ? (pathImpliedRepo(relPath)?.repoId ?? null)
