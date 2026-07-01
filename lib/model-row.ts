@@ -12,6 +12,7 @@ import {ggmlModelVariant} from '@/lib/weight-files';
 import {isPickOneSafetensorsRepo} from '@/lib/hf-download';
 import {isDiffusersRepo} from '@/lib/diffusers';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
+import type {SidecarSummary} from '@/lib/model-sidecar';
 
 export interface ShardInfo {
   filename: string;
@@ -48,6 +49,9 @@ export interface ModelRow extends Record<string, unknown> {
   maxSize: number;
   allInColdStorage: boolean;
   noneInColdStorage: boolean;
+  // The model-level sidecar summary of the local copy, falling back to the
+  // cold copy; undefined when neither carries a sidecar.
+  sidecar?: SidecarSummary;
 }
 
 // One location's copy of a quant, for the size-mismatch breakdown.

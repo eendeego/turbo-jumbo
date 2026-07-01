@@ -4,6 +4,7 @@ import {normalizeModelNames} from '@/lib/models';
 import {isDiffusersRepo, diffusersComponentKey} from '@/lib/diffusers';
 import {fileJoinKey} from '@/lib/peer-paths';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
+import type {SidecarSummary} from '@/lib/model-sidecar';
 import type {ModelRow, QuantInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",
@@ -31,6 +32,14 @@ export function buildModelRows(
   // can name the same model differently; reconcile before grouping by name
   // (see normalizeModelNames).
   const [localModels, coldModels] = normalizeModelNames([localScan, coldScan]);
+
+  // The model-level sidecar summary per model name: the local copy's when it
+  // has one, else the cold copy's. Drives the model-name hovercard.
+  const sidecarByName = new Map<string, SidecarSummary>();
+  for (const m of coldModels)
+    if (m.sidecar) sidecarByName.set(m.name, m.sidecar);
+  for (const m of localModels)
+    if (m.sidecar) sidecarByName.set(m.name, m.sidecar);
 
   // Models laid out as diffusers pipelines (component folders at two
   // precisions): presented as present-only, precision-collapsed component
@@ -237,6 +246,7 @@ export function buildModelRows(
             ? Math.max(...sizes)
             : 0,
         ...coldStorageRollup(quants),
+        ...(sidecarByName.has(name) ? {sidecar: sidecarByName.get(name)} : {}),
       };
     })
     .sort((a, b) => compareByRepoName(a.name, b.name));

@@ -1,6 +1,7 @@
 import {test, expect} from 'bun:test';
 import {buildModelRows} from '@/components/models/models-table';
 import type {Model} from '@/lib/models';
+import type {SidecarSummary} from '@/lib/model-sidecar';
 
 function single(
   filename: string,
@@ -434,4 +435,56 @@ test('merges local and cold copies that disagree on sidecar naming into one row'
   expect(rows[0].quants[0].paths).toEqual([
     'unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_K_M.gguf',
   ]);
+});
+
+const summary = (o: Partial<SidecarSummary> = {}): SidecarSummary => ({
+  repoId: 'org/repo',
+  modelUrl: 'https://huggingface.co/org/repo',
+  fileCount: 1,
+  totalSourceSize: 100,
+  ...o,
+});
+
+test('buildModelRows carries the local sidecar summary onto the row', () => {
+  const local: Model[] = [
+    {
+      name: 'org/repo',
+      files: [single('model.gguf', 'Q4_K_M')],
+      sidecar: summary({sourceCommit: 'local1'}),
+    },
+  ];
+  const cold: Model[] = [
+    {
+      name: 'org/repo',
+      files: [single('model.gguf', 'Q4_K_M')],
+      sidecar: summary({sourceCommit: 'cold1'}),
+    },
+  ];
+  const rows = buildModelRows(local, cold);
+  const row = rows.find((r) => r.name === 'org/repo');
+  expect(row!.sidecar!.sourceCommit).toBe('local1');
+});
+
+test('buildModelRows falls back to the cold sidecar when local has none', () => {
+  const local: Model[] = [
+    {name: 'org/repo', files: [single('model.gguf', 'Q4_K_M')]},
+  ];
+  const cold: Model[] = [
+    {
+      name: 'org/repo',
+      files: [single('model.gguf', 'Q4_K_M')],
+      sidecar: summary({sourceCommit: 'cold1'}),
+    },
+  ];
+  const rows = buildModelRows(local, cold);
+  const row = rows.find((r) => r.name === 'org/repo');
+  expect(row!.sidecar!.sourceCommit).toBe('cold1');
+});
+
+test('buildModelRows leaves sidecar undefined when neither copy has one', () => {
+  const rows = buildModelRows(
+    [{name: 'org/repo', files: [single('model.gguf', 'Q4_K_M')]}],
+    [],
+  );
+  expect(rows.find((r) => r.name === 'org/repo')!.sidecar).toBeUndefined();
 });
