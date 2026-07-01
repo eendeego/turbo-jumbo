@@ -256,7 +256,13 @@ function AuditFailureContent({
             {canRedownload && (
               <HStack>
                 <Button
-                  label={redownloading ? 'Redownloading…' : 'Redownload'}
+                  label={
+                    redownloading
+                      ? 'Downloading…'
+                      : name.toLowerCase().startsWith('mmproj')
+                        ? 'Download mmproj'
+                        : 'Download missing files'
+                  }
                   variant="ghost"
                   size="sm"
                   onClick={() => onRedownload?.(f)}
