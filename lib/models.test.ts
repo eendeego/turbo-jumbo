@@ -317,6 +317,39 @@ test('duplicateBasenames detects colliding split shards but not a lone split gro
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('scanModels names a flat-layout safetensors by its repo directory', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  // Generic filename, no sidecar — the repo lives in the directory.
+  await writeFile(base, 'unsloth/Some-Model/model.safetensors');
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['unsloth/Some-Model']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('scanModels names flat sharded safetensors by repo and groups them', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  for (let i = 1; i <= 2; i++) {
+    const n = String(i).padStart(5, '0');
+    await writeFile(base, `org/repo/model-${n}-of-00002.safetensors`);
+  }
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['org/repo']);
+  expect(models[0].files[0].isSplit).toBe(true);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('scanModels still names a flat gguf by its filename, not its directory', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  // GGUF filenames carry the model name, so directory-naming must not apply.
+  await writeFile(base, 'unsloth/Qwen3-GGUF/Qwen3-Q4_K_M.gguf');
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['Qwen3']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 // --- normalizeModelNames ---
 
 function single(filename: string, p: string, size = 100): SingleFile {

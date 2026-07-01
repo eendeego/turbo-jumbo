@@ -7,7 +7,7 @@ import type {
   SingleFile,
   SplitGroup,
 } from '@/lib/model-types';
-import {metaPath} from '@/lib/audit';
+import {metaPath, pathImpliedRepo} from '@/lib/audit';
 import {parseHubCachePath} from '@/lib/hf-cache';
 import {readSafetensorsDtype} from '@/lib/safetensors';
 import {repoIdFromModelUrl} from '@/lib/model-name';
@@ -194,6 +194,13 @@ export function scanModels(storagePath: string | undefined): Model[] {
       // In the hub cache layout the repo is encoded in the directory, so it's
       // the authoritative name regardless of the (often generic) filename.
       const cacheRepoId = parseHubCachePath(relPath)?.repoId ?? null;
+      // Flat-layout safetensors/bin weights have generic filenames
+      // (model.safetensors), so derive their repo from the `<org>/<repo>/`
+      // directory the flat mirror stores them under. GGUF filenames carry the
+      // model name, so they keep their filename-derived name.
+      const flatRepoId = /\.(safetensors|bin)$/i.test(entry.name)
+        ? (pathImpliedRepo(relPath)?.repoId ?? null)
+        : null;
       const splitMatch = entry.name.match(SPLIT_RE);
 
       if (splitMatch) {
@@ -205,6 +212,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
         const modelName =
           cacheRepoId ??
           sidecarRepoId(fullPath) ??
+          flatRepoId ??
           extractModelName(`${base}.gguf`);
         const quant = extractQuant(`${base}.gguf`);
         const key = `${modelName}::${base}`;
@@ -242,6 +250,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
         const modelName =
           cacheRepoId ??
           sidecarRepoId(fullPath) ??
+          flatRepoId ??
           extractModelName(entry.name);
         const file: SingleFile = {
           isSplit: false,
