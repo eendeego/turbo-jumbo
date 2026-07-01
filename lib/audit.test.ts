@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {promises as fsp} from 'fs';
+import {promises as fsp, readFileSync} from 'fs';
 import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
@@ -12,14 +12,17 @@ import {
   expectedRelPath,
   hfSummary,
   localSha256,
+  mergeMeta,
   moveFileWithMeta,
   readMeta,
   refreshMetaSource,
   resolveSource,
   resumeOffset,
+  updateMeta,
   writeMeta,
   metaPath,
   pathImpliedRepo,
+  type TjMeta,
 } from '@/lib/audit';
 import {clearHfCache, type HfFileInfo} from '@/lib/hf-infer';
 
@@ -209,6 +212,27 @@ test('cachedResultFromMeta: misplaced when current path differs from expected', 
   expect(r.message).toBe('expected path o/r/sub/M.Q4.gguf');
 });
 
+test('cachedResultFromMeta: unverifiable when the audit never hashed the file', () => {
+  // An interrupted audit can leave a sidecar with a source but no computed
+  // hash — the comparison never happened, which is not a checksum mismatch.
+  const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', {
+    ...cachedMeta,
+    computedSha256: '',
+  });
+  expect(r.status).toBe('unverifiable');
+  expect(r.message).toBe('not hashed');
+  expect(r.hf).toBeDefined(); // the source is still known and shown
+});
+
+test('cachedResultFromMeta: the size check wins over the not-hashed rule', () => {
+  const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', {
+    ...cachedMeta,
+    computedSize: 50,
+    computedSha256: '',
+  });
+  expect(r.status).toBe('incomplete');
+});
+
 test('cachedResultFromMeta: unverifiable when the sidecar has no source sha', () => {
   const r = cachedResultFromMeta('M.Q4.gguf', {
     modelUrl: '',
@@ -281,6 +305,92 @@ test('writeMeta/readMeta round-trip and metaPath naming', async () => {
   await writeMeta(f, meta);
   expect(metaPath(f)).toBe(`${f}.tjmeta.json`);
   expect(await readMeta(f)).toEqual(meta);
+  await fsp.rm(dir, {recursive: true, force: true});
+});
+
+const priorMeta: TjMeta = {
+  modelUrl: 'https://huggingface.co/prior/repo',
+  originUrl: 'https://huggingface.co/prior/repo/blob/main/m.gguf',
+  sourceCommit: 'priorcommit',
+  sourceCommitDate: '2024-01-01T00:00:00.000Z',
+  sourceSize: 7,
+  computedSize: 7,
+  sourceSha256: 'priorsrc',
+  computedSha256: 'priorcomputed',
+};
+
+test('mergeMeta takes the new source block wholesale when this run resolved one', () => {
+  // The fresh source has no commit pin — the prior commit must not bleed into
+  // it (that would fabricate a revision that never existed).
+  const next: TjMeta = {
+    modelUrl: 'https://huggingface.co/new/repo',
+    originUrl: 'https://huggingface.co/new/repo/blob/main/m.gguf',
+    sourceSize: 9,
+    computedSize: 9,
+    sourceSha256: 'newsrc',
+    computedSha256: 'newcomputed',
+  };
+  expect(mergeMeta(priorMeta, next)).toEqual(next);
+});
+
+test('mergeMeta preserves the prior source block when this run resolved none', () => {
+  const merged = mergeMeta(priorMeta, {
+    modelUrl: '',
+    originUrl: '',
+    sourceSize: 0,
+    computedSize: 7,
+    sourceSha256: '',
+    computedSha256: '',
+  });
+  expect(merged).toEqual({
+    ...priorMeta,
+    computedSize: 7,
+    computedSha256: 'priorcomputed', // size unchanged, hash still valid
+  });
+});
+
+test('mergeMeta drops the prior computed sha when the on-disk size changed', () => {
+  const merged = mergeMeta(priorMeta, {
+    modelUrl: '',
+    originUrl: '',
+    sourceSize: 0,
+    computedSize: 12, // file grew since the prior audit
+    sourceSha256: '',
+    computedSha256: '',
+  });
+  expect(merged.computedSize).toBe(12);
+  expect(merged.computedSha256).toBe('');
+  expect(merged.sourceSha256).toBe('priorsrc'); // source block still preserved
+});
+
+test('mergeMeta with no prior sidecar returns the fresh meta as-is', () => {
+  const next: TjMeta = {
+    modelUrl: '',
+    originUrl: '',
+    sourceSize: 0,
+    computedSize: 4,
+    sourceSha256: '',
+    computedSha256: '',
+  };
+  expect(mergeMeta(null, next)).toEqual(next);
+});
+
+test('updateMeta merges into the sidecar on disk', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-update-'));
+  const full = path.join(dir, 'm.gguf');
+  await fsp.writeFile(full, 'payload'); // 7 bytes, matching priorMeta
+  await writeMeta(full, priorMeta);
+
+  await updateMeta(full, {
+    modelUrl: '',
+    originUrl: '',
+    sourceSize: 0,
+    computedSize: 7,
+    sourceSha256: '',
+    computedSha256: '',
+  });
+
+  expect(await readMeta(full)).toEqual(priorMeta);
   await fsp.rm(dir, {recursive: true, force: true});
 });
 
@@ -1319,6 +1429,98 @@ test('auditFile reports SHA256 progress for the history-walk hash too', async ()
     expect(events.length).toBeGreaterThan(0);
     expect(events.every(([, total]) => total === content.length)).toBe(true);
     expect(events[events.length - 1][0]).toBe(content.length);
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('auditFile persists the resolved source before hashing begins', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-early-'));
+  const rel = 'o/r/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  const content = Buffer.from('hello world');
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+
+  const source: HfFileInfo = {
+    repoId: 'o/r',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    commit: 'c',
+    commitDate: '',
+    size: content.length,
+    sha256: sha,
+  };
+
+  // Capture the sidecar from inside the first hash-progress event: at that
+  // point hashing has started, so everything known beforehand — the source
+  // and the on-disk size — must already be on disk. A crash mid-hash then
+  // can't lose it.
+  let duringHash: TjMeta | null = null;
+  const result = await auditFile(
+    base,
+    rel,
+    '',
+    'm.gguf',
+    undefined,
+    source,
+    () => {
+      duringHash ??= JSON.parse(readFileSync(metaPath(full), 'utf8')) as TjMeta;
+    },
+  );
+
+  expect(result.status).toBe('pass');
+  expect(duringHash).not.toBeNull();
+  expect(duringHash?.sourceSha256).toBe(sha);
+  expect(duringHash?.sourceSize).toBe(content.length);
+  expect(duringHash?.computedSize).toBe(content.length);
+  expect(duringHash?.computedSha256).toBe(''); // not hashed yet
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('auditFile preserves a prior hand-set source when resolution fails', async () => {
+  clearHfCache();
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-preserve-'));
+  const rel = 'GPT.gguf';
+  const full = path.join(base, rel);
+  await fsp.writeFile(full, 'payload'); // 7 bytes, matching the prior sidecar
+  await writeMeta(full, {
+    modelUrl: 'https://huggingface.co/Hauhau/Repo',
+    originUrl: 'https://huggingface.co/Hauhau/Repo/blob/main/GPT.gguf',
+    sourceCommit: 'handpin',
+    sourceCommitDate: '2024-01-01T00:00:00.000Z',
+    sourceSize: 7,
+    computedSize: 7,
+    sourceSha256: 'srcsha',
+    computedSha256: 'donesha',
+  });
+
+  // Inference finds nothing and the sidecar's repo is unreachable (network
+  // down, repo gone) — this run resolves no source.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models?')) return new Response('[]', {status: 200});
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+  try {
+    const result = await auditFile(base, rel, 'GPT', 'GPT.gguf');
+    expect(result.status).toBe('unverifiable');
+    // The sidecar still carries everything the failed run couldn't re-derive:
+    // the hand-set source and the still-valid computed hash.
+    expect(await readMeta(full)).toEqual({
+      modelUrl: 'https://huggingface.co/Hauhau/Repo',
+      originUrl: 'https://huggingface.co/Hauhau/Repo/blob/main/GPT.gguf',
+      sourceCommit: 'handpin',
+      sourceCommitDate: '2024-01-01T00:00:00.000Z',
+      sourceSize: 7,
+      computedSize: 7,
+      sourceSha256: 'srcsha',
+      computedSha256: 'donesha',
+    });
   } finally {
     globalThis.fetch = realFetch;
     clearHfCache();

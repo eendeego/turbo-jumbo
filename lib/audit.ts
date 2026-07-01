@@ -194,6 +194,11 @@ export function cachedResultFromMeta(
   ) {
     status = 'incomplete';
     message = `size ${meta.computedSize} != expected ${meta.sourceSize}`;
+  } else if (!meta.computedSha256) {
+    // An interrupted audit records the source before hashing — the comparison
+    // never happened, which is not a mismatch.
+    status = 'unverifiable';
+    message = 'not hashed';
   } else if (meta.computedSha256 !== meta.sourceSha256) {
     status = 'checksum-mismatch';
   } else if (hf && relPath !== hf.expectedPath) {
@@ -283,6 +288,44 @@ export async function readMeta(fullPath: string): Promise<TjMeta | null> {
 
 export async function writeMeta(fullPath: string, meta: TjMeta): Promise<void> {
   await fsp.writeFile(metaPath(fullPath), JSON.stringify(meta, null, 2));
+}
+
+/**
+ * Merge a freshly observed sidecar record into a prior one so an update never
+ * replaces known information with less. The source block (URLs, commit pin,
+ * expected size/sha) moves atomically: taken wholesale from `next` when this
+ * run resolved a source, preserved wholesale from `prev` when it didn't —
+ * mixing fields from two resolutions would fabricate a revision that never
+ * existed. The observed size is always fresh; the computed hash carries over
+ * from `prev` only while the on-disk size is unchanged (same size ⇒ presumed
+ * same bytes, the presumption `refreshMetaSource` already makes).
+ */
+export function mergeMeta(prev: TjMeta | null, next: TjMeta): TjMeta {
+  if (!prev) return next;
+  const source = next.sourceSha256 ? next : prev;
+  const computedSha256 =
+    next.computedSha256 ||
+    (prev.computedSize === next.computedSize ? prev.computedSha256 : '');
+  return {
+    modelUrl: source.modelUrl,
+    originUrl: source.originUrl,
+    ...(source.sourceCommit ? {sourceCommit: source.sourceCommit} : {}),
+    ...(source.sourceCommitDate
+      ? {sourceCommitDate: source.sourceCommitDate}
+      : {}),
+    sourceSize: source.sourceSize,
+    computedSize: next.computedSize,
+    sourceSha256: source.sourceSha256,
+    computedSha256,
+  };
+}
+
+/** Read-merge-write a sidecar update (see `mergeMeta`). */
+export async function updateMeta(
+  fullPath: string,
+  next: TjMeta,
+): Promise<void> {
+  await writeMeta(fullPath, mergeMeta(await readMeta(fullPath), next));
 }
 
 /**
@@ -597,6 +640,25 @@ export async function resolveSource(
   );
 }
 
+/** A sidecar record of what an audit has established so far (see `updateMeta`). */
+function observedMeta(
+  hf: HfFileInfo | null,
+  computedSize: number,
+  computedSha256: string,
+): TjMeta {
+  const summary = hf ? hfSummary(hf) : undefined;
+  return {
+    modelUrl: summary?.modelUrl ?? '',
+    originUrl: summary?.fileUrl ?? '',
+    ...(hf?.commit ? {sourceCommit: hf.commit} : {}),
+    ...(hf?.commitDate ? {sourceCommitDate: hf.commitDate} : {}),
+    sourceSize: hf?.size ?? 0,
+    computedSize,
+    sourceSha256: hf?.sha256 ?? '',
+    computedSha256,
+  };
+}
+
 /**
  * Audit a single physical file: resolve its HF source, check size, hash when it
  * matches, and return the verdict. When the file doesn't match the source's
@@ -606,9 +668,13 @@ export async function resolveSource(
  * all pin to it — with a note in the message. A sidecar is *always* written for
  * a file that exists — even with incomplete information (no resolved source, a
  * size mismatch, or a hashing failure) — so every audited file carries a record
- * of what was observed. Unknown fields are left empty; the on-disk size is
- * always recorded, letting a later cached audit re-derive the same verdict
- * without re-resolving or re-hashing.
+ * of what was observed. It is updated as soon as information is established (the
+ * resolved source and on-disk size land before the expensive hash) and updates
+ * merge rather than overwrite (see `mergeMeta`), so an interrupted audit
+ * leaves what it learned and a failed resolution can't erase a prior source.
+ * Unknown fields are left empty; the on-disk size is always recorded, letting
+ * a later cached audit re-derive the same verdict without re-resolving or
+ * re-hashing.
  *
  * The source is found in order: an explicit `source` (a manually-supplied URL,
  * already resolved), then `resolveSource` (inference, then sidecar fallback) —
@@ -637,6 +703,15 @@ export async function auditFile(
 
   const latest =
     source ?? (await resolveSource(fullPath, relPath, modelName, filename));
+
+  // Persist what's already known — the source and the on-disk size — before
+  // the expensive hash, so an interruption mid-audit doesn't lose it. The
+  // merge keeps a prior source alive when this run resolved none.
+  try {
+    await updateMeta(fullPath, observedMeta(latest, actualSize, ''));
+  } catch {
+    // best-effort: the final write reports a persistent failure
+  }
 
   // Hash only when there's a source to compare against and the size already
   // matches: a missing source or a size mismatch can't be a checksum pass, so we
@@ -711,19 +786,14 @@ export async function auditFile(
 
   // Always record a sidecar, with whatever was determined. The source fields are
   // authoritative when `source` was supplied (the download flow, or a pasted
-  // URL); otherwise inferred from the filename, or empty when unverifiable.
+  // URL); otherwise inferred from the filename, or — when unverifiable — the
+  // merge preserves whatever a prior sidecar knew.
   let metaWriteFailed = false;
   try {
-    await writeMeta(fullPath, {
-      modelUrl: summary?.modelUrl ?? '',
-      originUrl: summary?.fileUrl ?? '',
-      ...(hf?.commit ? {sourceCommit: hf.commit} : {}),
-      ...(hf?.commitDate ? {sourceCommitDate: hf.commitDate} : {}),
-      sourceSize: hf?.size ?? 0,
-      computedSize: actualSize,
-      sourceSha256: hf?.sha256 ?? '',
-      computedSha256: computedSha256 ?? '',
-    });
+    await updateMeta(
+      fullPath,
+      observedMeta(hf ?? null, actualSize, computedSha256 ?? ''),
+    );
   } catch {
     metaWriteFailed = true; // non-fatal: still return the verdict
   }
