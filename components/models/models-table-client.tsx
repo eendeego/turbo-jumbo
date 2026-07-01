@@ -89,6 +89,13 @@ const styles = stylex.create({
   dimmed: {opacity: 0.6},
 });
 
+// Mirrors the server-side helper in models-table.tsx (not importable here:
+// that module reads server config).
+function quantBits(quant: string): string {
+  const m = quant.match(/\d+/);
+  return m ? m[0] : quant;
+}
+
 export function formatSize(bytes: number): string {
   if (bytes < 0) return '';
   if (bytes === 0) return '0 KB';
@@ -582,10 +589,116 @@ export function ModelsTableClient({
     return map;
   }, [peerModels]);
 
+  // Synthesize rows for quants that exist only on peers — absent from local
+  // and cold storage — so the table shows everything reachable. The first
+  // peer naming a quant supplies its representation.
+  const augmentedModels = useMemo(() => {
+    const existingKeys = new Set<string>();
+    for (const m of models) {
+      for (const q of m.quants) existingKeys.add(`${m.name}::${q.label}`);
+    }
+
+    type PeerOnly = {
+      modelName: string;
+      label: string;
+      isSingleFile: boolean;
+      filename: string | null;
+      displayName: string;
+      size: number;
+      paths: string[];
+      totalShards: number;
+      presentShards: number;
+      missingIndices: number[];
+    };
+    const peerOnly = new Map<string, PeerOnly>();
+    for (const [, lo] of peerModels) {
+      if (lo.type !== 'value') continue;
+      for (const m of lo.value) {
+        for (const f of m.files) {
+          const key = `${m.name}::${f.quant}`;
+          if (existingKeys.has(key) || peerOnly.has(key)) continue;
+          peerOnly.set(key, {
+            modelName: m.name,
+            label: f.quant,
+            isSingleFile: !f.isSplit,
+            filename: f.isSplit ? null : f.filename,
+            displayName: f.isSplit ? f.representativeFilename : f.filename,
+            size: f.isSplit ? f.totalSize : f.size,
+            paths: f.isSplit ? f.files.map((s) => s.path) : [f.path],
+            totalShards: f.isSplit ? f.totalShards : 0,
+            presentShards: f.isSplit ? f.presentShards : 0,
+            missingIndices: f.isSplit ? f.missingIndices : [],
+          });
+        }
+      }
+    }
+
+    if (peerOnly.size === 0) return models;
+
+    const byModel = new Map<string, ModelRow>();
+    for (const m of models) byModel.set(m.name, {...m, quants: [...m.quants]});
+
+    for (const p of peerOnly.values()) {
+      const quant: QuantInfo = {
+        label: p.label,
+        isSingleFile: p.isSingleFile,
+        filename: p.filename,
+        displayName: p.displayName,
+        inColdStorage: false,
+        coldComplete: false,
+        coldSize: null,
+        coldTotalSize: 0,
+        size: p.size,
+        paths: p.paths,
+        coldPaths: [],
+        shards: [],
+        totalShards: p.totalShards,
+        presentShards: p.presentShards,
+        missingIndices: p.missingIndices,
+      };
+      const existing = byModel.get(p.modelName);
+      if (existing) {
+        existing.quants.push(quant);
+      } else {
+        byModel.set(p.modelName, {
+          name: p.modelName,
+          quantizations: '',
+          quants: [quant],
+          minSize: 0,
+          maxSize: 0,
+          allInColdStorage: false,
+          noneInColdStorage: true,
+        });
+      }
+    }
+
+    // Recompute aggregates and ordering; mirrors the server-side aggregation
+    // in models-table.tsx.
+    return [...byModel.values()]
+      .map((m) => {
+        const quants = [...m.quants].sort(
+          (a, b) => Number(quantBits(a.label)) - Number(quantBits(b.label)),
+        );
+        const sizes = quants.map((q) => q.size).filter((s) => s > 0);
+        return {
+          ...m,
+          quants,
+          quantizations: [
+            ...new Set(quants.map((q) => quantBits(q.label))),
+          ].join(', '),
+          minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
+          maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
+          allInColdStorage: quants.every((q) => q.coldComplete),
+          noneInColdStorage: quants.every((q) => !q.inColdStorage),
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [models, peerModels]);
+
   // Filter models to the active location tab.
   const effectiveModels = useMemo(() => {
-    if (activeLocation === 'all') return models;
-    return models
+    if (activeLocation === 'all') return augmentedModels;
+    return augmentedModels
       .map((m) => {
         const quants = m.quants
           .filter((q) => {
@@ -613,7 +726,7 @@ export function ModelsTableClient({
         } satisfies ModelRow;
       })
       .filter((m): m is ModelRow => m !== null);
-  }, [models, activeLocation, peerBasenames]);
+  }, [augmentedModels, activeLocation, peerBasenames]);
 
   const showCheckboxes = onToggleSelected != null;
 
