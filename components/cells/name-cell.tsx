@@ -221,30 +221,36 @@ export function NameCell({
   }
 
   // Model row. Show the repo segment of an org/repo identity; the full repo
-  // (when the name carries one), the quantizations, and the sidecar provenance
-  // live in the hovercard.
+  // (when the name carries one) and the sidecar provenance live in the
+  // hovercard — shown only when there's something to say.
+  const nameButton = (
+    <Button
+      label={modelDisplayName(row.label)}
+      variant="ghost"
+      size="sm"
+      icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
+      onClick={() => onToggle(row.parentName)}
+    />
+  );
   return (
     <HStack gap={2} vAlign="center">
-      <HoverCard
-        placement="above"
-        content={
-          <VStack gap={1}>
-            {row.label.includes('/') && (
-              <InfoRow label="Repository">{row.label}</InfoRow>
-            )}
-            <InfoRow label="Quantizations">{row.quantizations}</InfoRow>
-            {row.sidecar && <SidecarInfo sidecar={row.sidecar} />}
-          </VStack>
-        }
-      >
-        <Button
-          label={modelDisplayName(row.label)}
-          variant="ghost"
-          size="sm"
-          icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
-          onClick={() => onToggle(row.parentName)}
-        />
-      </HoverCard>
+      {row.label.includes('/') || row.sidecar ? (
+        <HoverCard
+          placement="above"
+          content={
+            <VStack gap={1}>
+              {row.label.includes('/') && (
+                <InfoRow label="Repository">{row.label}</InfoRow>
+              )}
+              {row.sidecar && <SidecarInfo sidecar={row.sidecar} />}
+            </VStack>
+          }
+        >
+          {nameButton}
+        </HoverCard>
+      ) : (
+        nameButton
+      )}
       {row.orgSuffix && <Text type="supporting">({row.orgSuffix})</Text>}
       {incomplete && <Badge variant="error" label="incomplete" />}
       {invalid && (
