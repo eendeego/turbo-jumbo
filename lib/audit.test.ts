@@ -24,6 +24,7 @@ const hf: HfFileInfo = {
   branch: 'main',
   repoPath: 'M.Q4.gguf',
   commit: 'deadc0de',
+  commitDate: '2024-02-19T10:57:45.000Z',
   size: 100,
   sha256: 'deadbeef',
 };
@@ -141,11 +142,13 @@ test('cachedResultFromMeta: surfaces a commit permalink when the sidecar pins on
   const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', {
     ...cachedMeta,
     sourceCommit: 'deadc0de',
+    sourceCommitDate: '2024-02-19T10:57:45.000Z',
   });
   expect(r.hf?.commit).toBe('deadc0de');
   expect(r.hf?.commitUrl).toBe(
     'https://huggingface.co/o/r/blob/deadc0de/sub/M.Q4.gguf',
   );
+  expect(r.hf?.commitDate).toBe('2024-02-19T10:57:45.000Z');
 });
 
 test('cachedResultFromMeta: checksum-mismatch when cached shas differ', () => {
@@ -182,6 +185,7 @@ test('hfSummary builds repo/file URLs, a commit permalink, and expected values',
     fileUrl: 'https://huggingface.co/o/r/blob/main/M.Q4.gguf',
     commit: 'deadc0de',
     commitUrl: 'https://huggingface.co/o/r/blob/deadc0de/M.Q4.gguf',
+    commitDate: '2024-02-19T10:57:45.000Z',
     expectedSize: 100,
     expectedSha256: 'deadbeef',
     expectedPath: 'o/r/M.Q4.gguf',
@@ -324,7 +328,9 @@ test('resolveSource falls back to the sidecar source when inference fails', asyn
       repoId: 'Hauhau/Repo',
       branch: 'main',
       repoPath: 'GPT.gguf',
-      commit: '', // the revision endpoint isn't mocked here — commit degrades to ''
+      // The revision endpoint isn't mocked here — commit/date degrade to ''.
+      commit: '',
+      commitDate: '',
       size: 7,
       sha256: 'feed',
     });
@@ -354,6 +360,7 @@ test('refreshMetaSource backfills size/sha from the source, keeping the computed
     branch: 'main',
     repoPath: 'm.gguf',
     commit: 'freshcommit',
+    commitDate: '2025-06-01T12:00:00.000Z',
     size: 4,
     sha256: 'fresh',
   });
@@ -362,6 +369,7 @@ test('refreshMetaSource backfills size/sha from the source, keeping the computed
     modelUrl: 'https://huggingface.co/o/r',
     originUrl: 'https://huggingface.co/o/r/blob/main/m.gguf',
     sourceCommit: 'freshcommit',
+    sourceCommitDate: '2025-06-01T12:00:00.000Z',
     sourceSize: 4,
     sourceSha256: 'fresh',
     computedSha256: 'computed', // preserved — a relocation doesn't change bytes
@@ -382,6 +390,7 @@ test('refreshMetaSource hashes the file when no prior computed sha exists', asyn
     branch: 'main',
     repoPath: 'm.gguf',
     commit: '',
+    commitDate: '',
     size: content.length,
     sha256: sha,
   });
@@ -445,6 +454,7 @@ test('auditFile verifies against an explicit source without any inference', asyn
     branch: 'main',
     repoPath: 'm.gguf',
     commit: 'srccommit',
+    commitDate: '2024-02-19T10:57:45.000Z',
     size: content.length,
     sha256: sha,
   };
@@ -459,6 +469,7 @@ test('auditFile verifies against an explicit source without any inference', asyn
     expect(result.status).toBe('pass');
     const meta = await readMeta(full);
     expect(meta?.sourceCommit).toBe('srccommit');
+    expect(meta?.sourceCommitDate).toBe('2024-02-19T10:57:45.000Z');
     expect(meta?.sourceSize).toBe(content.length);
     expect(meta?.sourceSha256).toBe(sha);
     expect(meta?.computedSha256).toBe(sha);

@@ -203,6 +203,7 @@ function AuditFailureContent({
                 {f.hf.commit && (
                   <Link href={f.hf.commitUrl ?? f.hf.fileUrl} isExternalLink>
                     Revision {f.hf.commit.slice(0, 12)}
+                    {f.hf.commitDate && ` (${f.hf.commitDate.slice(0, 10)})`}
                   </Link>
                 )}
                 <Link href={f.hf.modelUrl} isExternalLink>

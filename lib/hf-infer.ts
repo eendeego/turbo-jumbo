@@ -3,6 +3,7 @@ export interface HfFileInfo {
   branch: string;
   repoPath: string; // path of the file within the repo
   commit: string; // resolved commit SHA the branch/tag pointed at (immutable), '' if unknown
+  commitDate: string; // ISO 8601 timestamp of that commit, '' if unknown
   size: number;
   sha256: string; // hex, no "sha256:" prefix
 }
@@ -47,6 +48,7 @@ function treeEntryToInfo(
   repoId: string,
   branch: string,
   commit: string,
+  commitDate: string,
   entry: HfTreeEntry,
 ): HfFileInfo | null {
   const oid = entry.lfs?.oid ?? '';
@@ -57,29 +59,30 @@ function treeEntryToInfo(
     branch,
     repoPath: entry.path,
     commit,
+    commitDate,
     size: entry.lfs?.size ?? entry.size,
     sha256,
   };
 }
 
-// Resolve the commit SHA a branch/tag currently points at, so a verified file
-// can be pinned to an immutable revision even when it was fetched from a moving
-// ref like `main`. Returns '' if the revision can't be resolved — callers must
-// treat the commit as best-effort, never required.
+// Resolve the commit a branch/tag currently points at (its SHA and timestamp),
+// so a verified file can be pinned to an immutable revision even when it was
+// fetched from a moving ref like `main`. SHA/date degrade to '' if the revision
+// can't be resolved — callers must treat them as best-effort, never required.
 async function fetchRepoCommit(
   repoId: string,
   branch: string,
-): Promise<string> {
+): Promise<{commit: string; commitDate: string}> {
   try {
     const res = await fetch(
       `https://huggingface.co/api/models/${repoId}/revision/${branch}`,
       {headers: HEADERS},
     );
-    if (!res.ok) return '';
-    const data = (await res.json()) as {sha?: string};
-    return data.sha ?? '';
+    if (!res.ok) return {commit: '', commitDate: ''};
+    const data = (await res.json()) as {sha?: string; lastModified?: string};
+    return {commit: data.sha ?? '', commitDate: data.lastModified ?? ''};
   } catch {
-    return '';
+    return {commit: '', commitDate: ''};
   }
 }
 
@@ -128,8 +131,14 @@ async function resolveHfFile(
       (e) => e.type === 'file' && e.path.split('/').pop() === filename,
     );
     if (!match) continue;
-    const commit = await fetchRepoCommit(candidate.id, branch);
-    const info = treeEntryToInfo(candidate.id, branch, commit, match);
+    const {commit, commitDate} = await fetchRepoCommit(candidate.id, branch);
+    const info = treeEntryToInfo(
+      candidate.id,
+      branch,
+      commit,
+      commitDate,
+      match,
+    );
     if (!info) continue; // matched by name but no checksum — keep looking
     return info;
   }
@@ -177,6 +186,6 @@ export async function resolveHfFileByPath(
   if (!entries) return null;
   const match = entries.find((e) => e.type === 'file' && e.path === repoPath);
   if (!match) return null;
-  const commit = await fetchRepoCommit(repoId, branch);
-  return treeEntryToInfo(repoId, branch, commit, match);
+  const {commit, commitDate} = await fetchRepoCommit(repoId, branch);
+  return treeEntryToInfo(repoId, branch, commit, commitDate, match);
 }

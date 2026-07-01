@@ -27,6 +27,7 @@ export interface HfSummary {
   fileUrl: string; // file blob page within the repo (on the requested branch/tag)
   commit?: string; // resolved commit SHA the file was verified against, when known
   commitUrl?: string; // file blob page pinned to that commit (an immutable permalink)
+  commitDate?: string; // ISO 8601 timestamp of that commit, when known
   expectedSize?: number;
   expectedSha256: string;
   expectedPath: string; // <repoId>/<repoPath>
@@ -44,6 +45,7 @@ export interface TjMeta {
   modelUrl: string; // HF model/repo URL, e.g. https://huggingface.co/unsloth/GLM-4.7-GGUF
   originUrl: string; // HF file URL within the repo
   sourceCommit?: string; // resolved commit SHA the file was verified against, when known
+  sourceCommitDate?: string; // ISO 8601 timestamp of that commit, when known
   sourceSize: number; // expected size in bytes, from the HF source
   sourceSha256: string;
   computedSha256: string;
@@ -69,6 +71,7 @@ export function hfSummary(hf: HfFileInfo): HfSummary {
       ? {
           commit: hf.commit,
           commitUrl: `https://huggingface.co/${hf.repoId}/blob/${hf.commit}/${hf.repoPath}`,
+          ...(hf.commitDate ? {commitDate: hf.commitDate} : {}),
         }
       : {}),
     expectedSize: hf.size,
@@ -104,6 +107,9 @@ export function cachedResultFromMeta(
             ? {
                 commit: meta.sourceCommit,
                 commitUrl: `https://huggingface.co/${repoId}/blob/${meta.sourceCommit}/${repoPath}`,
+                ...(meta.sourceCommitDate
+                  ? {commitDate: meta.sourceCommitDate}
+                  : {}),
               }
             : {}),
           ...(typeof meta.sourceSize === 'number'
@@ -201,6 +207,7 @@ export async function refreshMetaSource(
     modelUrl: summary.modelUrl,
     originUrl: summary.fileUrl,
     ...(hf.commit ? {sourceCommit: hf.commit} : {}),
+    ...(hf.commitDate ? {sourceCommitDate: hf.commitDate} : {}),
     sourceSize: hf.size,
     sourceSha256: hf.sha256,
     computedSha256,
@@ -362,6 +369,7 @@ export async function auditFile(
       modelUrl: summary.modelUrl,
       originUrl: summary.fileUrl,
       ...(hf.commit ? {sourceCommit: hf.commit} : {}),
+      ...(hf.commitDate ? {sourceCommitDate: hf.commitDate} : {}),
       sourceSize: hf.size,
       sourceSha256: hf.sha256,
       computedSha256,
