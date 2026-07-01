@@ -942,10 +942,12 @@ export function HomeClient({
           onLocationChange={handleLocationChange}
         />
         {localModelsPath && canDownloadLocally && (
-          <AddModelMenu
-            activeLocation={activeLocation}
-            peerConfigs={peerConfigs}
-          />
+          <HStack hAlign="end">
+            <AddModelMenu
+              activeLocation={activeLocation}
+              peerConfigs={peerConfigs}
+            />
+          </HStack>
         )}
         {checkingUpdates && (
           <Text type="supporting">Checking Hugging Face for updates…</Text>

@@ -12,11 +12,11 @@ import type {Model} from '@/lib/models';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Text';
+import {Button} from '@astryxdesign/core/Button';
 import {
   LocationTabs,
   type LocationTab,
 } from '@/components/models/location-tabs';
-import {AddModelMenu} from '@/components/models/add-model-menu';
 import {LemonadeBrowser} from '@/components/lemonade/lemonade-browser';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
 import {Log} from '@/components/log/log';
@@ -88,6 +88,10 @@ export function LemonadeClient({
     }
   }, [peerConfigs, handleModelsRefreshed]);
 
+  const backToTable = useCallback(() => {
+    router.push(locationHref(activeLocation, peerConfigs));
+  }, [router, activeLocation, peerConfigs]);
+
   // Downloads run only on the local machine, so the All and local-peer views
   // can download; a remote peer's view is browse-only.
   const canDownload =
@@ -109,12 +113,17 @@ export function LemonadeClient({
           onLocationChange={handleLocationChange}
         />
 
-        {canDownload && (
-          <AddModelMenu
-            activeLocation={activeLocation}
-            peerConfigs={peerConfigs}
+        <HStack vAlign="center">
+          <StackItem size="fill">
+            <Heading level={2}>Add from Lemonade</Heading>
+          </StackItem>
+          <Button
+            label="Back"
+            variant="secondary"
+            size="sm"
+            onClick={backToTable}
           />
-        )}
+        </HStack>
 
         <LemonadeBrowser
           hfTokenSet={hfTokenSet}
