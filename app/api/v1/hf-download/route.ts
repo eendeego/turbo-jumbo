@@ -2,8 +2,16 @@ import {spawn} from 'child_process';
 import {promises as fsp} from 'fs';
 import path from 'path';
 import {localModelsDir, coldStorageDir} from '@/lib/config';
-import {auditFile, copyFileWithMeta, metaPath} from '@/lib/audit';
+import {
+  auditFile,
+  copyFileWithMeta,
+  metaPath,
+  readMetaResolved,
+  updateMetaResolved,
+} from '@/lib/audit';
 import {resolveHfFileByPath} from '@/lib/hf-infer';
+import {repoIdFromModelUrl} from '@/lib/model-name';
+import {modelDirForRepo, removeFileMeta} from '@/lib/model-sidecar';
 import {HF_XET_HIGH_PERFORMANCE} from '@/lib/hf';
 
 const ANSI_RE = /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07]*\x07|[^[\]])/g;
@@ -107,6 +115,20 @@ async function moveToColdstorage(
 
   const toDelete: string[] = [];
 
+  // Carry the file's provenance entry into the cold-storage model sidecar, and
+  // drop it from the local one when the local copy is being removed.
+  const transferMeta = async (rp: string, removeLocal: boolean) => {
+    const meta = await readMetaResolved(localBase, rp);
+    if (!meta) return;
+    const repoId = repoIdFromModelUrl(meta.modelUrl);
+    if (!repoId) return;
+    await updateMetaResolved(coldBase, rp, repoId, meta);
+    if (removeLocal) {
+      const loc = modelDirForRepo(rp, repoId);
+      if (loc) await removeFileMeta(localBase, loc.dir, loc.key);
+    }
+  };
+
   for (const rp of relPaths) {
     const src = path.join(localBase, rp);
     const dst = path.join(coldBase, rp);
@@ -116,6 +138,7 @@ async function moveToColdstorage(
         await fsp.mkdir(path.dirname(dst), {recursive: true});
         await fsp.rename(src, dst);
         await renameSidecar(src, dst);
+        await transferMeta(rp, true);
         onBytes(sizes.get(rp) ?? 0); // account for this file in progress
         continue;
       } catch (err) {
@@ -125,6 +148,7 @@ async function moveToColdstorage(
     }
 
     await copyFileWithMeta(src, dst, onBytes);
+    await transferMeta(rp, deleteAfterTransfer);
     if (deleteAfterTransfer) {
       toDelete.push(src, metaPath(src));
     }
