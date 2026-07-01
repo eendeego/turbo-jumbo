@@ -264,3 +264,234 @@ export function augmentWithPeerOnlyQuants(
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * Flatten location-filtered `models` into the table's `DisplayRow[]`: a model
+ * row per model, then (when expanded) its quant rows or — for a whole-repo
+ * model — its repo-file rows, then a split quant's shard rows. Pure: the
+ * per-quant cross-location size breakdown (cold storage + each peer, from
+ * `peerQuantSizes`/`peerNameByAddr`) decides the effective size and which
+ * copies are undersized, and rolls up to the model row's mismatch warning.
+ * The React memoization lives in the `useDisplayRows` hook.
+ */
+export function buildDisplayRows(args: {
+  models: ModelRow[];
+  expanded: Set<string>;
+  repoFiles: Map<string, RepoFile[]>;
+  activeLocation: string;
+  peerQuantSizes: Map<string, Array<{address: string; size: number}>>;
+  peerNameByAddr: Map<string, string>;
+}): DisplayRow[] {
+  const {
+    models,
+    expanded,
+    repoFiles,
+    activeLocation,
+    peerQuantSizes,
+    peerNameByAddr,
+  } = args;
+  const out: DisplayRow[] = [];
+  for (const m of models) {
+    // Per-quant size breakdown across cold storage and peers. Locations
+    // disagreeing mark the quant — and, rolled up, the model row. The
+    // effective size is the largest known copy; smaller copies are
+    // undersized.
+    type QuantSizeInfo = {
+      effectiveSize: number;
+      breakdown: SizeEntry[];
+      mismatch: boolean;
+      undersized: Set<string>;
+    };
+    const quantInfo = new Map<string, QuantSizeInfo>();
+    let anyQuantMismatch = false;
+    for (const q of m.quants) {
+      const quantKey = `${m.name}::${q.label}`;
+      // Peer copies are keyed by filename (see peerQuantSizes), so this
+      // quant's cross-location sizes are looked up by its file, not its label
+      // — a label can cover several distinct files (e.g. two `.bin` weights).
+      const fileKey = `${m.name}::${q.isSingleFile ? q.filename : q.displayName}`;
+      const breakdown: SizeEntry[] = [];
+      if (q.coldTotalSize > 0) {
+        breakdown.push({
+          id: 'cold-storage',
+          location: 'Cold storage',
+          size: q.coldTotalSize,
+        });
+      }
+      for (const ps of peerQuantSizes.get(fileKey) ?? []) {
+        breakdown.push({
+          id: ps.address,
+          location: peerNameByAddr.get(ps.address) ?? ps.address,
+          size: ps.size,
+        });
+      }
+      const distinct = new Set(breakdown.map((e) => e.size));
+      const mismatch = distinct.size > 1;
+      const effectiveSize =
+        breakdown.length > 0
+          ? Math.max(...breakdown.map((e) => e.size))
+          : q.size;
+      const undersized = new Set<string>();
+      if (mismatch) {
+        for (const e of breakdown) {
+          if (e.size < effectiveSize) undersized.add(e.id);
+        }
+      }
+      quantInfo.set(quantKey, {
+        effectiveSize,
+        breakdown,
+        mismatch,
+        undersized,
+      });
+      if (mismatch) anyQuantMismatch = true;
+    }
+
+    const effectiveQuantSizes = m.quants
+      .filter((q) => !q.isProjector)
+      .map(
+        (q) => quantInfo.get(`${m.name}::${q.label}`)?.effectiveSize ?? q.size,
+      )
+      .filter((s) => s > 0);
+    const minSize =
+      effectiveQuantSizes.length > 0 ? Math.min(...effectiveQuantSizes) : 0;
+    const maxSize =
+      effectiveQuantSizes.length > 0 ? Math.max(...effectiveQuantSizes) : 0;
+
+    // One labelled breakdown per mismatched file, so the rolled-up model
+    // row's warning icon shows the same per-location sizes its quant rows do
+    // (the row is otherwise collapsed, leaving the icon unexplained).
+    const mismatchGroups: SizeBreakdownGroup[] = m.quants
+      .map((q) => ({
+        label: q.label,
+        info: quantInfo.get(`${m.name}::${q.label}`),
+      }))
+      .filter((x) => x.info?.mismatch === true)
+      .map((x) => ({label: x.label, entries: x.info!.breakdown}));
+
+    // A whole-repo model's invalid + missing files (when its repo-file list
+    // has been fetched), for the audit hovercard's "why" and download action.
+    const repoIssues = isWholeRepoModel(m)
+      ? repoFiles
+          .get(`${activeLocation}::${m.name}`)
+          ?.filter((f) => f.state === 'invalid' || f.state === 'missing')
+      : undefined;
+
+    out.push({
+      key: m.name,
+      label: m.name,
+      quantizations: m.quantizations,
+      isSingleFile: false,
+      filename: null,
+      depth: 0,
+      parentName: m.name,
+      size: minSize === maxSize ? minSize : -1,
+      sizeRange: minSize !== maxSize ? [minSize, maxSize] : null,
+      inColdStorage: null,
+      coldComplete: null,
+      coldSize: null,
+      allInColdStorage: m.allInColdStorage,
+      noneInColdStorage: m.noneInColdStorage,
+      paths: m.quants.flatMap((q) => q.paths),
+      totalShards: 0,
+      presentShards: 0,
+      missingIndices: [],
+      sizeMismatch: anyQuantMismatch,
+      sizeBreakdown: null,
+      ...(mismatchGroups.length > 0
+        ? {sizeBreakdownGroups: mismatchGroups}
+        : {}),
+      undersizedLocations: new Set<string>(),
+      ...(repoIssues && repoIssues.length > 0 ? {repoIssues} : {}),
+    });
+    if (!expanded.has(m.name)) continue;
+    if (isWholeRepoModel(m)) {
+      // Whole-repo model: list its repo files (present/missing/invalid)
+      // instead of quants. Empty until the lazy fetch lands.
+      for (const f of repoFiles.get(`${activeLocation}::${m.name}`) ?? []) {
+        out.push({
+          key: `${m.name}::file::${f.path}`,
+          label: f.path,
+          quantizations: '',
+          isSingleFile: true,
+          filename: f.path,
+          depth: 1,
+          parentName: m.name,
+          size: f.size ?? f.expectedSize,
+          sizeRange: null,
+          inColdStorage: null,
+          coldComplete: null,
+          coldSize: null,
+          allInColdStorage: false,
+          noneInColdStorage: false,
+          paths: [],
+          totalShards: 0,
+          presentShards: 0,
+          missingIndices: [],
+          sizeMismatch: false,
+          sizeBreakdown: null,
+          undersizedLocations: new Set<string>(),
+          fileState: f.state,
+        });
+      }
+      continue;
+    }
+    for (const q of m.quants) {
+      const quantKey = `${m.name}::${q.label}`;
+      const info = quantInfo.get(quantKey);
+      out.push({
+        key: quantKey,
+        label: q.label,
+        quantizations: '',
+        isSingleFile: q.isSingleFile,
+        filename: q.filename,
+        depth: 1,
+        parentName: m.name,
+        size: info?.effectiveSize ?? q.size,
+        sizeRange: null,
+        inColdStorage: q.inColdStorage,
+        coldComplete: q.coldComplete,
+        coldSize: q.coldSize,
+        allInColdStorage: false,
+        noneInColdStorage: false,
+        paths: q.paths,
+        totalShards: q.totalShards,
+        presentShards: q.presentShards,
+        missingIndices: q.missingIndices,
+        sizeMismatch: info?.mismatch ?? false,
+        sizeBreakdown: info?.mismatch ? info.breakdown : null,
+        undersizedLocations: info?.undersized ?? new Set<string>(),
+        isProjector: q.isProjector,
+        precisions: q.precisions,
+      });
+      // Show individual shards when a split quant is expanded
+      if (!q.isSingleFile && expanded.has(quantKey)) {
+        for (const shard of q.shards) {
+          out.push({
+            key: `${quantKey}::${shard.filename}`,
+            label: shard.filename,
+            quantizations: '',
+            isSingleFile: false,
+            filename: null,
+            depth: 2,
+            parentName: m.name,
+            size: shard.size,
+            sizeRange: null,
+            inColdStorage: null,
+            coldComplete: null,
+            coldSize: null,
+            allInColdStorage: false,
+            noneInColdStorage: false,
+            paths: [],
+            totalShards: 0,
+            presentShards: 0,
+            missingIndices: [],
+            sizeMismatch: false,
+            sizeBreakdown: null,
+            undersizedLocations: new Set<string>(),
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
