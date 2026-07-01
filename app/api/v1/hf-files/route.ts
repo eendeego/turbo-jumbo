@@ -11,6 +11,10 @@ export async function GET(req: Request) {
   const repoId = searchParams.get('repoId') ?? '';
   const branch = searchParams.get('branch') ?? 'main';
   const folder = searchParams.get('folder') ?? '';
+  // Recurse into subdirectories. Needed to resolve a checkpoint that names a
+  // nested file (e.g. a Flux VAE at split_files/vae/flux2-vae.safetensors),
+  // which a root-only listing reports as just a `split_files` directory.
+  const recursive = searchParams.get('recursive') === 'true';
 
   if (!REPO_ID_RE.test(repoId))
     return new Response('Invalid repoId', {status: 400});
@@ -21,7 +25,9 @@ export async function GET(req: Request) {
 
   const treePath = folder ? `${branch}/${folder}` : branch;
   const hfRes = await fetch(
-    `https://huggingface.co/api/models/${repoId}/tree/${treePath}`,
+    `https://huggingface.co/api/models/${repoId}/tree/${treePath}${
+      recursive ? '?recursive=true' : ''
+    }`,
     {headers: {'User-Agent': 'turbo-jumbo/1.0'}},
   );
 

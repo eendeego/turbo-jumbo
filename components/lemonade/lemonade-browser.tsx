@@ -450,6 +450,7 @@ export function LemonadeBrowser({
       const params = new URLSearchParams({
         repoId: model.repoId,
         branch: 'main',
+        recursive: 'true',
       });
       const res = await fetch(`/api/v1/hf-files?${params}`);
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -494,6 +495,7 @@ export function LemonadeBrowser({
         const params = new URLSearchParams({
           repoId: job.repoId,
           branch: 'main',
+          recursive: 'true',
         });
         const res = await fetch(`/api/v1/hf-files?${params}`);
         if (!res.ok)
