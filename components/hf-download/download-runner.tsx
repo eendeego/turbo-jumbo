@@ -216,8 +216,9 @@ export function useDownloadRunner(localModelsPath: string) {
   return {term, progress, running, command, start, startMany, cancel, reset};
 }
 
-/** Streaming progress + terminal output dialog for a download run. When a
- *  `command` is supplied, an expandable section reveals the `hf` command line. */
+/** Streaming progress + terminal output dialog for a download run. A single
+ *  "Show details" disclosure reveals the `hf` command (when supplied) followed
+ *  by the full raw output. */
 export function DownloadModal({
   title = 'Downloading…',
   term,
@@ -235,8 +236,7 @@ export function DownloadModal({
   hfTokenSet?: boolean;
   onClose: () => void;
 }) {
-  const [showCommand, setShowCommand] = useState(false);
-  const [showOutput, setShowOutput] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   // hf's hints/deprecation warnings and any errors, lifted out of the raw log
   // so they're always visible even while the full output stays collapsed.
@@ -298,40 +298,38 @@ export function DownloadModal({
         )}
         <VStack gap={2}>
           <Button
-            label={showOutput ? 'Hide full output ▴' : 'Show full output ▾'}
+            label={showDetails ? 'Hide details ▴' : 'Show details ▾'}
             variant="ghost"
             size="sm"
-            onClick={() => setShowOutput((v) => !v)}
+            onClick={() => setShowDetails((v) => !v)}
           />
-          {showOutput && (
-            <CodeBlock
-              code={term?.lines.join('\n') || ' '}
-              language="plaintext"
-              hasCopyButton={false}
-              isWrapped
-              width="100%"
-              maxHeight={384}
-            />
+          {showDetails && (
+            <VStack gap={3}>
+              {command && (
+                <VStack gap={1}>
+                  <Text type="supporting">Command</Text>
+                  <CodeBlock
+                    code={command}
+                    language="bash"
+                    isWrapped
+                    width="100%"
+                  />
+                </VStack>
+              )}
+              <VStack gap={1}>
+                <Text type="supporting">Full output</Text>
+                <CodeBlock
+                  code={term?.lines.join('\n') || ' '}
+                  language="plaintext"
+                  hasCopyButton={false}
+                  isWrapped
+                  width="100%"
+                  maxHeight={384}
+                />
+              </VStack>
+            </VStack>
           )}
         </VStack>
-        {command && (
-          <VStack gap={2}>
-            <Button
-              label={showCommand ? 'Hide command ▴' : 'Show command ▾'}
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowCommand((v) => !v)}
-            />
-            {showCommand && (
-              <CodeBlock
-                code={command}
-                language="bash"
-                isWrapped
-                width="100%"
-              />
-            )}
-          </VStack>
-        )}
         <HStack gap={2} hAlign="end">
           <Button
             label={running ? 'Cancel' : 'Close'}
