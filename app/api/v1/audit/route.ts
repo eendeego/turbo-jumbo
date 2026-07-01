@@ -1,7 +1,7 @@
 import path from 'path';
 import {localModelsDir, coldStorageDir} from '@/lib/config';
-import {scanModels} from '@/lib/models';
-import {auditFile, type AuditResult} from '@/lib/audit';
+import {duplicateBasenames, scanModels} from '@/lib/models';
+import {auditFile, duplicateResult, type AuditResult} from '@/lib/audit';
 import {clearHfCache} from '@/lib/hf-infer';
 
 // How many files to audit at once. Each job reads an entire (multi-GB) file to
@@ -42,6 +42,9 @@ export async function POST(req: Request) {
   const {signal} = abortController;
 
   const models = scanModels(root);
+  // Basename collisions across the whole location (not just the selection):
+  // a selected file is a duplicate even when its twin wasn't selected.
+  const dups = duplicateBasenames(models);
   const enc = new TextEncoder();
   const {readable, writable} = new TransformStream();
   const writer = writable.getWriter();
@@ -68,7 +71,11 @@ export async function POST(req: Request) {
           const incomplete = file.missingIndices.length > 0;
           for (const shard of file.files) {
             if (!selected.has(shard.path)) continue;
-            if (incomplete) {
+            const dupPaths = dups.get(path.basename(shard.path));
+            if (dupPaths) {
+              const result = duplicateResult(shard.path, dupPaths);
+              jobs.push(() => Promise.resolve(result));
+            } else if (incomplete) {
               const result: AuditResult = {
                 file: shard.path,
                 status: 'incomplete',
@@ -89,9 +96,15 @@ export async function POST(req: Request) {
           }
         } else {
           if (!selected.has(file.path)) continue;
-          jobs.push(() =>
-            auditFile(root, file.path, model.name, file.filename, signal),
-          );
+          const dupPaths = dups.get(file.filename);
+          if (dupPaths) {
+            const result = duplicateResult(file.path, dupPaths);
+            jobs.push(() => Promise.resolve(result));
+          } else {
+            jobs.push(() =>
+              auditFile(root, file.path, model.name, file.filename, signal),
+            );
+          }
         }
       }
     }
