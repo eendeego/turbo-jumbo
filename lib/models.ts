@@ -403,10 +403,18 @@ export function scanModels(
  * path bearing it, keeping only names with 2+ paths. Split groups contribute
  * each shard's own filename. The audit flags these as duplicates — same-named
  * files in different directories within one storage location.
+ *
+ * A shared basename alone isn't enough: two builds of the same quant from
+ * different repos (e.g. `unsloth/…` and `LiquidAI/…` both shipping
+ * `LFM2-1.2B-Q4_K_M.gguf`) are different files that merely share a name. The
+ * sidecar-recorded `sourceSha256` is a file's identity, so two copies whose
+ * hashes are both known and differ are never duplicates of each other. An
+ * unknown hash can't disprove a match, so it still pairs with anything — a
+ * sidecar-less stray copy is still flagged against its twin, as before.
  */
 export function duplicateBasenames(models: Model[]): Map<string, string[]> {
-  const byName = new Map<string, string[]>();
-  const add = (relPath: string) => {
+  const byName = new Map<string, Array<{path: string; sha: string}>>();
+  const add = (relPath: string, sha: string) => {
     // A cache-layout file is uniquely placed by its repo's snapshot; it is
     // never a stray basename duplicate the way a flat-layout copy can be.
     if (parseHubCachePath(relPath)) return;
@@ -419,17 +427,34 @@ export function duplicateBasenames(models: Model[]): Map<string, string[]> {
     // across vision models; same-named copies in different repos aren't
     // duplicates of each other, so never flag them.
     if (isMmprojFilename(name)) return;
-    const paths = byName.get(name);
-    if (paths) paths.push(relPath);
-    else byName.set(name, [relPath]);
+    const entries = byName.get(name);
+    if (entries) entries.push({path: relPath, sha});
+    else byName.set(name, [{path: relPath, sha}]);
   };
   for (const model of models) {
+    // The model's recorded source hash per file basename, from its sidecar.
+    const shaByBase = new Map<string, string>();
+    for (const rec of model.sidecarFiles ?? [])
+      shaByBase.set(path.basename(rec.path), rec.sourceSha256 ?? '');
     for (const file of model.files) {
-      if (file.isSplit) for (const shard of file.files) add(shard.path);
-      else add(file.path);
+      if (file.isSplit)
+        for (const shard of file.files)
+          add(shard.path, shaByBase.get(path.basename(shard.path)) ?? '');
+      else add(file.path, shaByBase.get(path.basename(file.path)) ?? '');
     }
   }
-  return new Map([...byName].filter(([, paths]) => paths.length > 1));
+  // Two copies are duplicates unless both hashes are known and differ; keep a
+  // path only when some other same-named copy is a possible match.
+  const compatible = (a: string, b: string) => !a || !b || a === b;
+  const out = new Map<string, string[]>();
+  for (const [name, entries] of byName) {
+    if (entries.length < 2) continue;
+    const dupPaths = entries
+      .filter((e) => entries.some((o) => o !== e && compatible(e.sha, o.sha)))
+      .map((e) => e.path);
+    if (dupPaths.length > 1) out.set(name, dupPaths);
+  }
+  return out;
 }
 
 // Flag each file that has no matching copy in cold storage, so the UI can warn

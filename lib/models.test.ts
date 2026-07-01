@@ -397,6 +397,74 @@ test('duplicateBasenames lists all three copies of a thrice-duplicated file', as
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('duplicateBasenames does not flag same-named files from different repos with different hashes', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
+  const fname = 'LFM2-1.2B-Q4_K_M.gguf';
+  const writeRepo = async (repo: string, sha: string) => {
+    await writeFile(base, `${repo}/${fname}`);
+    const sidecar: TjModel = {
+      modelUrl: `https://huggingface.co/${repo}`,
+      repoId: repo,
+      files: [
+        {
+          path: fname,
+          originUrl: `https://huggingface.co/${repo}/blob/main/${fname}`,
+          sourceSize: 100,
+          computedSize: 100,
+          sourceSha256: sha,
+          computedSha256: sha,
+        },
+      ],
+    };
+    await fsp.writeFile(
+      path.join(base, repo, MODEL_SIDECAR_NAME),
+      JSON.stringify(sidecar),
+    );
+  };
+  await writeRepo('unsloth/LFM2-1.2B-GGUF', 'sha-unsloth');
+  await writeRepo('LiquidAI/LFM2-1.2B-GGUF', 'sha-liquid');
+
+  // Same filename, but different recorded source hashes → different builds from
+  // different repos, not duplicates of each other.
+  expect(duplicateBasenames(scanModels(base)).size).toBe(0);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('duplicateBasenames still flags same-named files that share a source hash', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
+  const fname = 'Shared-Q4_K_M.gguf';
+  const sha = 'same-sha';
+  const writeRepo = async (repo: string) => {
+    await writeFile(base, `${repo}/${fname}`);
+    const sidecar: TjModel = {
+      modelUrl: `https://huggingface.co/${repo}`,
+      repoId: repo,
+      files: [
+        {
+          path: fname,
+          originUrl: `https://huggingface.co/${repo}/blob/main/${fname}`,
+          sourceSize: 100,
+          computedSize: 100,
+          sourceSha256: sha,
+          computedSha256: sha,
+        },
+      ],
+    };
+    await fsp.writeFile(
+      path.join(base, repo, MODEL_SIDECAR_NAME),
+      JSON.stringify(sidecar),
+    );
+  };
+  await writeRepo('a/Repo-GGUF');
+  await writeRepo('b/Repo-GGUF');
+
+  expect(duplicateBasenames(scanModels(base)).get(fname)!.sort()).toEqual([
+    `a/Repo-GGUF/${fname}`,
+    `b/Repo-GGUF/${fname}`,
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('duplicateBasenames is empty when every filename is unique', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
   await writeFile(base, 'A-Q4_K_M.gguf');
