@@ -112,16 +112,22 @@ export function extractQuant(filename: string): string {
 }
 
 /**
- * The variant label for a weight file. A filename quant token wins (GGUF, or a
- * dtype-tagged safetensors). Otherwise a generic safetensors file is labeled by
- * its header dtype (BF16/F16/…), a `.bin` by a generic tag, and a tokenless
- * GGUF keeps `unknown`. `fullPath` is only read for tokenless safetensors.
+ * The variant label for a weight file. A whisper.cpp `ggml-*.bin` is labeled by
+ * the model in its filename (tiny, large-v3-turbo, …): one repo ships several
+ * standalone models with no quant token, so each is its own variant — like a
+ * GGUF quant — rather than collapsing under a generic `pytorch` tag. Otherwise a
+ * filename quant token wins (GGUF, or a dtype-tagged safetensors); a generic
+ * safetensors file is labeled by its header dtype (BF16/F16/…), a `.bin` by a
+ * generic tag, and a tokenless GGUF keeps `unknown`. `fullPath` is only read for
+ * tokenless safetensors.
  */
 function weightLabel(
   fullPath: string,
   filename: string,
   quant: string,
 ): string {
+  const ggml = filename.match(/^ggml-(.+)\.bin$/i);
+  if (ggml) return ggml[1];
   if (quant !== 'unknown') return quant;
   if (/\.safetensors$/i.test(filename)) {
     return readSafetensorsDtype(fullPath) ?? 'safetensors';

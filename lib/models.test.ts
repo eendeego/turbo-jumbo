@@ -380,6 +380,23 @@ test('duplicateBasenames detects colliding split shards but not a lone split gro
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('scanModels labels whisper.cpp ggml .bin files as distinct variants', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  // whisper.cpp ships several standalone ggml-*.bin models in one repo; each is
+  // its own variant (like a GGUF quant), not one collapsed 'pytorch' weight.
+  await writeFile(base, 'ggerganov/whisper.cpp/ggml-tiny.bin', 'a');
+  await writeFile(base, 'ggerganov/whisper.cpp/ggml-large-v3-turbo.bin', 'bb');
+
+  const models = scanModels(base);
+  expect(models).toHaveLength(1);
+  expect(models[0].name).toBe('ggerganov/whisper.cpp');
+  expect(models[0].files.map((f) => f.quant).sort()).toEqual([
+    'large-v3-turbo',
+    'tiny',
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('scanModels names a flat-layout safetensors by its repo directory', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
   // Generic filename, no sidecar — the repo lives in the directory.
