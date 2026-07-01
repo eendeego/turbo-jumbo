@@ -76,10 +76,15 @@ function applyChunk(state: TermState, chunk: string): TermState {
  * Drives a streaming `/api/v1/hf-download` run: posts the request, parses the
  * terminal output into a redrawing buffer and structured progress, and exposes
  * cancel/reset. Reused by the HF download box and the audit "Redownload" action.
- * `localModelsPath` is the `--local-dir` the runs use; it's surfaced back as the
- * `command` string so every caller's modal can disclose the `hf` command line.
+ * `displayPath` is the `--local-dir` surfaced back in the `command` string so
+ * every caller's modal can disclose the `hf` command line; `downloadUrl` is the
+ * endpoint each run POSTs to — the local route by default, or a peer proxy when
+ * the download targets a remote machine.
  */
-export function useDownloadRunner(localModelsPath: string) {
+export function useDownloadRunner(
+  displayPath: string,
+  downloadUrl = '/api/v1/hf-download',
+) {
   const [term, setTerm] = useState<TermState | null>(null);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [running, setRunning] = useState(false);
@@ -97,7 +102,7 @@ export function useDownloadRunner(localModelsPath: string) {
     initial: TermState,
   ): Promise<TermState> => {
     let state = initial;
-    const res = await fetch('/api/v1/hf-download', {
+    const res = await fetch(downloadUrl, {
       method: 'POST',
       signal: abort.signal,
       headers: {'Content-Type': 'application/json'},
@@ -130,7 +135,7 @@ export function useDownloadRunner(localModelsPath: string) {
     setRunning(true);
     setTerm({lines: [''], col: 0});
     setProgress(null);
-    setCommand(buildHfCommand(req, localModelsPath));
+    setCommand(buildHfCommand(req, displayPath));
 
     try {
       await runOne(req, abort, {lines: [''], col: 0});
@@ -158,9 +163,7 @@ export function useDownloadRunner(localModelsPath: string) {
     let state: TermState = {lines: [''], col: 0};
     setTerm(state);
     setProgress(null);
-    setCommand(
-      reqs.map((r) => buildHfCommand(r, localModelsPath)).join('\n\n'),
-    );
+    setCommand(reqs.map((r) => buildHfCommand(r, displayPath)).join('\n\n'));
 
     try {
       for (let i = 0; i < reqs.length; i++) {
