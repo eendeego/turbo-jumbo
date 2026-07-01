@@ -74,6 +74,18 @@ test('parseNotices excludes cold-storage progress and wrapper status', () => {
   expect(notices).toEqual([]);
 });
 
+test('parseNotices ignores the per-repo download header', () => {
+  const notices = parseNotices([
+    '=== mikkoph/kokoro-onnx  (1/1) ===',
+    'Downloading (incomplete total...): 100% 28.2M/28.2M [00:01<00:00, 22.3MB/s]',
+    'Fetching 5 files: 100% 5/5 [00:01<00:00,  3.40it/s]',
+    'Process exited with code 0',
+    'Recording sources...',
+    '  index.json: could not resolve source — left unverified',
+  ]);
+  expect(notices).toEqual([]);
+});
+
 test('parseProgress still parses the download and files bars', () => {
   const p = parseProgress(versionHintRun);
   expect(p).not.toBeNull();

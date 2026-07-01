@@ -90,14 +90,16 @@ function isProgressLine(line: string): boolean {
   );
 }
 
-// Status lines this app emits itself around the download (route.ts): the exit
-// notice, the source-recording header and its indented per-file results, the
-// cold-storage steps, and the closing "Done.". Kept in the full log, not the
-// notices panel. Any indented continuation is treated as one of these per-file
-// results — hf's chatter and errors are flush-left.
+// Status lines that frame the download, not real notices: the downloader's
+// per-repo header (`=== repo (1/1) ===`), the exit notice, the source-recording
+// header and its indented per-file results, the cold-storage steps, and the
+// closing "Done.". Kept in the full log, not the notices panel. Any indented
+// continuation is treated as one of the per-file results — hf's chatter and
+// errors are flush-left.
 function isWrapperLine(line: string): boolean {
   if (/^\s/.test(line)) return true;
   return (
+    /^=== .+ ===\s*$/.test(line) ||
     /^Process exited with code/.test(line) ||
     /^Recording sources/.test(line) ||
     /^(Moving|Copying) to cold storage/.test(line) ||
