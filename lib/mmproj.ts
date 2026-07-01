@@ -5,6 +5,8 @@
 
 import {pathImpliedRepo} from '@/lib/audit';
 import {parseHubCachePath} from '@/lib/hf-cache';
+import {expectedRelPath, hfSummary, type AuditResult} from '@/lib/audit';
+import {listRepoFiles} from '@/lib/hf-infer';
 
 const basename = (p: string) => p.split('/').pop() ?? p;
 
@@ -52,4 +54,34 @@ export function hasLocalMmproj(relPaths: string[], repoId: string): boolean {
       parseHubCachePath(relPath)?.repoId ?? pathImpliedRepo(relPath)?.repoId;
     return repo === repoId;
   });
+}
+
+/**
+ * Synthetic `incomplete` AuditResults for repos that have an mmproj on HF but
+ * none locally — one per repo, for the preferred variant, carrying the HF
+ * summary that powers re-download. Repos whose tree fetch fails are skipped
+ * (no false flag). `allRelPaths` is every path in the local scan.
+ */
+export async function detectMissingMmproj(
+  repoIds: string[],
+  allRelPaths: string[],
+  branch: string,
+): Promise<AuditResult[]> {
+  const out: AuditResult[] = [];
+  for (const repoId of repoIds) {
+    const files = await listRepoFiles(repoId, branch);
+    if (!files) continue;
+    const chosen = pickMmproj(files.map((f) => f.repoPath));
+    if (!chosen) continue;
+    if (hasLocalMmproj(allRelPaths, repoId)) continue;
+    const hf = files.find((f) => f.repoPath === chosen);
+    if (!hf) continue;
+    out.push({
+      file: expectedRelPath(hf),
+      status: 'incomplete',
+      message: 'vision projector not downloaded',
+      hf: hfSummary(hf),
+    });
+  }
+  return out;
 }

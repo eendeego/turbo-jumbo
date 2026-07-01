@@ -207,6 +207,23 @@ export async function resolveHfFileByPath(
   return treeEntryToInfo(repoId, branch, match);
 }
 
+/**
+ * Every file in a repo at a branch as resolved HfFileInfo, or null on fetch
+ * failure. Reuses the run's tree cache. Entries without a checksum (non-LFS
+ * files) are dropped, like treeEntryToInfo does elsewhere.
+ */
+export async function listRepoFiles(
+  repoId: string,
+  branch: string,
+): Promise<HfFileInfo[] | null> {
+  const entries = await fetchTree(repoId, branch);
+  if (!entries) return null;
+  return entries
+    .filter((e) => e.type === 'file')
+    .map((e) => treeEntryToInfo(repoId, branch, e))
+    .filter((i): i is HfFileInfo => i != null);
+}
+
 export interface HfCommitRef {
   id: string; // commit SHA
   date: string; // ISO 8601, '' if absent
