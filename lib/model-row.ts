@@ -2,6 +2,7 @@ import type {AsyncState} from '@/lib/async-state';
 import type {Model} from '@/lib/model-types';
 import type {RepoFile, RepoFileState} from '@/lib/repo-files';
 import {isMmprojFilename} from '@/lib/model-name';
+import {fileBasename, fileJoinKey} from '@/lib/peer-paths';
 import {ggmlModelVariant} from '@/lib/weight-files';
 import {isPickOneSafetensorsRepo} from '@/lib/hf-download';
 import {isDiffusersRepo} from '@/lib/diffusers';
@@ -155,10 +156,44 @@ export function augmentWithPeerOnlyQuants(
   models: ModelRow[],
   peerModels: Map<string, AsyncState<Model[]>>,
 ): ModelRow[] {
-  const existingKeys = new Set<string>();
+  // File identities already shown from local/cold storage, keyed the same way
+  // the peer-presence badges join (fileJoinKey: a specific GGUF basename on its
+  // own, a generic weight qualified by model). A peer file matching one of these
+  // is the *same* file — it belongs as a presence badge on the existing row, not
+  // a duplicate row under the peer's (often differently-derived) model name.
+  // Keying on the model::label string instead would miss exactly that case (the
+  // peer names the model `org/repo-GGUF`, local names it from the filename), so
+  // the file would be selectable under two rows that share one path.
+  const existingFileKeys = new Set<string>();
+  // File-join key → the local model row it belongs to. A peer that shares any
+  // file with a local row is the same model named differently, so its genuinely
+  // peer-only files (e.g. an mmproj the local copy lacks) reconcile onto that
+  // row instead of opening a second one under the peer's repo-derived name.
+  const localNameByFileKey = new Map<string, string>();
   for (const m of models) {
-    for (const q of m.quants) existingKeys.add(`${m.name}::${q.label}`);
+    for (const q of m.quants) {
+      for (const p of [...q.paths, ...q.coldPaths]) {
+        const k = fileJoinKey(m.name, fileBasename(p));
+        existingFileKeys.add(k);
+        if (!localNameByFileKey.has(k)) localNameByFileKey.set(k, m.name);
+      }
+    }
   }
+
+  // The local row a peer model maps onto (via any shared file), or its own name
+  // when it matches nothing local.
+  const reconciledName = (peer: Model): string => {
+    for (const f of peer.files) {
+      const paths = f.isSplit ? f.files.map((s) => s.path) : [f.path];
+      for (const p of paths) {
+        const local = localNameByFileKey.get(
+          fileJoinKey(peer.name, fileBasename(p)),
+        );
+        if (local) return local;
+      }
+    }
+    return peer.name;
+  };
 
   // Gather peer-only quants, picking the first peer's representation.
   type PeerOnly = {
@@ -178,20 +213,30 @@ export function augmentWithPeerOnlyQuants(
   for (const [, lo] of peerModels) {
     if (lo.type !== 'value') continue;
     for (const m of lo.value) {
+      const modelName = reconciledName(m);
       for (const f of m.files) {
         const base = f.isSplit ? f.representativeFilename : f.filename;
         const label = isMmprojFilename(base) ? base : f.quant;
-        const key = `${m.name}::${label}`;
-        if (existingKeys.has(key) || peerOnly.has(key)) continue;
+        const paths = f.isSplit ? f.files.map((s) => s.path) : [f.path];
+        // Already represented locally/in cold storage (same file, different
+        // host naming) → leave it to the presence badges, don't add a row.
+        if (
+          paths.some((p) =>
+            existingFileKeys.has(fileJoinKey(m.name, fileBasename(p))),
+          )
+        )
+          continue;
+        const key = `${modelName}::${label}`;
+        if (peerOnly.has(key)) continue;
         peerOnly.set(key, {
-          modelName: m.name,
+          modelName,
           label,
           isProjector: isMmprojFilename(base),
           isSingleFile: !f.isSplit,
           filename: f.isSplit ? null : f.filename,
           displayName: f.isSplit ? f.representativeFilename : f.filename,
           size: f.isSplit ? f.totalSize : f.size,
-          paths: f.isSplit ? f.files.map((s) => s.path) : [f.path],
+          paths,
           totalShards: f.isSplit ? f.totalShards : 0,
           presentShards: f.isSplit ? f.presentShards : 0,
           missingIndices: f.isSplit ? f.missingIndices : [],

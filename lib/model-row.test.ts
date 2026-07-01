@@ -1,5 +1,12 @@
 import {test, expect} from 'bun:test';
-import {buildDisplayRows, type ModelRow, type QuantInfo} from '@/lib/model-row';
+import {
+  augmentWithPeerOnlyQuants,
+  buildDisplayRows,
+  type ModelRow,
+  type QuantInfo,
+} from '@/lib/model-row';
+import type {Model} from '@/lib/model-types';
+import {AsyncState} from '@/lib/async-state';
 
 function quant(p: Partial<QuantInfo> & {label: string}): QuantInfo {
   return {
@@ -96,4 +103,124 @@ test('a quant whose cold and peer copies disagree is flagged as a size mismatch'
   // The effective size is the largest copy (cold's 100); the peer's 90 is undersized.
   expect(quantRow.size).toBe(100);
   expect(quantRow.undersizedLocations.has('192.0.2.2:3000')).toBe(true);
+});
+
+function peerModel(name: string, files: Model['files']): Model {
+  return {name, files};
+}
+
+test('a peer copy of a local file is not re-added as a duplicate peer-only row', () => {
+  // The local table names the GGUF from its filename (no sidecar); the peer
+  // names the same file by its repo. They share one path, so a duplicate row
+  // would make the file selectable under two rows that toggle together.
+  const local = model({
+    name: 'gemma-3-4b-it',
+    quants: [
+      quant({
+        label: 'Q4_K_M',
+        filename: 'gemma-3-4b-it-Q4_K_M.gguf',
+        displayName: 'gemma-3-4b-it-Q4_K_M.gguf',
+        paths: ['ggml-org/gemma-3-4b-it-GGUF/gemma-3-4b-it-Q4_K_M.gguf'],
+      }),
+    ],
+  });
+  const peers = new Map([
+    [
+      '192.0.2.2:3000',
+      AsyncState.value([
+        peerModel('ggml-org/gemma-3-4b-it-GGUF', [
+          {
+            isSplit: false,
+            filename: 'gemma-3-4b-it-Q4_K_M.gguf',
+            path: 'ggml-org/gemma-3-4b-it-GGUF/gemma-3-4b-it-Q4_K_M.gguf',
+            quant: 'Q4_K_M',
+            size: 100,
+            missing: false,
+          },
+        ]),
+      ]),
+    ],
+  ]);
+  const augmented = augmentWithPeerOnlyQuants([local], peers);
+  expect(augmented.map((m) => m.name)).toEqual(['gemma-3-4b-it']);
+});
+
+test('a peer model with no local counterpart still gets its own row', () => {
+  const local = model({
+    name: 'gemma-3-4b-it',
+    quants: [
+      quant({
+        label: 'Q4_K_M',
+        paths: ['ggml-org/gemma-3-4b-it-GGUF/gemma-3-4b-it-Q4_K_M.gguf'],
+      }),
+    ],
+  });
+  const peers = new Map([
+    [
+      '192.0.2.2:3000',
+      AsyncState.value([
+        peerModel('other-org/Llama-3-8B-GGUF', [
+          {
+            isSplit: false,
+            filename: 'Llama-3-8B-Q8_0.gguf',
+            path: 'other-org/Llama-3-8B-GGUF/Llama-3-8B-Q8_0.gguf',
+            quant: 'Q8_0',
+            size: 200,
+            missing: false,
+          },
+        ]),
+      ]),
+    ],
+  ]);
+  const augmented = augmentWithPeerOnlyQuants([local], peers);
+  expect(augmented.map((m) => m.name).sort()).toEqual([
+    'gemma-3-4b-it',
+    'other-org/Llama-3-8B-GGUF',
+  ]);
+});
+
+test('a peer-only file of a shared model joins the existing row, not a new one', () => {
+  // my-server has the gemma repo with the Q4_K_M (shared with local) plus an
+  // mmproj the local copy lacks. The mmproj must land on the local
+  // `gemma-3-4b-it` row, not open a second `ggml-org/...` row for one file.
+  const local = model({
+    name: 'gemma-3-4b-it',
+    quants: [
+      quant({
+        label: 'Q4_K_M',
+        filename: 'gemma-3-4b-it-Q4_K_M.gguf',
+        displayName: 'gemma-3-4b-it-Q4_K_M.gguf',
+        paths: ['ggml-org/gemma-3-4b-it-GGUF/gemma-3-4b-it-Q4_K_M.gguf'],
+      }),
+    ],
+  });
+  const peers = new Map([
+    [
+      '192.0.2.2:3000',
+      AsyncState.value([
+        peerModel('ggml-org/gemma-3-4b-it-GGUF', [
+          {
+            isSplit: false,
+            filename: 'gemma-3-4b-it-Q4_K_M.gguf',
+            path: 'ggml-org/gemma-3-4b-it-GGUF/gemma-3-4b-it-Q4_K_M.gguf',
+            quant: 'Q4_K_M',
+            size: 100,
+            missing: false,
+          },
+          {
+            isSplit: false,
+            filename: 'mmproj-model-f16.gguf',
+            path: 'ggml-org/gemma-3-4b-it-GGUF/mmproj-model-f16.gguf',
+            quant: 'F16',
+            size: 50,
+            missing: false,
+          },
+        ]),
+      ]),
+    ],
+  ]);
+  const augmented = augmentWithPeerOnlyQuants([local], peers);
+  expect(augmented.map((m) => m.name)).toEqual(['gemma-3-4b-it']);
+  const labels = augmented[0].quants.map((q) => q.label).sort();
+  expect(labels).toEqual(['Q4_K_M', 'mmproj-model-f16.gguf']);
 });
