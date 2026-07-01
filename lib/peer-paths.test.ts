@@ -293,6 +293,28 @@ test('peerFileKeys qualifies a generic name by its model', () => {
   expect(keys.has(fileJoinKey('org-a/Model', 'model.safetensors'))).toBe(true);
 });
 
+test('peerFileKeys qualifies an mmproj projector by its model', () => {
+  const peer: Model[] = [
+    {
+      name: 'unsloth/A-GGUF',
+      files: [
+        {
+          isSplit: false,
+          filename: 'mmproj-F16.gguf',
+          path: 'unsloth/A-GGUF/mmproj-F16.gguf',
+          quant: 'F16',
+          size: 100,
+          missing: false,
+        },
+      ],
+    } as unknown as Model,
+  ];
+
+  const keys = peerFileKeys(peer);
+  expect(keys.has('mmproj-F16.gguf')).toBe(false);
+  expect(keys.has('unsloth/A-GGUF mmproj-F16.gguf')).toBe(true);
+});
+
 test('fileJoinKey qualifies an mmproj projector by model name', () => {
   expect(fileJoinKey('unsloth/A-GGUF', 'mmproj-F16.gguf')).toBe(
     'unsloth/A-GGUF mmproj-F16.gguf',

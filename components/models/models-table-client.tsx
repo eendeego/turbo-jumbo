@@ -843,14 +843,17 @@ export function ModelsTableClient({
               : q,
           );
         if (quants.length === 0) return null;
-        const sizes = quants.map((q) => q.size).filter((s) => s > 0);
+        const weights = quants.filter((q) => !q.isProjector);
+        const sizes = weights.map((q) => q.size).filter((s) => s > 0);
         return {
           ...m,
           quants,
           minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
           maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
-          allInColdStorage: quants.every((q) => q.inColdStorage),
-          noneInColdStorage: quants.every((q) => !q.inColdStorage),
+          allInColdStorage:
+            weights.length > 0 && weights.every((q) => q.inColdStorage),
+          noneInColdStorage:
+            weights.length === 0 || weights.every((q) => !q.inColdStorage),
         } satisfies ModelRow;
       })
       .filter((m): m is ModelRow => m !== null);
@@ -942,6 +945,7 @@ export function ModelsTableClient({
       }
 
       const effectiveQuantSizes = m.quants
+        .filter((q) => !q.isProjector)
         .map(
           (q) =>
             quantInfo.get(`${m.name}::${q.label}`)?.effectiveSize ?? q.size,
