@@ -1678,7 +1678,10 @@ export function ModelsTableClient({
                 );
               const updates = rowUpdates(item.paths, updateResults);
               return (
-                <HStack gap={1} vAlign="center" hAlign="center" wrap="nowrap">
+                // The column's align: 'center' centers this wrapper in the
+                // cell; the wrapper just lays the audit token and update badge
+                // in a row with a gap.
+                <HStack gap={1} vAlign="center" wrap="nowrap">
                   <AuditCell
                     audit={rowAudit(
                       auditPaths,
