@@ -33,6 +33,7 @@ import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
 import {SetSourceModal} from '@/components/models/set-source-modal';
+import {RevisionsModal} from '@/components/models/revisions-modal';
 import {
   DownloadModal,
   buildHfCommand,
@@ -303,6 +304,9 @@ export function HomeClient({
     setSourceError(null);
     setSourceTarget(path);
   }, []);
+
+  // The audit failure whose checked revisions are shown in a modal, if any.
+  const [revisionsFile, setRevisionsFile] = useState<AuditResult | null>(null);
 
   // Redownload an incomplete file: re-fetch from HF into local storage. The
   // existing partial file is left in place so the HF downloader recovers it
@@ -666,6 +670,7 @@ export function HomeClient({
           fixing={fixing}
           onSetSource={onSetSource}
           onRedownload={auditLocation === 'local' ? onRedownload : undefined}
+          onShowRevisions={setRevisionsFile}
           redownloading={redownload.running}
           onFixColdIncomplete={
             localPeerAddress ? onFixColdIncomplete : undefined
@@ -739,6 +744,12 @@ export function HomeClient({
               setSourceTarget(null);
               setSourceError(null);
             }}
+          />
+        )}
+        {revisionsFile && (
+          <RevisionsModal
+            file={revisionsFile}
+            onClose={() => setRevisionsFile(null)}
           />
         )}
         {redownloadOpen && (

@@ -2,6 +2,7 @@ import {test, expect, afterEach} from 'bun:test';
 import {
   inferHfFile,
   clearHfCache,
+  listHfCommits,
   parseHfFileUrl,
   resolveHfFileByPath,
 } from '@/lib/hf-infer';
@@ -203,4 +204,65 @@ test('resolveHfFileByPath returns null when the path is absent', async () => {
   globalThis.fetch = (async () =>
     jsonResponse([{type: 'file', path: 'a.gguf', size: 1}])) as typeof fetch;
   expect(await resolveHfFileByPath('o/r', 'main', 'missing.gguf')).toBeNull();
+});
+
+test('listHfCommits follows Link pagination through every page', async () => {
+  const fetched: string[] = [];
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    fetched.push(u);
+    if (u.endsWith('/commits/main')) {
+      return new Response(
+        JSON.stringify([{id: 'c3', date: '2026-03-01T00:00:00.000Z'}]),
+        {
+          status: 200,
+          headers: {
+            link: '<https://huggingface.co/api/models/o/r/commits/main?p=1>; rel="next"',
+          },
+        },
+      );
+    }
+    if (u.endsWith('?p=1')) {
+      return new Response(
+        JSON.stringify([{id: 'c2', date: '2026-02-01T00:00:00.000Z'}]),
+        {
+          status: 200,
+          headers: {
+            link: '<https://huggingface.co/api/models/o/r/commits/main?p=2>; rel="next"',
+          },
+        },
+      );
+    }
+    // Last page: no link header.
+    return new Response(JSON.stringify([{id: 'c1', date: ''}]), {status: 200});
+  }) as typeof fetch;
+
+  expect(await listHfCommits('o/r', 'main')).toEqual([
+    {id: 'c3', date: '2026-03-01T00:00:00.000Z'},
+    {id: 'c2', date: '2026-02-01T00:00:00.000Z'},
+    {id: 'c1', date: ''},
+  ]);
+  expect(fetched).toHaveLength(3);
+});
+
+test('listHfCommits returns the pages gathered before a mid-walk failure', async () => {
+  globalThis.fetch = (async (url: string | URL) => {
+    if (url.toString().endsWith('/commits/main')) {
+      return new Response(JSON.stringify([{id: 'c2', date: ''}]), {
+        status: 200,
+        headers: {
+          link: '<https://huggingface.co/api/models/o/r2/commits/main?p=1>; rel="next"',
+        },
+      });
+    }
+    return new Response('boom', {status: 500});
+  }) as typeof fetch;
+
+  expect(await listHfCommits('o/r2', 'main')).toEqual([{id: 'c2', date: ''}]);
+});
+
+test('listHfCommits returns null when the listing is unreachable', async () => {
+  globalThis.fetch = (async () =>
+    new Response('nf', {status: 404})) as typeof fetch;
+  expect(await listHfCommits('o/r3', 'main')).toBeNull();
 });

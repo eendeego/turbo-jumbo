@@ -84,7 +84,7 @@ const styles = stylex.create({
   dimmed: {opacity: 0.6},
 });
 
-function formatSize(bytes: number): string {
+export function formatSize(bytes: number): string {
   if (bytes <= 0) return '';
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
@@ -164,6 +164,7 @@ function AuditFailureContent({
   onSetSource,
   onRedownload,
   redownloading,
+  onShowRevisions,
 }: {
   failures: AuditResult[];
   onFix?: (path: string) => void;
@@ -171,6 +172,7 @@ function AuditFailureContent({
   onSetSource?: (path: string) => void;
   onRedownload?: (file: AuditResult) => void;
   redownloading?: boolean;
+  onShowRevisions?: (file: AuditResult) => void;
 }) {
   return (
     <VStack gap={3}>
@@ -186,6 +188,10 @@ function AuditFailureContent({
         // recovers the existing file in place, so it's never deleted first.
         const canRedownload =
           f.status === 'incomplete' && f.hf != null && onRedownload != null;
+        // A size/checksum failure that scanned the repo's history carries the
+        // revisions it ruled out, viewable in a modal.
+        const canShowRevisions =
+          (f.revisionsChecked?.length ?? 0) > 0 && onShowRevisions != null;
         return (
           <VStack
             key={f.file}
@@ -254,6 +260,16 @@ function AuditFailureContent({
                 />
               </HStack>
             )}
+            {canShowRevisions && (
+              <HStack>
+                <Button
+                  label="Checked revisions…"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onShowRevisions?.(f)}
+                />
+              </HStack>
+            )}
           </VStack>
         );
       })}
@@ -269,6 +285,7 @@ function AuditCell({
   onSetSource,
   onRedownload,
   redownloading,
+  onShowRevisions,
 }: {
   audit: RowAudit;
   failures?: AuditResult[];
@@ -277,6 +294,7 @@ function AuditCell({
   onSetSource?: (path: string) => void;
   onRedownload?: (file: AuditResult) => void;
   redownloading?: boolean;
+  onShowRevisions?: (file: AuditResult) => void;
 }) {
   if (audit == null) return null;
   if (audit.kind === 'pending') {
@@ -306,6 +324,7 @@ function AuditCell({
           onSetSource={onSetSource}
           onRedownload={onRedownload}
           redownloading={redownloading}
+          onShowRevisions={onShowRevisions}
         />
       }
     >
@@ -484,6 +503,7 @@ export function ModelsTableClient({
   onSetSource,
   onRedownload,
   redownloading = false,
+  onShowRevisions,
   onFixColdIncomplete,
   coldFixing = false,
 }: {
@@ -502,6 +522,7 @@ export function ModelsTableClient({
   onSetSource?: (path: string) => void;
   onRedownload?: (file: AuditResult) => void;
   redownloading?: boolean;
+  onShowRevisions?: (file: AuditResult) => void;
   onFixColdIncomplete?: (paths: string[]) => void;
   coldFixing?: boolean;
 }) {
@@ -771,6 +792,7 @@ export function ModelsTableClient({
                   onSetSource={onSetSource}
                   onRedownload={onRedownload}
                   redownloading={redownloading}
+                  onShowRevisions={onShowRevisions}
                 />
               );
             },

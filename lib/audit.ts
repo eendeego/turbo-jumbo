@@ -6,7 +6,9 @@ import {pipeline} from 'stream/promises';
 import {promisify} from 'util';
 import {
   inferHfFile,
+  listHfCommits,
   parseHfFileUrl,
+  resolveHfFileAtRevision,
   resolveHfFileByPath,
   type HfFileInfo,
 } from '@/lib/hf-infer';
@@ -35,12 +37,29 @@ export interface HfSummary {
   expectedPath: string; // <repoId>/<repoPath>
 }
 
+/** One revision inspected while searching a repo's history for a match (see
+ *  `findHistoricalMatch`), with why it was ruled out — or that it matched. */
+export interface RevisionCheck {
+  commit: string; // '' if unknown
+  commitDate: string; // ISO 8601, '' if unknown
+  commitUrl: string; // file blob page pinned to that revision, '' when no commit
+  size: number;
+  sha256: string;
+  result: 'size-mismatch' | 'sha256-mismatch' | 'match';
+}
+
 export interface AuditResult {
   file: string; // path relative to the storage root
   status: AuditStatus;
   message?: string;
   hf?: HfSummary; // present whenever an HF source was inferred
   cached?: boolean; // derived from a sidecar (a prior run), not freshly computed
+  // The revisions inspected (latest first) when the file matched none of them;
+  // only set on a fresh size/checksum failure, so the UI can show what was
+  // ruled out — together with the local file as observed, for comparison:
+  revisionsChecked?: RevisionCheck[];
+  computedSize?: number;
+  computedSha256?: string; // omitted only when hashing failed
 }
 
 export interface TjMeta {
@@ -51,7 +70,7 @@ export interface TjMeta {
   sourceSize: number; // expected size in bytes, from the HF source (0 if unknown)
   computedSize: number; // actual on-disk size in bytes, observed at audit time
   sourceSha256: string; // '' when no source could be resolved
-  computedSha256: string; // '' when the file wasn't hashed (no source, or size mismatch)
+  computedSha256: string; // '' when the file wasn't hashed (no source, or hashing failed)
 }
 
 /**
@@ -369,6 +388,83 @@ export async function copyFileWithMeta(
   }
 }
 
+/** How `hf` compares against an on-disk file, as a `RevisionCheck` record. */
+function revisionCheck(
+  hf: HfFileInfo,
+  result: RevisionCheck['result'],
+): RevisionCheck {
+  return {
+    commit: hf.commit,
+    commitDate: hf.commitDate,
+    commitUrl: hf.commit
+      ? `https://huggingface.co/${hf.repoId}/blob/${hf.commit}/${hf.repoPath}`
+      : '',
+    size: hf.size,
+    sha256: hf.sha256,
+    result,
+  };
+}
+
+/**
+ * When the on-disk file doesn't match the latest HF revision (by size or
+ * SHA256), walk the repo's commit history looking for an earlier revision of
+ * the file that matches what's on disk — the file may simply be an intact
+ * older version, not a corrupt one. Inspects each revision's size/sha via
+ * paths-info, hashing the local file at most once and only when some
+ * revision's size matches. Returns the matching revision's info (`hf`, null
+ * when nothing in the first page of history matches), the local file's sha
+ * when one was computed, and every distinct revision checked along the way.
+ */
+async function findHistoricalMatch(
+  fullPath: string,
+  hf: HfFileInfo,
+  actualSize: number,
+  precomputedSha256: string | null,
+  signal?: AbortSignal,
+): Promise<{
+  hf: HfFileInfo | null;
+  computedSha256: string | null;
+  checked: RevisionCheck[];
+}> {
+  const checked: RevisionCheck[] = [];
+  let sha = precomputedSha256;
+  const commits = await listHfCommits(hf.repoId, hf.branch);
+  if (!commits) return {hf: null, computedSha256: sha, checked};
+  const seen = new Set([hf.sha256]); // the latest version already failed to match
+  for (const commit of commits) {
+    const info = await resolveHfFileAtRevision(
+      hf.repoId,
+      hf.branch,
+      commit.id,
+      hf.repoPath,
+    );
+    if (!info || seen.has(info.sha256)) continue;
+    seen.add(info.sha256);
+    // paths-info may omit the file's last-modifying commit; fall back to the
+    // inspected revision so the record still pins a permalink.
+    const pinned = info.commit
+      ? info
+      : {...info, commit: commit.id, commitDate: commit.date};
+    if (info.size !== actualSize) {
+      checked.push(revisionCheck(pinned, 'size-mismatch'));
+      continue;
+    }
+    if (sha === null) {
+      try {
+        sha = await localSha256(fullPath, signal);
+      } catch {
+        return {hf: null, computedSha256: null, checked};
+      }
+    }
+    if (sha === info.sha256) {
+      checked.push(revisionCheck(pinned, 'match'));
+      return {hf: pinned, computedSha256: sha, checked};
+    }
+    checked.push(revisionCheck(pinned, 'sha256-mismatch'));
+  }
+  return {hf: null, computedSha256: sha, checked};
+}
+
 /**
  * Resolve a file's HuggingFace source, in order: name inference, then a fall
  * back to the file's own sidecar `originUrl`. The fallback is what lets a source
@@ -391,12 +487,16 @@ export async function resolveSource(
 
 /**
  * Audit a single physical file: resolve its HF source, check size, hash when it
- * matches, and return the verdict. A sidecar is *always* written for a file that
- * exists — even with incomplete information (no resolved source, a size
- * mismatch, or a hashing failure) — so every audited file carries a record of
- * what was observed. Unknown fields are left empty; the on-disk size is always
- * recorded, letting a later cached audit re-derive the same verdict without
- * re-resolving or re-hashing.
+ * matches, and return the verdict. When the file doesn't match the source's
+ * latest revision (by size or checksum), the repo's commit history is searched
+ * for an earlier revision that does match (see `findHistoricalMatch`); a match
+ * makes that revision the effective source — the verdict, sidecar and summary
+ * all pin to it — with a note in the message. A sidecar is *always* written for
+ * a file that exists — even with incomplete information (no resolved source, a
+ * size mismatch, or a hashing failure) — so every audited file carries a record
+ * of what was observed. Unknown fields are left empty; the on-disk size is
+ * always recorded, letting a later cached audit re-derive the same verdict
+ * without re-resolving or re-hashing.
  *
  * The source is found in order: an explicit `source` (a manually-supplied URL,
  * already resolved), then `resolveSource` (inference, then sidecar fallback) —
@@ -422,20 +522,68 @@ export async function auditFile(
     return {file: relPath, status: 'incomplete', message: 'file missing'};
   }
 
-  const hf = source ?? (await resolveSource(fullPath, modelName, filename));
-  const summary = hf ? hfSummary(hf) : undefined;
+  const latest = source ?? (await resolveSource(fullPath, modelName, filename));
 
   // Hash only when there's a source to compare against and the size already
   // matches: a missing source or a size mismatch can't be a checksum pass, so we
   // skip the expensive hash and leave computedSha256 empty.
+  let hf = latest;
   let computedSha256: string | null = null;
-  if (hf && actualSize === hf.size) {
+  let revisionsChecked: RevisionCheck[] | undefined;
+  if (latest && actualSize === latest.size) {
     try {
       computedSha256 = await localSha256(fullPath, signal);
     } catch {
       computedSha256 = null; // hashing failed → 'error'
     }
+    if (computedSha256 !== null && computedSha256 !== latest.sha256) {
+      // Same size but different bytes than the latest revision — check whether
+      // an earlier revision of the file matches instead.
+      const prev = await findHistoricalMatch(
+        fullPath,
+        latest,
+        actualSize,
+        computedSha256,
+        signal,
+      );
+      if (prev.hf) hf = prev.hf;
+      else
+        revisionsChecked = [
+          revisionCheck(latest, 'sha256-mismatch'),
+          ...prev.checked,
+        ];
+    }
+  } else if (latest) {
+    // Size differs from the latest revision — before calling the file
+    // incomplete, check whether it is an intact older revision.
+    const prev = await findHistoricalMatch(
+      fullPath,
+      latest,
+      actualSize,
+      null,
+      signal,
+    );
+    // The search hashes the file as soon as some revision's size matches, so a
+    // computed sha may exist even without a match — record it either way.
+    computedSha256 = prev.computedSha256;
+    if (prev.hf) hf = prev.hf;
+    else
+      revisionsChecked = [
+        revisionCheck(latest, 'size-mismatch'),
+        ...prev.checked,
+      ];
   }
+  // The checked-revisions view always shows the local file's hash, so compute
+  // it now if the failure path skipped it (a size mismatch with no same-size
+  // revision anywhere in history).
+  if (revisionsChecked && computedSha256 === null) {
+    try {
+      computedSha256 = await localSha256(fullPath, signal);
+    } catch {
+      computedSha256 = null; // shown as unavailable
+    }
+  }
+  const summary = hf ? hfSummary(hf) : undefined;
 
   // Always record a sidecar, with whatever was determined. The source fields are
   // authoritative when `source` was supplied (the download flow, or a pasted
@@ -471,6 +619,11 @@ export async function auditFile(
   } else if (status === 'misplaced') {
     message = `expected path ${expectedRelPath(hf!)}`;
   }
+  if (hf !== latest) {
+    const rev = hf!.commit ? ` ${hf!.commit.slice(0, 8)}` : '';
+    const note = `matches earlier revision${rev}, not the latest`;
+    message = message ? `${message}; ${note}` : note;
+  }
   if (metaWriteFailed) {
     message = message
       ? `${message}; metadata write failed`
@@ -482,5 +635,12 @@ export async function auditFile(
     status,
     ...(message ? {message} : {}),
     ...(summary ? {hf: summary} : {}),
+    ...(revisionsChecked
+      ? {
+          revisionsChecked,
+          computedSize: actualSize,
+          ...(computedSha256 ? {computedSha256} : {}),
+        }
+      : {}),
   };
 }

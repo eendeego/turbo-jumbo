@@ -602,12 +602,14 @@ test('auditFile still writes a sidecar when the file is unverifiable (no source)
   }
 });
 
-test('auditFile writes a sidecar for a size-mismatched (incomplete) file, without hashing', async () => {
+test('auditFile writes a sidecar for a size-mismatched (incomplete) file', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-incomplete-'));
   const rel = 'o/r/m.gguf';
   const full = path.join(base, rel);
   await fsp.mkdir(path.dirname(full), {recursive: true});
-  await fsp.writeFile(full, 'short'); // 5 bytes — a partial download
+  const content = Buffer.from('short'); // 5 bytes — a partial download
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
 
   const source: HfFileInfo = {
     repoId: 'o/r',
@@ -619,14 +621,227 @@ test('auditFile writes a sidecar for a size-mismatched (incomplete) file, withou
     sha256: 'expectedsha',
   };
 
-  const result = await auditFile(base, rel, '', 'm.gguf', undefined, source);
-  expect(result.status).toBe('incomplete');
-  const meta = await readMeta(full);
-  expect(meta?.sourceSize).toBe(999);
-  expect(meta?.computedSize).toBe(5);
-  expect(meta?.sourceSha256).toBe('expectedsha');
-  expect(meta?.computedSha256).toBe(''); // skipped — a size mismatch can't be a sha pass
-  await fsp.rm(base, {recursive: true, force: true});
+  // The size mismatch triggers a revision-history search; none is reachable.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response('nf', {status: 404})) as typeof fetch;
+  try {
+    const result = await auditFile(base, rel, '', 'm.gguf', undefined, source);
+    expect(result.status).toBe('incomplete');
+    // The failure carries the local file's observed values for the
+    // checked-revisions view — hashed despite the size mismatch.
+    expect(result.computedSize).toBe(5);
+    expect(result.computedSha256).toBe(sha);
+    const meta = await readMeta(full);
+    expect(meta?.sourceSize).toBe(999);
+    expect(meta?.computedSize).toBe(5);
+    expect(meta?.sourceSha256).toBe('expectedsha');
+    expect(meta?.computedSha256).toBe(sha);
+  } finally {
+    globalThis.fetch = realFetch;
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+// Mock the HF history endpoints: a commits listing and per-revision paths-info.
+// `revisions` maps a commit id to the file's tree entry at that revision.
+function mockHfHistory(
+  repoId: string,
+  commits: Array<{id: string; date: string}>,
+  revisions: Record<string, object>,
+): typeof fetch {
+  return (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes(`/api/models/${repoId}/commits/main`))
+      return new Response(JSON.stringify(commits), {status: 200});
+    const rev = u.match(new RegExp(`/api/models/${repoId}/paths-info/(.+)$`));
+    if (rev && revisions[rev[1]])
+      return new Response(JSON.stringify([revisions[rev[1]]]), {status: 200});
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+}
+
+test('auditFile passes a size-mismatched file that matches an earlier revision', async () => {
+  clearHfCache();
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-hist-'));
+  const rel = 'h/r1/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  const content = Buffer.from('old version'); // 11 bytes, not the latest's 100
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+
+  const source: HfFileInfo = {
+    repoId: 'h/r1',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    commit: 'c2',
+    commitDate: '2025-01-02T00:00:00.000Z',
+    size: 100,
+    sha256: 'deadbeef',
+  };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = mockHfHistory(
+    'h/r1',
+    [
+      {id: 'c2', date: '2025-01-02T00:00:00.000Z'},
+      {id: 'c1', date: '2024-01-01T00:00:00.000Z'},
+    ],
+    {
+      // c2 is the already-failed latest version (same sha) — skipped unhashed.
+      c2: {
+        type: 'file',
+        path: 'm.gguf',
+        size: 100,
+        lfs: {oid: 'sha256:deadbeef', size: 100},
+      },
+      c1: {
+        type: 'file',
+        path: 'm.gguf',
+        size: content.length,
+        lfs: {oid: `sha256:${sha}`, size: content.length},
+        lastCommit: {id: 'c1', date: '2024-01-01T00:00:00.000Z'},
+      },
+    },
+  );
+  try {
+    const result = await auditFile(base, rel, '', 'm.gguf', undefined, source);
+    expect(result.status).toBe('pass');
+    expect(result.message).toBe('matches earlier revision c1, not the latest');
+    expect(result.hf?.commit).toBe('c1');
+    expect(result.hf?.commitUrl).toBe(
+      'https://huggingface.co/h/r1/blob/c1/m.gguf',
+    );
+    expect(result.hf?.expectedSize).toBe(content.length);
+    expect(result.revisionsChecked).toBeUndefined(); // only reported on failure
+    // The sidecar pins the matched revision, so a cached audit re-derives pass.
+    const meta = await readMeta(full);
+    expect(meta?.sourceCommit).toBe('c1');
+    expect(meta?.sourceSize).toBe(content.length);
+    expect(meta?.sourceSha256).toBe(sha);
+    expect(meta?.computedSha256).toBe(sha);
+  } finally {
+    globalThis.fetch = realFetch;
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('auditFile passes a checksum-mismatched file that matches an earlier revision', async () => {
+  clearHfCache();
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-hist-'));
+  const rel = 'h/r2/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  const content = Buffer.from('hello world');
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+
+  const source: HfFileInfo = {
+    repoId: 'h/r2',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    commit: 'c2',
+    commitDate: '2025-01-02T00:00:00.000Z',
+    size: content.length, // same size as on disk…
+    sha256: 'deadbeef', // …but different bytes
+  };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = mockHfHistory(
+    'h/r2',
+    [{id: 'c1', date: '2024-01-01T00:00:00.000Z'}],
+    {
+      // No lastCommit in the entry — the inspected revision is the fallback.
+      c1: {
+        type: 'file',
+        path: 'm.gguf',
+        size: content.length,
+        lfs: {oid: `sha256:${sha}`, size: content.length},
+      },
+    },
+  );
+  try {
+    const result = await auditFile(base, rel, '', 'm.gguf', undefined, source);
+    expect(result.status).toBe('pass');
+    expect(result.message).toBe('matches earlier revision c1, not the latest');
+    expect(result.hf?.commit).toBe('c1');
+    expect(result.hf?.commitDate).toBe('2024-01-01T00:00:00.000Z');
+    expect((await readMeta(full))?.sourceSha256).toBe(sha);
+  } finally {
+    globalThis.fetch = realFetch;
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('auditFile stays incomplete when no earlier revision matches', async () => {
+  clearHfCache();
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-hist-'));
+  const rel = 'h/r3/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  const content = Buffer.from('eleven bytes'); // 12 bytes
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+
+  const source: HfFileInfo = {
+    repoId: 'h/r3',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    commit: 'c2',
+    commitDate: '2025-01-02T00:00:00.000Z',
+    size: 100,
+    sha256: 'deadbeef',
+  };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = mockHfHistory(
+    'h/r3',
+    [{id: 'c1', date: '2024-01-01T00:00:00.000Z'}],
+    {
+      c1: {
+        type: 'file',
+        path: 'm.gguf',
+        size: 50, // no revision has the on-disk size
+        lfs: {oid: 'sha256:cafe', size: 50},
+      },
+    },
+  );
+  try {
+    const result = await auditFile(base, rel, '', 'm.gguf', undefined, source);
+    expect(result.status).toBe('incomplete');
+    expect(result.message).toBe('size 12 != expected 100');
+    // Every revision that was ruled out is reported, the latest first.
+    expect(result.revisionsChecked).toEqual([
+      {
+        commit: 'c2',
+        commitDate: '2025-01-02T00:00:00.000Z',
+        commitUrl: 'https://huggingface.co/h/r3/blob/c2/m.gguf',
+        size: 100,
+        sha256: 'deadbeef',
+        result: 'size-mismatch',
+      },
+      {
+        commit: 'c1',
+        commitDate: '2024-01-01T00:00:00.000Z',
+        commitUrl: 'https://huggingface.co/h/r3/blob/c1/m.gguf',
+        size: 50,
+        sha256: 'cafe',
+        result: 'size-mismatch',
+      },
+    ]);
+    // The local file's observed values ride along for comparison; even though
+    // no revision had a matching size, the hash is computed for the view.
+    expect(result.computedSize).toBe(12);
+    expect(result.computedSha256).toBe(sha);
+    // Still pinned to the latest revision.
+    const meta = await readMeta(full);
+    expect(meta?.sourceSha256).toBe('deadbeef');
+    expect(meta?.computedSha256).toBe(sha);
+  } finally {
+    globalThis.fetch = realFetch;
+    await fsp.rm(base, {recursive: true, force: true});
+  }
 });
 
 test('auditFile verifies against an explicit source without any inference', async () => {

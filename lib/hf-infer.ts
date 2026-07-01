@@ -24,11 +24,15 @@ interface HfTreeEntry {
 
 const HEADERS = {'User-Agent': 'tj/1.0'};
 const cache = new Map<string, HfFileInfo | null>();
+const commitsCache = new Map<string, HfCommitRef[] | null>();
+const revisionCache = new Map<string, HfFileInfo | null>();
 
-/** Reset the inference cache. Call once at the start of each audit run so a
+/** Reset the inference caches. Call once at the start of each audit run so a
  *  transient HF outage doesn't pin a file to `unverifiable` for the process life. */
 export function clearHfCache(): void {
   cache.clear();
+  commitsCache.clear();
+  revisionCache.clear();
 }
 
 export async function inferHfFile(
@@ -36,7 +40,7 @@ export async function inferHfFile(
   filename: string,
   branch = 'main',
 ): Promise<HfFileInfo | null> {
-  const key = `${modelName}${filename}${branch}`;
+  const key = `${modelName}\0${filename}\0${branch}`;
   if (cache.has(key)) return cache.get(key) ?? null;
   const result = await resolveHfFile(modelName, filename, branch);
   cache.set(key, result);
@@ -162,4 +166,93 @@ export async function resolveHfFileByPath(
   const match = entries.find((e) => e.type === 'file' && e.path === repoPath);
   if (!match) return null;
   return treeEntryToInfo(repoId, branch, match);
+}
+
+export interface HfCommitRef {
+  id: string; // commit SHA
+  date: string; // ISO 8601, '' if absent
+}
+
+// Hard ceiling on commit-listing pagination (~50 commits per page), so a
+// pathological repo can't turn one audit into thousands of requests.
+const MAX_COMMIT_PAGES = 40;
+
+/** The rel="next" target of a Link response header, or null when on the last
+ *  page (or the header is absent/unparseable). */
+function nextPageUrl(linkHeader: string | null): string | null {
+  const m = linkHeader?.match(/<([^>]+)>;\s*rel="next"/);
+  return m ? m[1] : null;
+}
+
+/**
+ * List a repo's commits on a branch, newest first — what the HF "commits" page
+ * shows. Follows the API's pagination through the full history (capped at
+ * MAX_COMMIT_PAGES). Returns null when the repo/branch can't be reached at
+ * all; a page failure mid-walk returns the commits gathered so far, since a
+ * truncated history is still useful to search.
+ */
+export async function listHfCommits(
+  repoId: string,
+  branch: string,
+): Promise<HfCommitRef[] | null> {
+  const key = `${repoId} ${branch}`;
+  const cached = commitsCache.get(key);
+  if (cached !== undefined) return cached;
+  let result: HfCommitRef[] | null = null;
+  let url: string | null =
+    `https://huggingface.co/api/models/${repoId}/commits/${branch}`;
+  for (let page = 0; url && page < MAX_COMMIT_PAGES; page++) {
+    try {
+      const res = await fetch(url, {headers: HEADERS});
+      if (!res.ok) break;
+      const commits = (await res.json()) as Array<{id: string; date?: string}>;
+      const refs = commits.map((c) => ({id: c.id, date: c.date ?? ''}));
+      result = result ? result.concat(refs) : refs;
+      url = nextPageUrl(res.headers.get('link'));
+    } catch {
+      break;
+    }
+  }
+  commitsCache.set(key, result);
+  return result;
+}
+
+/**
+ * Resolve a file's size and checksum as of a specific revision (a commit SHA),
+ * via the paths-info endpoint — much lighter than fetching the whole recursive
+ * tree per revision. `branch` is only carried into the returned info for URL
+ * construction; `revision` determines what is inspected. Returns null when the
+ * file doesn't exist at that revision or carries no LFS sha.
+ */
+export async function resolveHfFileAtRevision(
+  repoId: string,
+  branch: string,
+  revision: string,
+  repoPath: string,
+): Promise<HfFileInfo | null> {
+  const key = `${repoId} ${revision} ${repoPath}`;
+  const cached = revisionCache.get(key);
+  if (cached !== undefined) return cached;
+  let result: HfFileInfo | null = null;
+  try {
+    const res = await fetch(
+      `https://huggingface.co/api/models/${repoId}/paths-info/${revision}`,
+      {
+        method: 'POST',
+        headers: {...HEADERS, 'Content-Type': 'application/json'},
+        body: JSON.stringify({paths: [repoPath], expand: true}),
+      },
+    );
+    if (res.ok) {
+      const entries = (await res.json()) as HfTreeEntry[];
+      const match = entries.find(
+        (e) => e.type === 'file' && e.path === repoPath,
+      );
+      result = match ? treeEntryToInfo(repoId, branch, match) : null;
+    }
+  } catch {
+    result = null;
+  }
+  revisionCache.set(key, result);
+  return result;
 }
