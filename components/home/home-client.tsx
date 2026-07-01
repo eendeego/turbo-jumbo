@@ -146,23 +146,33 @@ export function HomeClient({
   const router = useRouter();
   const {peerModels, handleModelsRefreshed} = usePeerModels();
 
-  // Re-scan the local peer's models and push the result into the polled map, so
-  // download-status markers (e.g. in the Lemonade browser) reflect a just-
-  // finished download immediately instead of waiting for the next poll.
+  // Re-fetch a peer's models and push the result into the polled map, so a
+  // mutation (download finishing, a delete) is reflected immediately instead
+  // of lingering until the next poll. The table's per-peer row set is driven
+  // by this polled map, not by server-rendered props, so router.refresh()
+  // alone can't update it.
+  const refreshPeerModels = useCallback(
+    async (peer: PeerConfig) => {
+      try {
+        const res = await fetch(
+          `/api/v1/peers/${encodeURIComponent(peer.name)}/models`,
+        );
+        if (!res.ok) return;
+        const models = (await res.json()) as Model[];
+        handleModelsRefreshed(peer.address, models);
+      } catch {
+        /* best-effort: the periodic poll will catch up */
+      }
+    },
+    [handleModelsRefreshed],
+  );
+
+  // Re-scan the local peer's models so download-status markers (e.g. in the
+  // Lemonade browser) reflect a just-finished download immediately.
   const refreshLocalModels = useCallback(async () => {
     const local = peerConfigs.find((p) => p.isLocal);
-    if (!local) return;
-    try {
-      const res = await fetch(
-        `/api/v1/peers/${encodeURIComponent(local.name)}/models`,
-      );
-      if (!res.ok) return;
-      const models = (await res.json()) as Model[];
-      handleModelsRefreshed(local.address, models);
-    } catch {
-      /* best-effort: the periodic poll will catch up */
-    }
-  }, [peerConfigs, handleModelsRefreshed]);
+    if (local) await refreshPeerModels(local);
+  }, [peerConfigs, refreshPeerModels]);
   const [models, setModels] = useState(modelsTableData);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modelKind, setModelKind] = useState<ModelKind>('turbo-jumbo');
@@ -718,7 +728,24 @@ export function HomeClient({
       }
 
       setSelected(new Set());
+      // Force an immediate rescan everywhere the table reads from instead of
+      // waiting for the next poll. refreshModels() refreshes the models state
+      // (the local + cold storage rows) and router.refresh() re-renders the
+      // server component (the cold-storage and local-models props), but the
+      // table also filters and synthesizes peer-tab rows from the client-polled
+      // peerModels map, which neither touches — so rescan every affected peer
+      // too. Run them together so the row drops as soon as the scans return.
+      const peersToRescan =
+        activeLocation === 'all'
+          ? peerConfigs
+          : activeLocation === 'cold-storage'
+            ? []
+            : peerConfigs.filter((p) => p.address === activeLocation);
       router.refresh();
+      await Promise.all([
+        refreshModels(),
+        ...peersToRescan.map((p) => refreshPeerModels(p)),
+      ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
