@@ -11,18 +11,13 @@ import {
 } from '@/lib/audit';
 import {parseHubCachePath} from '@/lib/hf-cache';
 import {listRepoFiles} from '@/lib/hf-infer';
+import {isMmprojFilename} from '@/lib/model-name';
 
 const basename = (p: string) => p.split('/').pop() ?? p;
 
-/**
- * A GGUF projector file (mmproj-F16.gguf, mmproj-BF16.gguf, …). Note
- * `lib/lemonade.ts` has a separate, looser `isMmproj` (prefix-only) used to
- * *exclude* projectors when selecting weights; the two aren't shared because
- * lemonade.ts is client-reachable and this module imports server-only code.
- */
+/** A GGUF projector file (mmproj-F16.gguf, mmproj-BF16.gguf, …). */
 export function isMmprojName(name: string): boolean {
-  const lower = name.toLowerCase();
-  return lower.startsWith('mmproj') && lower.endsWith('.gguf');
+  return isMmprojFilename(name);
 }
 
 // Preferred projector precisions, best first. Compared against full basenames.

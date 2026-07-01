@@ -24,3 +24,13 @@ export function modelDisplayName(name: string): string {
   const slash = name.lastIndexOf('/');
   return slash === -1 ? name : name.slice(slash + 1);
 }
+
+/**
+ * A GGUF projector file (mmproj-F16.gguf, mmproj-BF16.gguf, …). Pass a
+ * basename. Pure and client-safe, so both the table builders and the
+ * server-only mmproj audit can share one definition.
+ */
+export function isMmprojFilename(basename: string): boolean {
+  const lower = basename.toLowerCase();
+  return lower.startsWith('mmproj') && lower.endsWith('.gguf');
+}
