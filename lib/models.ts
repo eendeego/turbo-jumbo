@@ -278,6 +278,9 @@ export function scanModels(storagePath: string | undefined): Model[] {
 export function duplicateBasenames(models: Model[]): Map<string, string[]> {
   const byName = new Map<string, string[]>();
   const add = (relPath: string) => {
+    // A cache-layout file is uniquely placed by its repo's snapshot; it is
+    // never a stray basename duplicate the way a flat-layout copy can be.
+    if (parseHubCachePath(relPath)) return;
     const name = path.basename(relPath);
     const paths = byName.get(name);
     if (paths) paths.push(relPath);

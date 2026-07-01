@@ -111,6 +111,22 @@ test('scanModels splits same-filename variants by their sidecar repos', async ()
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('duplicateBasenames ignores same-named files in different cache repos', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
+  await writeFile(
+    base,
+    'models--org-a--Model-GGUF/snapshots/r1/model.safetensors',
+  );
+  await writeFile(
+    base,
+    'models--org-b--Other-GGUF/snapshots/r2/model.safetensors',
+  );
+
+  const dups = duplicateBasenames(scanModels(base));
+  expect([...dups.keys()]).toEqual([]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('scanModels names a cache-layout file by its decoded repo id', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
   await writeFile(
