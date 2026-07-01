@@ -6,7 +6,7 @@ import {
   type QuantInfo,
 } from '@/lib/model-row';
 import type {Model} from '@/lib/model-types';
-import type {SidecarSummary} from '@/lib/model-sidecar';
+import type {FileProvenance, SidecarSummary} from '@/lib/model-sidecar';
 import {AsyncState} from '@/lib/async-state';
 
 function quant(p: Partial<QuantInfo> & {label: string}): QuantInfo {
@@ -80,6 +80,29 @@ test('buildDisplayRows puts the sidecar summary on the depth-0 row only', () => 
   const quantRow = rows.find((r) => r.depth === 1);
   expect(modelRow!.sidecar).toBe(sidecar);
   expect(quantRow!.sidecar).toBeUndefined();
+});
+
+test('buildDisplayRows copies single-file quant provenance onto the quant row', () => {
+  const prov: FileProvenance = {
+    originUrl: 'https://huggingface.co/org/repo/blob/main/Q4.gguf',
+    sourceCommit: 'abc',
+    sourceSize: 100,
+    computedSize: 100,
+    sourceSha256: 'aa',
+    computedSha256: 'aa',
+  };
+  const rows = buildDisplayRows({
+    ...noPeers,
+    expanded: new Set(['org/repo']),
+    models: [
+      model({
+        name: 'org/repo',
+        quants: [quant({label: 'Q4', provenance: prov})],
+      }),
+    ],
+  });
+  const quantRow = rows.find((r) => r.depth === 1);
+  expect(quantRow!.provenance).toBe(prov);
 });
 
 test('two models sharing a repo name get an org suffix; a unique repo name does not', () => {

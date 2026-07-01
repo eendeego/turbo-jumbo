@@ -115,6 +115,11 @@ export interface DisplayRow extends Record<string, unknown> {
   // Set on a model row (depth 0): the model-level sidecar summary, for the
   // name hovercard. Undefined on quant/shard/file rows and sidecar-less models.
   sidecar?: SidecarSummary;
+  // Set on a single-file quant, shard, or whole-repo file row: that file's
+  // sidecar provenance, for its hovercard. Undefined without a sidecar record.
+  provenance?: FileProvenance;
+  // Set on a split-quant parent row: provenance aggregated across its shards.
+  provenanceAggregate?: SidecarSummary;
 }
 
 // A peer's copy of a row's files relative to what's expected.
@@ -518,6 +523,7 @@ export function buildDisplayRows(args: {
           undersizedLocations: new Set<string>(),
           coldIncomplete: false,
           fileState: f.state,
+          ...(f.provenance ? {provenance: f.provenance} : {}),
         });
       }
       continue;
@@ -550,6 +556,10 @@ export function buildDisplayRows(args: {
         coldIncomplete: info?.undersized.has('cold-storage') ?? false,
         isProjector: q.isProjector,
         precisions: q.precisions,
+        ...(q.provenance ? {provenance: q.provenance} : {}),
+        ...(q.provenanceAggregate
+          ? {provenanceAggregate: q.provenanceAggregate}
+          : {}),
       });
       // Show individual shards when a split quant is expanded
       if (!q.isSingleFile && expanded.has(quantKey)) {
@@ -577,6 +587,7 @@ export function buildDisplayRows(args: {
             sizeBreakdown: null,
             undersizedLocations: new Set<string>(),
             coldIncomplete: false,
+            ...(shard.provenance ? {provenance: shard.provenance} : {}),
           });
         }
       }
