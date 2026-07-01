@@ -417,7 +417,15 @@ function PeersCell({
   );
 }
 
-function ColdStorageCell({row}: {row: DisplayRow}) {
+function ColdStorageCell({
+  row,
+  onFixIncomplete,
+  fixing = false,
+}: {
+  row: DisplayRow;
+  onFixIncomplete?: (paths: string[]) => void;
+  fixing?: boolean;
+}) {
   if (row.depth === 2) return null; // shards don't show cold storage status
   if (row.depth === 1) {
     if (!row.inColdStorage) return <Badge label="Missing" variant="red" />;
@@ -425,14 +433,30 @@ function ColdStorageCell({row}: {row: DisplayRow}) {
     // Present by name but a different size — a partial/mismatched cold copy.
     const incomplete = <Badge label="Incomplete" variant="orange" />;
     if (row.coldSize == null) return incomplete;
+    // The partial cold copy can be completed by re-running the local → cold
+    // copy, which resumes from the verified prefix already there.
+    const canFix = onFixIncomplete != null && row.paths.length > 0;
     return (
       <HoverCard
         placement="above"
         content={
-          <Text type="supporting">
-            Cold copy {formatSize(row.coldSize)} — expected{' '}
-            {formatSize(row.size)}
-          </Text>
+          <VStack gap={2}>
+            <Text type="supporting">
+              Cold copy {formatSize(row.coldSize)} — expected{' '}
+              {formatSize(row.size)}
+            </Text>
+            {canFix && (
+              <HStack>
+                <Button
+                  label={fixing ? 'Fixing…' : 'Fix'}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onFixIncomplete(row.paths)}
+                  isDisabled={fixing}
+                />
+              </HStack>
+            )}
+          </VStack>
         }
       >
         {incomplete}
@@ -460,6 +484,8 @@ export function ModelsTableClient({
   onSetSource,
   onRedownload,
   redownloading = false,
+  onFixColdIncomplete,
+  coldFixing = false,
 }: {
   models: ModelRow[];
   peers: PeerConfig[];
@@ -476,6 +502,8 @@ export function ModelsTableClient({
   onSetSource?: (path: string) => void;
   onRedownload?: (file: AuditResult) => void;
   redownloading?: boolean;
+  onFixColdIncomplete?: (paths: string[]) => void;
+  coldFixing?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -705,7 +733,13 @@ export function ModelsTableClient({
             header: 'Cold Storage',
             width: pixel(100),
             align: 'center' as const,
-            renderCell: (item: DisplayRow) => <ColdStorageCell row={item} />,
+            renderCell: (item: DisplayRow) => (
+              <ColdStorageCell
+                row={item}
+                onFixIncomplete={onFixColdIncomplete}
+                fixing={coldFixing}
+              />
+            ),
           } satisfies TableColumn<DisplayRow>,
         ]
       : []),

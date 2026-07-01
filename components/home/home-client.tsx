@@ -581,6 +581,39 @@ export function HomeClient({
     }
   }
 
+  // Complete a partial cold-storage copy: re-run the local → cold copy for the
+  // affected files. The server resumes from the verified prefix already in cold
+  // storage, so only the missing tail is transferred. Bypasses the conflict
+  // check — overwriting the partial copy is the point.
+  async function onFixColdIncomplete(paths: string[]) {
+    if (!localPeerAddress || paths.length === 0) return;
+    setCopying(true);
+    setCopyProgress(null);
+    setError(null);
+    try {
+      const res = await fetch('/api/v1/copy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          files: paths,
+          from: localPeerAddress,
+          toColdStorage: true,
+          toPeers: [],
+          deleteAfterCopy: false,
+          skip: [],
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      await readCopyProgress(res, setCopyProgress);
+      await refreshModels();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCopying(false);
+      setCopyProgress(null);
+    }
+  }
+
   // Seed the local peer's models from server data so its location tokens are
   // active immediately, without waiting for the first client fetch.
   const seededPeerModels = useMemo(() => {
@@ -634,6 +667,10 @@ export function HomeClient({
           onSetSource={onSetSource}
           onRedownload={auditLocation === 'local' ? onRedownload : undefined}
           redownloading={redownload.running}
+          onFixColdIncomplete={
+            localPeerAddress ? onFixColdIncomplete : undefined
+          }
+          coldFixing={copying}
         />
         {error && <Banner status="error" title={`Error: ${error}`} />}
         <ActionBar

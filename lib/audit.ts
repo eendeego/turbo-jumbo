@@ -1,6 +1,8 @@
 import {execFile} from 'child_process';
+import {createHash} from 'crypto';
 import {createReadStream, createWriteStream, promises as fsp} from 'fs';
 import path from 'path';
+import {pipeline} from 'stream/promises';
 import {promisify} from 'util';
 import {
   inferHfFile,
@@ -269,12 +271,70 @@ export async function moveFileWithMeta(
   }
 }
 
+/** SHA256 of the first `length` bytes of a file. */
+async function sha256Region(
+  fullPath: string,
+  length: number,
+  onBytes?: (n: number) => void,
+): Promise<string> {
+  const hash = createHash('sha256');
+  const rs = createReadStream(fullPath, {start: 0, end: length - 1});
+  if (onBytes) rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
+  await pipeline(rs, hash);
+  return hash.digest('hex');
+}
+
+/**
+ * Where a copy of `srcFull` to `dstFull` may resume: when the destination
+ * already holds a prefix of the source — same bytes, verified by hashing the
+ * partial file against the same-length region of the source — the copy can
+ * skip those bytes and append the rest. Returns 0 (copy from scratch) when the
+ * destination is absent, empty, longer than the source, or differs.
+ *
+ * Hashing a large partial is slow disk I/O; `onVerify` reports its progress as
+ * (hashed, total) byte counts — total covers both files, i.e. twice the
+ * partial's size. It is only called when a partial actually gets hashed, so a
+ * caller can also use it to tell "no partial found" apart from "hashes
+ * compared".
+ */
+export async function resumeOffset(
+  srcFull: string,
+  dstFull: string,
+  onVerify?: (hashedBytes: number, totalBytes: number) => void,
+): Promise<number> {
+  let dstSize: number;
+  try {
+    dstSize = (await fsp.stat(dstFull)).size;
+  } catch {
+    return 0;
+  }
+  if (dstSize === 0) return 0;
+  const srcSize = (await fsp.stat(srcFull)).size;
+  if (dstSize > srcSize) return 0;
+  let hashed = 0;
+  const total = dstSize * 2;
+  const onBytes =
+    onVerify &&
+    ((n: number) => {
+      hashed += n;
+      onVerify(hashed, total);
+    });
+  const [dstSha, srcSha] = await Promise.all([
+    sha256Region(dstFull, dstSize, onBytes),
+    sha256Region(srcFull, dstSize, onBytes),
+  ]);
+  return dstSha === srcSha ? dstSize : 0;
+}
+
 /**
  * Copy a file and its `.tjmeta.json` sidecar (if present) to `dstFull`, creating
  * intermediate directories. Unlike `moveFileWithMeta` this works across
  * filesystems (a stream copy, not a rename), so it's used for the local → cold
- * storage transfer. `onBytes` reports copied chunk sizes of the model file for
- * progress; the sidecar is tiny and not counted.
+ * storage transfer. A destination left behind by an interrupted copy is resumed
+ * rather than recopied (see `resumeOffset`). `onBytes` reports copied chunk
+ * sizes of the model file for progress — including, up front, the bytes a
+ * resume skipped — so progress still sums to the full file size; the sidecar is
+ * tiny and not counted.
  */
 export async function copyFileWithMeta(
   srcFull: string,
@@ -282,16 +342,24 @@ export async function copyFileWithMeta(
   onBytes?: (n: number) => void,
 ): Promise<void> {
   await fsp.mkdir(path.dirname(dstFull), {recursive: true});
-  await new Promise<void>((resolve, reject) => {
-    const rs = createReadStream(srcFull);
-    const ws = createWriteStream(dstFull);
-    if (onBytes)
-      rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
-    rs.once('error', reject);
-    ws.once('error', reject);
-    ws.once('finish', resolve);
-    rs.pipe(ws);
-  });
+  const offset = await resumeOffset(srcFull, dstFull);
+  if (offset > 0 && onBytes) onBytes(offset);
+  const srcSize = (await fsp.stat(srcFull)).size;
+  // Skip the stream only when a resume found the destination already complete;
+  // offset 0 always streams, so an empty source still creates its destination.
+  if (offset === 0 || offset < srcSize) {
+    await new Promise<void>((resolve, reject) => {
+      const rs = createReadStream(srcFull, {start: offset});
+      // Append on resume; otherwise truncate whatever partial mismatch is there.
+      const ws = createWriteStream(dstFull, offset > 0 ? {flags: 'a'} : {});
+      if (onBytes)
+        rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
+      rs.once('error', reject);
+      ws.once('error', reject);
+      ws.once('finish', resolve);
+      rs.pipe(ws);
+    });
+  }
 
   // Copy the sidecar alongside if it exists; absence is fine.
   try {

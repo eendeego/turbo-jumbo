@@ -137,6 +137,22 @@ export function ActionBar({
         </HStack>
         {showProgress && (
           <VStack gap={2}>
+            {copyProgress!.phase === 'verifying' && (
+              <ProgressBar
+                label="Verifying partial file (SHA256)"
+                value={copyProgress!.verifyDone ?? 0}
+                max={Math.max(copyProgress!.verifyTotal ?? 0, 1)}
+                hasValueLabel
+                formatValueLabel={(v, m) => `${Math.floor((v / m) * 100)}%`}
+              />
+            )}
+            {copyProgress!.resume != null && (
+              <Text type="supporting">
+                {copyProgress!.resume === 'resumed'
+                  ? 'Partial file verified — resuming copy'
+                  : 'Partial file SHA256 mismatch — copying from start'}
+              </Text>
+            )}
             {copyProgress!.bytesTotal > 0 && (
               <ProgressBar
                 label="Total"

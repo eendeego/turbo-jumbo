@@ -11,6 +11,13 @@ export interface CopyProgress {
   fileTotal: number; // size of the current file in bytes
   bytesDone: number; // bytes written across all destinations so far
   bytesTotal: number; // total bytes to write across all destinations
+  // Pre-copy verification of a partial destination (resumable copies):
+  // while phase is 'verifying', verifyDone/verifyTotal track the SHA256
+  // hashing; `resume` then records the outcome for the current file.
+  phase?: 'verifying' | 'copying';
+  verifyDone?: number;
+  verifyTotal?: number;
+  resume?: 'resumed' | 'from-start' | null;
 }
 
 // Map each file's storage-relative path to its byte size, so the copy route

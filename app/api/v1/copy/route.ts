@@ -1,3 +1,4 @@
+import {resumeOffset} from '@/lib/audit';
 import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {logger} from '@/lib/logger';
 import {promises as fsp} from 'fs';
@@ -165,6 +166,21 @@ export async function POST(req: Request) {
     let bytesDone = 0;
     let fileDone = 0;
     let fileTotal = 0;
+    // Pre-copy verification state for the current file: while a partial
+    // destination is being hash-compared against the source, phase is
+    // 'verifying' and verifyDone/verifyTotal track the hashing; afterwards
+    // `resume` records the outcome ('resumed' = prefix matched, 'from-start' =
+    // SHA256 mismatch, null = no partial was found).
+    let phase: 'verifying' | 'copying' = 'copying';
+    let verifyDone = 0;
+    let verifyTotal = 0;
+    let resume: 'resumed' | 'from-start' | null = null;
+    const resetFilePhase = () => {
+      phase = 'copying';
+      verifyDone = 0;
+      verifyTotal = 0;
+      resume = null;
+    };
 
     const emit = () =>
       safeWrite(
@@ -176,6 +192,10 @@ export async function POST(req: Request) {
             fileTotal,
             bytesDone,
             bytesTotal,
+            phase,
+            verifyDone,
+            verifyTotal,
+            resume,
           }) + '\n',
         ),
       );
@@ -237,10 +257,50 @@ export async function POST(req: Request) {
         const src = resolveLocal(sourceBasePath!, file)!;
         fileTotal = fileSizeMap[file] ?? 0;
         fileDone = 0;
+        resetFilePhase();
+        phase = 'verifying';
         emit();
-        await pipeline(createReadStream(src), counter, createWriteStream(dst), {
-          signal,
+
+        // Resume an interrupted earlier copy: skip the prefix already at the
+        // destination when it hash-matches the source's same region.
+        let verified = false;
+        let nextVerifyEmit = 0;
+        const offset = await resumeOffset(src, dst, (done, total) => {
+          verified = true;
+          verifyDone = done;
+          verifyTotal = total;
+          if (done >= nextVerifyEmit) {
+            nextVerifyEmit = done + EMIT_INTERVAL;
+            emit();
+          }
         });
+        phase = 'copying';
+        if (verified) {
+          resume = offset > 0 ? 'resumed' : 'from-start';
+          emit();
+        }
+        if (offset > 0) {
+          fileDone = offset;
+          bytesDone += offset;
+          emit();
+        }
+        if (offset === 0 || offset < fileTotal) {
+          let nextEmitAt = fileDone + EMIT_INTERVAL;
+          const resumeCounter = makeCounter((n) => {
+            fileDone += n;
+            bytesDone += n;
+            if (fileDone >= nextEmitAt) {
+              nextEmitAt = fileDone + EMIT_INTERVAL;
+              emit();
+            }
+          });
+          await pipeline(
+            createReadStream(src, {start: offset}),
+            resumeCounter,
+            createWriteStream(dst, offset > 0 ? {flags: 'a'} : {}),
+            {signal},
+          );
+        }
       }
 
       filesDone++;
@@ -262,6 +322,7 @@ export async function POST(req: Request) {
       }
 
       // ── Copy to peers (the local peer is just another address here) ────
+      resetFilePhase(); // don't carry a cold-storage resume label into peer copies
       for (const peerAddr of toPeers) {
         if (isPeerSource) {
           if (peerAddr === localPeerAddr) {
