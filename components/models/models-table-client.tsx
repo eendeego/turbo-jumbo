@@ -56,8 +56,6 @@ export interface QuantInfo {
 export type {LocationTab} from '@/components/models/location-tabs';
 import type {LocationTab} from '@/components/models/location-tabs';
 
-export type ProjectorInfo = {filename: string; size: number};
-
 export interface ModelRow extends Record<string, unknown> {
   name: string;
   quantizations: string;
@@ -66,7 +64,6 @@ export interface ModelRow extends Record<string, unknown> {
   maxSize: number;
   allInColdStorage: boolean;
   noneInColdStorage: boolean;
-  projectors?: ProjectorInfo[];
 }
 
 // One location's copy of a quant, for the size-mismatch breakdown.
@@ -505,7 +502,7 @@ function PeersCell({
   peers: PeerConfig[];
   peerKeys: Map<string, Set<string>>;
 }) {
-  if (peers.length === 0 || row.depth === 2 || row.isProjector) return null;
+  if (peers.length === 0 || row.depth === 2) return null;
   return (
     <HStack gap={1} vAlign="center" wrap="nowrap">
       {peers.map((peer) => {
@@ -542,7 +539,6 @@ function ColdStorageCell({
   fixing?: boolean;
 }) {
   if (row.depth === 2) return null; // shards don't show cold storage status
-  if (row.isProjector) return null; // projectors aren't tracked across storage
   if (row.depth === 1) {
     if (!row.inColdStorage) return <Badge label="Missing" variant="red" />;
     if (row.coldComplete) {
@@ -1005,6 +1001,7 @@ export function ModelsTableClient({
           sizeMismatch: info?.mismatch ?? false,
           sizeBreakdown: info?.mismatch ? info.breakdown : null,
           undersizedLocations: info?.undersized ?? new Set<string>(),
+          isProjector: q.isProjector,
         });
         if (!q.isSingleFile && expanded.has(quantKey)) {
           for (const shard of q.shards) {
@@ -1033,36 +1030,6 @@ export function ModelsTableClient({
             });
           }
         }
-      }
-
-      // Projector (mmproj) companion files: shown as their own rows beneath
-      // the quants, flagged so cells render them differently (not as a
-      // quantization, and without quant/cold/peer/audit columns).
-      for (const proj of m.projectors ?? []) {
-        out.push({
-          key: `${m.name}::projector::${proj.filename}`,
-          label: proj.filename,
-          quantizations: '',
-          isSingleFile: true,
-          filename: null,
-          depth: 1,
-          parentName: m.name,
-          size: proj.size,
-          sizeRange: null,
-          inColdStorage: null,
-          coldComplete: null,
-          coldSize: null,
-          allInColdStorage: false,
-          noneInColdStorage: false,
-          paths: [],
-          totalShards: 0,
-          presentShards: 0,
-          missingIndices: [],
-          sizeMismatch: false,
-          sizeBreakdown: null,
-          undersizedLocations: new Set<string>(),
-          isProjector: true,
-        });
       }
     }
     return out;
@@ -1248,7 +1215,6 @@ export function ModelsTableClient({
             width: pixel(170),
             align: 'center' as const,
             renderCell: (item: DisplayRow) => {
-              if (item.isProjector) return null;
               const results = auditResults ?? new Map<string, AuditResult>();
               // A model (depth 0) row also shows verdicts for files that
               // belong to it but aren't on disk — e.g. a synthetic
