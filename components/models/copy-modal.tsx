@@ -55,7 +55,7 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
   useEffect(() => {
     fetch('/api/v1/peers')
       .then((r) => r.json())
-      .then((data: Peer[]) => setPeers(data));
+      .then((data: {peers: Peer[]; interval: number}) => setPeers(data.peers));
     fetch('/api/v1/cold-storage')
       .then((r) => r.json())
       .then((data: Model[]) => setColdModels(data));
