@@ -3,7 +3,6 @@ import {promises as fsp} from 'fs';
 import os from 'os';
 import path from 'path';
 import {findReposWithInvalidFiles} from '@/lib/incomplete-models';
-import {MODEL_SIDECAR_NAME, type TjModel} from '@/lib/model-sidecar';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -28,35 +27,17 @@ async function writeSized(full: string, size: number) {
   await fsp.writeFile(full, Buffer.alloc(size, 'x'));
 }
 
-test('flags a whole-repo model that has an invalid file (unknown source size)', async () => {
+test('flags a whole-repo model that has a wrong-size file', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-inv-'));
   const repoId = 'invorg/kokoro-test';
   // A non-GGUF (whole-repo) model: a safetensors weight makes scanModels group
-  // it, plus an index.json whose sidecar can't attest it (unknown source size).
+  // it, plus an index.json whose on-disk size (50) doesn't match HF (96).
   await writeSized(path.join(base, repoId, 'model.safetensors'), 20);
-  await writeSized(path.join(base, repoId, 'index.json'), 96);
+  await writeSized(path.join(base, repoId, 'index.json'), 50);
   mockTree(repoId, [
     {path: 'model.safetensors', size: 20},
     {path: 'index.json', size: 96},
   ]);
-  const model: TjModel = {
-    modelUrl: `https://huggingface.co/${repoId}`,
-    repoId,
-    files: [
-      {
-        path: 'index.json',
-        originUrl: `https://huggingface.co/${repoId}/blob/main/index.json`,
-        sourceSize: 0, // unknown — never resolved → invalid
-        computedSize: 96,
-        sourceSha256: '',
-        computedSha256: '',
-      },
-    ],
-  };
-  await fsp.writeFile(
-    path.join(base, repoId, MODEL_SIDECAR_NAME),
-    JSON.stringify(model),
-  );
 
   expect(await findReposWithInvalidFiles(base)).toEqual([repoId]);
   await fsp.rm(base, {recursive: true, force: true});

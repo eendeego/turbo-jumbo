@@ -29,11 +29,12 @@ async function writeFileOfSize(full: string, size: number) {
   await fsp.writeFile(full, Buffer.alloc(size, 'x'));
 }
 
-test('a sidecar with an unknown source size is invalid even when the on-disk size matches HF', async () => {
+test('a checksum-less file with an unknown source size is valid when its size matches HF', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
   const repoId = 'rf/unknown-size';
   // index.json: a non-LFS file HF serves no checksum for — audit leaves its
-  // source size unknown (0). It matches the HF tree size (96) on disk.
+  // source size unknown (0). It matches the HF tree size (96), so it validates
+  // by size alone, not flagged invalid for being unattestable.
   mockTree(repoId, [{path: 'index.json', size: 96}]);
   await writeFileOfSize(path.join(base, repoId, 'index.json'), 96);
 
@@ -46,6 +47,38 @@ test('a sidecar with an unknown source size is invalid even when the on-disk siz
         originUrl: `https://huggingface.co/${repoId}/blob/main/index.json`,
         sourceSize: 0, // unknown — source never resolved
         computedSize: 96,
+        sourceSha256: '',
+        computedSha256: '',
+      },
+    ],
+  };
+  await fsp.writeFile(
+    path.join(base, repoId, MODEL_SIDECAR_NAME),
+    JSON.stringify(model),
+  );
+
+  const out = await repoFileStatuses(base, repoId);
+  expect(out.find((f) => f.path === 'index.json')?.state).toBe('present');
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('a checksum-less file whose size differs from HF is invalid', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
+  const repoId = 'rf/wrong-size';
+  // Same unattestable sidecar, but the on-disk size (50) doesn't match HF (96):
+  // the size check alone condemns it.
+  mockTree(repoId, [{path: 'index.json', size: 96}]);
+  await writeFileOfSize(path.join(base, repoId, 'index.json'), 50);
+
+  const model: TjModel = {
+    modelUrl: `https://huggingface.co/${repoId}`,
+    repoId,
+    files: [
+      {
+        path: 'index.json',
+        originUrl: `https://huggingface.co/${repoId}/blob/main/index.json`,
+        sourceSize: 0,
+        computedSize: 50,
         sourceSha256: '',
         computedSha256: '',
       },
