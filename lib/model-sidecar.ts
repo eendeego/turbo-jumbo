@@ -21,7 +21,40 @@ export interface TjModelFile {
 export interface TjModel {
   modelUrl: string; // https://huggingface.co/<repoId>
   repoId: string;
+  // The model's revision, derived from its files: the shared file `sourceCommit`
+  // when they all agree, `MIXED_COMMIT` when they don't (or one is missing),
+  // omitted when no file records a commit. Maintained by upsert/remove.
+  sourceCommit?: string;
   files: TjModelFile[];
+}
+
+/** The model `sourceCommit` value signalling files disagree on their revision. */
+export const MIXED_COMMIT = 'mixed';
+
+/**
+ * A model's revision from its files: the shared `sourceCommit` when every file
+ * has it and they all match, `MIXED_COMMIT` when they differ or any file is
+ * missing one, and undefined when no file records a commit at all.
+ */
+export function deriveModelCommit(files: TjModelFile[]): string | undefined {
+  const defined = files
+    .map((f) => f.sourceCommit)
+    .filter((c): c is string => !!c);
+  if (defined.length === 0) return undefined;
+  const allPresentAndEqual =
+    defined.length === files.length && new Set(defined).size === 1;
+  return allPresentAndEqual ? defined[0] : MIXED_COMMIT;
+}
+
+/** A model sidecar with its `sourceCommit` recomputed from its files. */
+function withDerivedCommit(model: TjModel): TjModel {
+  const sourceCommit = deriveModelCommit(model.files);
+  return {
+    modelUrl: model.modelUrl,
+    repoId: model.repoId,
+    ...(sourceCommit ? {sourceCommit} : {}),
+    files: model.files,
+  };
 }
 
 /**
@@ -203,7 +236,7 @@ export async function upsertFileMeta(
     const merged = mergeFileMeta(i >= 0 ? model.files[i] : null, next);
     if (i >= 0) model.files[i] = merged;
     else model.files.push(merged);
-    await writeModelSidecar(basePath, dir, model);
+    await writeModelSidecar(basePath, dir, withDerivedCommit(model));
   });
 }
 
@@ -223,7 +256,7 @@ export async function removeFileMeta(
     if (model.files.length === 0) {
       await fsp.rm(sidecarPath(basePath, dir), {force: true});
     } else {
-      await writeModelSidecar(basePath, dir, model);
+      await writeModelSidecar(basePath, dir, withDerivedCommit(model));
     }
   });
 }

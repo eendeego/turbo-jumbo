@@ -3,6 +3,8 @@ import {promises as fsp} from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  MIXED_COMMIT,
+  deriveModelCommit,
   mergeFileMeta,
   metaToEntry,
   modelDirForRepo,
@@ -204,5 +206,59 @@ test('removeFileMeta drops one entry, deleting the sidecar when it empties', asy
   ).toEqual(['b.gguf']);
   await removeFileMeta(base, 'org/repo', 'b.gguf');
   expect(await readModelSidecar(base, 'org/repo')).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('deriveModelCommit returns the shared commit when all files agree', () => {
+  expect(
+    deriveModelCommit([
+      entry({path: 'a', sourceCommit: 'abc'}),
+      entry({path: 'b', sourceCommit: 'abc'}),
+    ]),
+  ).toBe('abc');
+});
+
+test('deriveModelCommit returns MIXED_COMMIT when commits differ', () => {
+  expect(
+    deriveModelCommit([
+      entry({path: 'a', sourceCommit: 'abc'}),
+      entry({path: 'b', sourceCommit: 'def'}),
+    ]),
+  ).toBe(MIXED_COMMIT);
+});
+
+test('deriveModelCommit returns MIXED_COMMIT when a file is missing a commit', () => {
+  expect(
+    deriveModelCommit([
+      entry({path: 'a', sourceCommit: 'abc'}),
+      entry({path: 'b'}),
+    ]),
+  ).toBe(MIXED_COMMIT);
+});
+
+test('deriveModelCommit is undefined when no file has a commit', () => {
+  expect(
+    deriveModelCommit([entry({path: 'a'}), entry({path: 'b'})]),
+  ).toBeUndefined();
+});
+
+test('upsertFileMeta derives the model sourceCommit from its files', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  await upsertFileMeta(
+    base,
+    'org/repo',
+    'org/repo',
+    entry({path: 'a', sourceCommit: 'abc'}),
+  );
+  expect((await readModelSidecar(base, 'org/repo'))?.sourceCommit).toBe('abc');
+  await upsertFileMeta(
+    base,
+    'org/repo',
+    'org/repo',
+    entry({path: 'b', sourceCommit: 'def'}),
+  );
+  expect((await readModelSidecar(base, 'org/repo'))?.sourceCommit).toBe(
+    MIXED_COMMIT,
+  );
   await fsp.rm(base, {recursive: true, force: true});
 });
