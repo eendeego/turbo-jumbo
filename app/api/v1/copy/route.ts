@@ -11,18 +11,21 @@ const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB
 // Emit a progress event at most once per this many streamed bytes.
 const EMIT_INTERVAL = 512 * 1024; // 512 KB — frequent enough for per-file progress visibility
 
-type CopyRequest = {
-  files: string[];
-  from: string; // "cold-storage" | peer address (the local peer's own address for local source)
-  toColdStorage: boolean;
-  toPeers: string[]; // may include the local peer's address
-  deleteAfterCopy: boolean;
-  fileSizes?: Record<string, number>; // caller-supplied sizes for peer sources
-  skip?: Array<{file: string; destination: string}>; // file+destination pairs to skip
+type SourceFile = {
+  path: string;
+  from: string; // "cold-storage" | peer address (may be the local peer's own address)
+  size: number;
 };
 
-function resolveLocal(basePath: string, file: string): string | null {
-  const base = nodePath.resolve(basePath);
+type CopyRequest = {
+  files: SourceFile[];
+  toColdStorage: boolean;
+  toPeers: string[]; // peer addresses (may include the local peer's address)
+  deleteAfterCopy: boolean;
+  skip?: Array<{file: string; destination: string}>;
+};
+
+function resolveWithin(base: string, file: string): string | null {
   const full = nodePath.resolve(base, file);
   return full.startsWith(base + nodePath.sep) ? full : null;
 }
@@ -39,7 +42,19 @@ function makeCounter(onBytes: (n: number) => void): Transform {
 
 export async function POST(req: Request) {
   const body = (await req.json()) as CopyRequest;
-  const {files, from, toColdStorage, toPeers, deleteAfterCopy} = body;
+  const {files, toColdStorage, toPeers, deleteAfterCopy} = body;
+
+  if (
+    !Array.isArray(files) ||
+    files.some(
+      (f) =>
+        typeof f?.path !== 'string' ||
+        typeof f?.from !== 'string' ||
+        typeof f?.size !== 'number',
+    )
+  ) {
+    return new Response('Invalid files', {status: 400});
+  }
 
   // file+destination pairs the user chose not to overwrite (see /api/v1/copy/check).
   const skipSet = new Set(
@@ -48,77 +63,36 @@ export async function POST(req: Request) {
   const shouldSkip = (file: string, dest: string) =>
     skipSet.has(`${file}\0${dest}`);
 
-  if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
-    return new Response('Invalid files', {status: 400});
-
   // The local peer is just another peer address; "from"/"toPeers" use it for
   // local source/destination instead of a special "local" token.
   const localPeerAddr = localPeer?.address ?? '';
-  const isPeerSource = from !== 'cold-storage' && from !== localPeerAddr;
-  const sourceBasePath =
-    from === localPeerAddr
-      ? localModelsDir
-      : from === 'cold-storage'
-        ? coldStorageDir
-        : null;
 
-  if (!isPeerSource && !sourceBasePath)
-    return new Response('No local peer configured', {status: 400});
   if (toColdStorage && !coldStorageDir)
     return new Response('No cold storage configured', {status: 400});
 
   const coldBase = coldStorageDir ? nodePath.resolve(coldStorageDir) : '';
   const localBase = localModelsDir ? nodePath.resolve(localModelsDir) : '';
 
-  // Validate local source paths up-front
-  if (!isPeerSource && sourceBasePath) {
-    for (const file of files) {
-      if (!resolveLocal(sourceBasePath, file))
+  // Validate local-source paths up-front.
+  for (const f of files) {
+    if (f.from === 'cold-storage') {
+      if (!resolveWithin(coldBase, f.path))
+        return new Response('Invalid path', {status: 400});
+    } else if (f.from === localPeerAddr) {
+      if (!resolveWithin(localBase, f.path))
         return new Response('Invalid path', {status: 400});
     }
   }
 
-  // Build a file-size map: stat local files, or use caller-supplied sizes when
-  // the source is a remote peer (whose files this server can't stat).
-  const fileSizeMap: Record<string, number> = {};
-  if (!isPeerSource && sourceBasePath) {
-    for (const file of files) {
-      try {
-        const {size} = await fsp.stat(resolveLocal(sourceBasePath, file)!);
-        fileSizeMap[file] = size;
-      } catch {
-        // Source file missing — skip it.
-      }
-    }
-  } else if (body.fileSizes) {
-    Object.assign(fileSizeMap, body.fileSizes);
-  }
+  const destinations = [...(toColdStorage ? ['cold-storage'] : []), ...toPeers];
 
   let filesTotal = 0;
   let bytesTotal = 0;
-  if (toColdStorage) {
-    for (const file of files) {
-      if (!shouldSkip(file, 'cold-storage')) {
-        filesTotal++;
-        bytesTotal += fileSizeMap[file] ?? 0;
-      }
-    }
-  }
-  for (const peerAddr of toPeers) {
-    // A push to a remote peer counts as one op; everything else is per-file.
-    if (isPeerSource && peerAddr !== localPeerAddr) {
-      const nonSkipped = files.filter((f) => !shouldSkip(f, peerAddr));
-      if (nonSkipped.length > 0) {
-        filesTotal++;
-        bytesTotal += nonSkipped.reduce((s, f) => s + (fileSizeMap[f] ?? 0), 0);
-      }
-    } else {
-      for (const file of files) {
-        if (!shouldSkip(file, peerAddr)) {
-          filesTotal++;
-          bytesTotal += fileSizeMap[file] ?? 0;
-        }
-      }
+  for (const f of files) {
+    for (const dest of destinations) {
+      if (dest === f.from || shouldSkip(f.path, dest)) continue;
+      filesTotal++;
+      bytesTotal += f.size;
     }
   }
 
@@ -200,230 +174,97 @@ export async function POST(req: Request) {
         ),
       );
 
-    await emit(); // initial event — awaiting write ensures the client receives it
+    await emit(); // initial event — awaited so the client receives the opening frame
 
-    const destinations = [
-      ...(toColdStorage ? ['cold-storage'] : []),
-      ...toPeers,
-    ];
     logger.info(
-      `[copy] start: ${files.length} file(s) from ${from} → ${destinations.join(', ')}`,
+      `[copy] start: ${files.length} file(s) → ${destinations.join(', ') || '(no destinations)'}`,
     );
 
-    // Copy one file (from the local/cold/peer source) into a local directory
-    // tree, streaming byte progress. Returns false on an invalid or failed
-    // destination so the caller can abort. Used for both cold storage and the
-    // local models dir.
-    const copyToDir = async (
-      file: string,
-      destBaseDir: string,
-    ): Promise<boolean> => {
-      const dst = nodePath.resolve(destBaseDir, file);
-      if (!dst.startsWith(destBaseDir + nodePath.sep)) return false;
-      await fsp.mkdir(nodePath.dirname(dst), {recursive: true});
-
-      let nextEmitAt = EMIT_INTERVAL;
-      const counter = makeCounter((n) => {
-        fileDone += n;
-        bytesDone += n;
-        if (fileDone >= nextEmitAt) {
-          nextEmitAt = fileDone + EMIT_INTERVAL;
-          emit();
-        }
-      });
-
-      if (isPeerSource) {
-        logger.info(`[copy] fetch ${file} from ${from} → ${destBaseDir}`);
-        const res = await fetch(
-          `http://${from}/api/v1/local-models/download?file=${encodeURIComponent(file)}`,
-          {signal},
-        );
-        if (!res.ok || !res.body) return false;
-        const contentLen = parseInt(
-          res.headers.get('content-length') ?? '0',
-          10,
-        );
-        fileTotal = fileSizeMap[file] ?? contentLen;
-        fileDone = 0;
-        emit();
-        await pipeline(
-          // @ts-expect-error – DOM ReadableStream vs Node ReadableStream type mismatch
-          Readable.fromWeb(res.body),
-          counter,
-          createWriteStream(dst),
-          {signal},
-        );
-      } else {
-        const src = resolveLocal(sourceBasePath!, file)!;
-        fileTotal = fileSizeMap[file] ?? 0;
-        fileDone = 0;
-        resetFilePhase();
-        phase = 'verifying';
-        emit();
-
-        // Resume an interrupted earlier copy: skip the prefix already at the
-        // destination when it hash-matches the source's same region.
-        let verified = false;
-        let nextVerifyEmit = 0;
-        const offset = await resumeOffset(src, dst, (done, total) => {
-          verified = true;
-          verifyDone = done;
-          verifyTotal = total;
-          if (done >= nextVerifyEmit) {
-            nextVerifyEmit = done + EMIT_INTERVAL;
-            emit();
-          }
-        });
-        phase = 'copying';
-        if (verified) {
-          resume = offset > 0 ? 'resumed' : 'from-start';
-          emit();
-        }
-        if (offset > 0) {
-          fileDone = offset;
-          bytesDone += offset;
-          emit();
-        }
-        if (offset === 0 || offset < fileTotal) {
-          let nextEmitAt = fileDone + EMIT_INTERVAL;
-          const resumeCounter = makeCounter((n) => {
-            fileDone += n;
-            bytesDone += n;
-            if (fileDone >= nextEmitAt) {
-              nextEmitAt = fileDone + EMIT_INTERVAL;
-              emit();
-            }
-          });
-          await pipeline(
-            createReadStream(src, {start: offset}),
-            resumeCounter,
-            createWriteStream(dst, offset > 0 ? {flags: 'a'} : {}),
-            {signal},
-          );
-        }
-      }
-
-      filesDone++;
-      fileDone = fileTotal;
-      emit();
-      return true;
-    };
-
     try {
-      // ── Copy to cold storage ──────────────────────────────────────────
-      if (toColdStorage) {
-        for (const file of files) {
-          if (shouldSkip(file, 'cold-storage')) continue;
-          if (!(await copyToDir(file, coldBase))) {
-            safeClose();
-            return;
-          }
+      // Per-destination, group files by their source so peer→peer pushes can batch.
+      for (const dest of destinations) {
+        const bySource = new Map<string, SourceFile[]>();
+        for (const f of files) {
+          if (f.from === dest || shouldSkip(f.path, dest)) continue;
+          if (!bySource.has(f.from)) bySource.set(f.from, []);
+          bySource.get(f.from)!.push(f);
         }
-      }
 
-      // ── Copy to peers (the local peer is just another address here) ────
-      resetFilePhase(); // don't carry a cold-storage resume label into peer copies
-      for (const peerAddr of toPeers) {
-        if (isPeerSource) {
-          if (peerAddr === localPeerAddr) {
-            // Remote source → local destination: download each file.
-            for (const file of files) {
-              if (shouldSkip(file, peerAddr)) continue;
-              if (!(await copyToDir(file, localBase))) {
-                safeClose();
-                return;
-              }
-            }
-          } else {
-            // Remote source → remote destination: tell the source peer to
-            // push directly — no per-byte visibility, so report in one step.
-            const nonSkippedFiles = files.filter(
-              (f) => !shouldSkip(f, peerAddr),
-            );
-            if (nonSkippedFiles.length === 0) continue;
-            const pushBytes = nonSkippedFiles.reduce(
-              (s, f) => s + (fileSizeMap[f] ?? 0),
-              0,
-            );
+        const destIsCold = dest === 'cold-storage';
+        const destIsLocalPeer = dest === localPeerAddr;
+        const destIsRemote = !destIsCold && !destIsLocalPeer;
+
+        for (const [source, groupFiles] of bySource) {
+          const srcIsCold = source === 'cold-storage';
+          const srcIsLocalPeer = source === localPeerAddr;
+          const srcIsRemote = !srcIsCold && !srcIsLocalPeer;
+
+          // Remote dest, remote source, different peers → batched push via source
+          if (destIsRemote && srcIsRemote) {
+            const pushBytes = groupFiles.reduce((s, f) => s + f.size, 0);
             fileTotal = pushBytes;
             fileDone = 0;
+            resetFilePhase();
             emit();
 
             logger.info(
-              `[copy] push ${nonSkippedFiles.length} file(s) from ${from} → ${peerAddr}`,
-            );
-            const res = await fetch(`http://${from}/api/v1/local-models/push`, {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({
-                files: nonSkippedFiles,
-                toPeer: peerAddr,
-              }),
-              signal,
-            });
-            if (!res.ok) {
-              safeClose();
-              return;
-            }
-
-            filesDone++;
-            bytesDone += pushBytes;
-            fileDone = pushBytes;
-            emit();
-          }
-        } else if (peerAddr !== localPeerAddr) {
-          // Local/cold source → remote destination.
-          const nonSkippedFiles = files.filter((f) => !shouldSkip(f, peerAddr));
-          if (nonSkippedFiles.length === 0) continue;
-
-          // If the source is cold storage — or the files only exist in cold
-          // storage, not locally — have the remote peer copy from its own
-          // cold storage instead of uploading bytes through this host.
-          let allInCold = from === 'cold-storage';
-          if (!allInCold) {
-            allInCold = true;
-            for (const f of nonSkippedFiles) {
-              const local = resolveLocal(localBase, f);
-              if (!local) continue;
-              try {
-                await fsp.access(local);
-                allInCold = false;
-                break;
-              } catch {
-                /* not present locally */
-              }
-            }
-          }
-
-          if (allInCold) {
-            const peerBytes = nonSkippedFiles.reduce(
-              (s, f) => s + (fileSizeMap[f] ?? 0),
-              0,
-            );
-            fileTotal = peerBytes;
-            fileDone = 0;
-            emit();
-
-            logger.info(
-              `[copy] cold→local ${nonSkippedFiles.length} file(s) → ${peerAddr}`,
+              `[copy] push ${groupFiles.length} file(s) from ${source} → ${dest}`,
             );
             const res = await fetch(
-              `http://${peerAddr}/api/v1/cold-storage/to-local`,
+              `http://${source}/api/v1/local-models/push`,
               {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({files: nonSkippedFiles}),
+                body: JSON.stringify({
+                  files: groupFiles.map((f) => f.path),
+                  toPeer: dest,
+                }),
+                signal,
+              },
+            );
+            if (!res.ok) {
+              logger.error(
+                `[copy] push failed: ${source} → ${dest}: ${res.status}`,
+              );
+              safeClose();
+              return;
+            }
+            filesDone += groupFiles.length;
+            bytesDone += pushBytes;
+            fileDone = pushBytes;
+            emit();
+            continue;
+          }
+
+          // Remote dest, cold source → ask dest to copy from its own cold storage.
+          // (Assumes cold storage is shared/mounted identically across peers.)
+          if (destIsRemote && srcIsCold) {
+            const totalBytes = groupFiles.reduce((s, f) => s + f.size, 0);
+            fileTotal = totalBytes;
+            fileDone = 0;
+            resetFilePhase();
+            emit();
+
+            logger.info(
+              `[copy] cold→local ${groupFiles.length} file(s) → ${dest}`,
+            );
+            const res = await fetch(
+              `http://${dest}/api/v1/cold-storage/to-local`,
+              {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({files: groupFiles.map((f) => f.path)}),
                 signal,
               },
             );
             if (!res.ok || !res.body) {
               logger.error(
-                `[copy] cold→local failed for ${peerAddr}: ${res.status}`,
+                `[copy] cold→local failed for ${dest}: ${res.status}`,
               );
               safeClose();
               return;
             }
-
+            // Stream progress from the remote peer.
             const reader = res.body.getReader();
             const dec = new TextDecoder();
             let buf = '';
@@ -447,27 +288,30 @@ export async function POST(req: Request) {
                 emit();
               }
             }
-          } else {
-            // Upload from our local source to the remote peer.
-            for (const file of nonSkippedFiles) {
-              const uploadUrl = `http://${peerAddr}/api/v1/local-models/upload`;
-              const src = resolveLocal(sourceBasePath!, file)!;
-              const fileSize = fileSizeMap[file] ?? 0;
-              fileTotal = fileSize;
+            continue;
+          }
+
+          // Remote dest, local source → upload each file chunked.
+          if (destIsRemote && srcIsLocalPeer) {
+            for (const f of groupFiles) {
+              const src = resolveWithin(localBase, f.path)!;
+              fileTotal = f.size;
               fileDone = 0;
+              resetFilePhase();
               emit();
 
-              logger.info(`[copy] upload ${file} → ${peerAddr}`);
-              if (fileSize === 0) {
+              logger.info(`[copy] upload ${f.path} → ${dest}`);
+              const uploadUrl = `http://${dest}/api/v1/local-models/upload`;
+              if (f.size === 0) {
                 await fetch(uploadUrl, {
                   method: 'POST',
-                  headers: {'x-file-path': file, 'x-chunk-offset': '0'},
+                  headers: {'x-file-path': f.path, 'x-chunk-offset': '0'},
                   signal,
                 });
               } else {
-                for (let offset = 0; offset < fileSize; offset += CHUNK_SIZE) {
+                for (let offset = 0; offset < f.size; offset += CHUNK_SIZE) {
                   signal.throwIfAborted();
-                  const chunkEnd = Math.min(offset + CHUNK_SIZE, fileSize);
+                  const chunkEnd = Math.min(offset + CHUNK_SIZE, f.size);
                   const readable = createReadStream(src, {
                     start: offset,
                     end: chunkEnd - 1,
@@ -475,7 +319,7 @@ export async function POST(req: Request) {
                   await fetch(uploadUrl, {
                     method: 'POST',
                     headers: {
-                      'x-file-path': file,
+                      'x-file-path': f.path,
                       'x-chunk-offset': String(offset),
                       'Content-Type': 'application/octet-stream',
                     },
@@ -489,114 +333,149 @@ export async function POST(req: Request) {
                   emit();
                 }
               }
-
               filesDone++;
-              fileDone = fileSize;
+              fileDone = f.size;
               emit();
             }
+            continue;
           }
-        } else {
-          // Local destination: copy each file, trying the source base first,
-          // then falling back to cold storage.
-          for (const file of files) {
-            if (shouldSkip(file, peerAddr)) continue;
-            const dst = resolveLocal(localBase, file);
+
+          // Remaining cases write to this machine (cold storage or local peer).
+          const destBase = destIsCold ? coldBase : localBase;
+          for (const f of groupFiles) {
+            const dst = resolveWithin(destBase, f.path);
             if (!dst) {
-              logger.error(`[copy] invalid dst path: ${file}`);
+              logger.error(`[copy] invalid dest path: ${f.path}`);
               continue;
             }
-
-            let src = sourceBasePath
-              ? resolveLocal(sourceBasePath, file)
-              : null;
-            if (src) {
-              try {
-                await fsp.access(src);
-              } catch {
-                src = null;
-              }
-            }
-            if (!src) {
-              src = resolveLocal(coldBase, file);
-              if (src) {
-                try {
-                  await fsp.access(src);
-                } catch {
-                  src = null;
-                }
-              }
-            }
-            if (!src) {
-              logger.error(`[copy] file not found in local or cold: ${file}`);
-              continue;
-            }
-
             await fsp.mkdir(nodePath.dirname(dst), {recursive: true});
-            fileTotal = fileSizeMap[file] ?? 0;
+
+            fileTotal = f.size;
             fileDone = 0;
+            resetFilePhase();
             emit();
             await new Promise((r) => setTimeout(r, 0));
 
-            let nextEmitAt = EMIT_INTERVAL;
-            const counter = makeCounter((n) => {
-              fileDone += n;
-              bytesDone += n;
-              if (fileDone >= nextEmitAt) {
-                nextEmitAt = fileDone + EMIT_INTERVAL;
+            if (srcIsCold || srcIsLocalPeer) {
+              const srcBase = srcIsCold ? coldBase : localBase;
+              const src = resolveWithin(srcBase, f.path)!;
+              logger.info(`[copy] ${source} → ${dest}: ${f.path}`);
+
+              // Resume an interrupted earlier copy: skip the prefix already
+              // at the destination when it hash-matches the source's same
+              // region.
+              phase = 'verifying';
+              emit();
+              let verified = false;
+              let nextVerifyEmit = 0;
+              const offset = await resumeOffset(src, dst, (done, total) => {
+                verified = true;
+                verifyDone = done;
+                verifyTotal = total;
+                if (done >= nextVerifyEmit) {
+                  nextVerifyEmit = done + EMIT_INTERVAL;
+                  emit();
+                }
+              });
+              phase = 'copying';
+              if (verified) {
+                resume = offset > 0 ? 'resumed' : 'from-start';
                 emit();
               }
-            });
-            await pipeline(
-              createReadStream(src),
-              counter,
-              createWriteStream(dst),
-              {
-                signal,
-              },
-            );
+              if (offset > 0) {
+                fileDone = offset;
+                bytesDone += offset;
+                emit();
+              }
+              if (offset === 0 || offset < f.size) {
+                let nextEmitAt = fileDone + EMIT_INTERVAL;
+                const resumeCounter = makeCounter((n) => {
+                  fileDone += n;
+                  bytesDone += n;
+                  if (fileDone >= nextEmitAt) {
+                    nextEmitAt = fileDone + EMIT_INTERVAL;
+                    emit();
+                  }
+                });
+                await pipeline(
+                  createReadStream(src, {start: offset}),
+                  resumeCounter,
+                  createWriteStream(dst, offset > 0 ? {flags: 'a'} : {}),
+                  {signal},
+                );
+              }
+            } else {
+              logger.info(`[copy] fetch ${f.path} from ${source} → ${dest}`);
+              const res = await fetch(
+                `http://${source}/api/v1/local-models/download?file=${encodeURIComponent(f.path)}`,
+                {signal},
+              );
+              if (!res.ok || !res.body) {
+                logger.error(
+                  `[copy] fetch failed: ${source}/${f.path}: ${res.status}`,
+                );
+                safeClose();
+                return;
+              }
+              let nextEmitAt = EMIT_INTERVAL;
+              const counter = makeCounter((n) => {
+                fileDone += n;
+                bytesDone += n;
+                if (fileDone >= nextEmitAt) {
+                  nextEmitAt = fileDone + EMIT_INTERVAL;
+                  emit();
+                }
+              });
+              await pipeline(
+                // @ts-expect-error – DOM ReadableStream vs Node ReadableStream type mismatch
+                Readable.fromWeb(res.body),
+                counter,
+                createWriteStream(dst),
+                {signal},
+              );
+            }
 
             filesDone++;
-            fileDone = fileTotal;
+            fileDone = f.size;
             emit();
           }
         }
       }
 
-      // ── Delete source after successful copy to cold storage ───────────
+      // Delete sources after a successful cold-storage copy.
       if (deleteAfterCopy && toColdStorage) {
-        const filesToDelete = files.filter(
-          (f) => !shouldSkip(f, 'cold-storage'),
-        );
-        if (filesToDelete.length > 0) {
-          if (isPeerSource) {
+        const bySource = new Map<string, SourceFile[]>();
+        for (const f of files) {
+          if (f.from === 'cold-storage') continue;
+          if (shouldSkip(f.path, 'cold-storage')) continue;
+          if (!bySource.has(f.from)) bySource.set(f.from, []);
+          bySource.get(f.from)!.push(f);
+        }
+        for (const [source, srcFiles] of bySource) {
+          if (source === localPeerAddr) {
+            for (const f of srcFiles) {
+              await fsp.rm(resolveWithin(localBase, f.path)!, {force: true});
+            }
+          } else {
             logger.info(
-              `[copy] delete ${filesToDelete.length} file(s) from ${from}`,
+              `[copy] delete ${srcFiles.length} file(s) from ${source}`,
             );
-            await fetch(`http://${from}/api/v1/local-models`, {
+            await fetch(`http://${source}/api/v1/local-models`, {
               method: 'DELETE',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({files: filesToDelete}),
+              body: JSON.stringify({files: srcFiles.map((f) => f.path)}),
             });
-          } else {
-            for (const file of filesToDelete) {
-              await fsp.rm(resolveLocal(sourceBasePath!, file)!, {
-                force: true,
-              });
-            }
           }
         }
       }
 
-      logger.info(`[copy] done: ${files.length} file(s) from ${from}`);
+      logger.info(`[copy] done: ${files.length} file(s)`);
       await safeClose();
     } catch (err) {
       if (signal.aborted) {
-        logger.info(`[copy] cancelled: ${files.length} file(s) from ${from}`);
+        logger.info(`[copy] cancelled: ${files.length} file(s)`);
       } else {
-        logger.error(
-          `[copy] error: ${files.length} file(s) from ${from}:`,
-          err,
-        );
+        logger.error(`[copy] error:`, err);
       }
       await safeClose();
     }

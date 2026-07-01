@@ -21,7 +21,11 @@ import {
   type LocationTab,
 } from '@/components/models/location-tabs';
 import {ActionBar} from '@/components/models/action-bar';
-import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
+import {
+  buildFileSizes,
+  type CopyProgress,
+  readCopyProgress,
+} from '@/lib/copy-progress';
 import {readNdjson} from '@/lib/ndjson';
 import {
   DeleteModal,
@@ -662,14 +666,6 @@ export function HomeClient({
     }
   }
 
-  // The copy source for the active tab: the local peer on "All", otherwise the
-  // tab's own location.
-  const copyFromSource = useMemo(() => {
-    if (activeLocation === 'cold-storage') return 'cold-storage';
-    if (activeLocation === 'all') return localPeerAddress ?? '';
-    return activeLocation;
-  }, [activeLocation, localPeerAddress]);
-
   async function onCopy(destinations: CopyDestinations) {
     setConfirmingCopy(false);
     setChecking(true);
@@ -681,8 +677,7 @@ export function HomeClient({
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          files: Array.from(selected),
-          from: copyFromSource,
+          files: buildSourceFiles(),
           toColdStorage: destinations.toColdStorage,
           toPeers: destinations.toPeers,
         }),
@@ -725,8 +720,7 @@ export function HomeClient({
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          files: Array.from(selected),
-          from: copyFromSource,
+          files: buildSourceFiles(),
           ...destinations,
           skip,
         }),
@@ -754,12 +748,17 @@ export function HomeClient({
     setCopyProgress(null);
     setError(null);
     try {
+      // Sources are local by construction: this re-runs the local → cold copy.
+      const sizes = buildFileSizes(localPeerModels);
       const res = await fetch('/api/v1/copy', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          files: paths,
-          from: localPeerAddress,
+          files: paths.map((p) => ({
+            path: p,
+            from: localPeerAddress,
+            size: sizes[p] ?? 0,
+          })),
           toColdStorage: true,
           toPeers: [],
           deleteAfterCopy: false,
@@ -787,6 +786,49 @@ export function HomeClient({
     seeded.set(localPeerAddress, AsyncState.value(localPeerModels));
     return seeded;
   }, [peerModels, localPeerAddress, localPeerModels]);
+
+  // Per-path presence + size across cold storage, local, and remote peers, so
+  // a mixed selection can name each file's own source. Preference order when
+  // a path exists in multiple places: cold → local → remote.
+  const pathPresence = useMemo(() => {
+    const sources = new Map<string, {from: string; size: number}>();
+    const record = (path: string, size: number, from: string) => {
+      if (!sources.has(path)) sources.set(path, {from, size});
+    };
+    const indexModels = (list: Model[], from: string) => {
+      for (const m of list) {
+        for (const f of m.files) {
+          if (f.isSplit) {
+            for (const shard of f.files) record(shard.path, shard.size, from);
+          } else {
+            record(f.path, f.size, from);
+          }
+        }
+      }
+    };
+    indexModels(coldModels, 'cold-storage');
+    if (localPeerAddress) indexModels(localPeerModels, localPeerAddress);
+    for (const [addr, lo] of seededPeerModels) {
+      if (addr === localPeerAddress) continue;
+      if (lo.type !== 'value') continue;
+      indexModels(lo.value, addr);
+    }
+    return sources;
+  }, [coldModels, localPeerModels, localPeerAddress, seededPeerModels]);
+
+  function buildSourceFiles(): Array<{
+    path: string;
+    from: string;
+    size: number;
+  }> {
+    const out: Array<{path: string; from: string; size: number}> = [];
+    for (const p of selected) {
+      const entry = pathPresence.get(p);
+      if (!entry) continue;
+      out.push({path: p, from: entry.from, size: entry.size});
+    }
+    return out;
+  }
 
   // On a remote peer's tab, quants must carry the peer's own paths: audit,
   // copy and delete all resolve paths on the peer, whose storage layout can
@@ -894,7 +936,7 @@ export function HomeClient({
         {confirmingCopy && (
           <CopyModal
             files={fileInfo}
-            from={copyFromSource}
+            from={activeLocation}
             onCopy={onCopy}
             onCancel={() => setConfirmingCopy(false)}
           />
