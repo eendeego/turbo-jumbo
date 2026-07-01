@@ -1,26 +1,24 @@
 'use client';
 
-import {useRef, useState} from 'react';
+import {useMemo, useRef, useState} from 'react';
 import {Dialog} from '@astryxdesign/core/Dialog';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
-import {Heading} from '@astryxdesign/core/Text';
+import {Heading, Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {HF_XET_HIGH_PERFORMANCE} from '@/lib/hf';
+import {
+  parseNotices,
+  parseProgress,
+  parseSize,
+  type DownloadProgress,
+} from '@/lib/download-output';
 
 export type TermState = {lines: string[]; col: number};
 
-export type DownloadProgress = {
-  percent: number;
-  downloaded: string;
-  total: string;
-  speed: string | null;
-  eta: string | null;
-  filesDone: number;
-  filesTotal: number;
-};
+export type {DownloadProgress} from '@/lib/download-output';
 
 export type DownloadRequest = {
   repoId: string;
@@ -29,24 +27,6 @@ export type DownloadRequest = {
   sendToCold?: boolean;
   deleteAfterTransfer?: boolean;
 };
-
-const SIZE_UNITS: Record<string, number> = {
-  B: 1,
-  KB: 1e3,
-  K: 1e3,
-  MB: 1e6,
-  M: 1e6,
-  GB: 1e9,
-  G: 1e9,
-  TB: 1e12,
-  T: 1e12,
-};
-
-function parseSize(s: string): number {
-  const m = s.match(/^([\d.]+)\s*([A-Za-z]+)$/);
-  if (!m) return 0;
-  return parseFloat(m[1]) * (SIZE_UNITS[m[2].toUpperCase()] ?? 1);
-}
 
 /**
  * The `hf` command line the server runs for a download request, mirroring the
@@ -109,45 +89,6 @@ function applyChunk(state: TermState, chunk: string): TermState {
     }
   }
   return {lines, col};
-}
-
-function parseProgress(lines: string[]): DownloadProgress | null {
-  let percent = 0;
-  let downloaded = '';
-  let total = '';
-  let speed: string | null = null;
-  let eta: string | null = null;
-  let filesDone = 0;
-  let filesTotal = 0;
-  let hasDownload = false;
-
-  for (const line of lines) {
-    // "Downloading ...:   5% 523M/9.97G [00:12<04:39, 33.8MB/s]"
-    const dl = line.match(
-      /Downloading[^:]*:\s+(\d+)%\s+([\d.]+\s*\S+)\/([\d.]+\s*\S+)\s+\[([^\]]*)\]/,
-    );
-    if (dl) {
-      hasDownload = true;
-      percent = parseInt(dl[1], 10);
-      downloaded = dl[2];
-      total = dl[3];
-      const meta = dl[4];
-      const speedMatch = meta.match(/([\d.]+\s*\S+\/s)/);
-      if (speedMatch) speed = speedMatch[1];
-      const etaMatch = meta.match(/<([\d:]+)/);
-      if (etaMatch) eta = etaMatch[1];
-    }
-
-    // "Fetching 1 files:   0% 0/1 [00:00<?, ?it/s]"
-    const ft = line.match(/Fetching\s+\d+\s+files?:\s+\d+%\s+(\d+)\/(\d+)/);
-    if (ft) {
-      filesDone = parseInt(ft[1], 10);
-      filesTotal = parseInt(ft[2], 10);
-    }
-  }
-
-  if (!hasDownload) return null;
-  return {percent, downloaded, total, speed, eta, filesDone, filesTotal};
 }
 
 /**
@@ -283,6 +224,11 @@ export function DownloadModal({
   onClose: () => void;
 }) {
   const [showCommand, setShowCommand] = useState(false);
+  const [showOutput, setShowOutput] = useState(false);
+
+  // hf's hints/deprecation warnings and any errors, lifted out of the raw log
+  // so they're always visible even while the full output stays collapsed.
+  const notices = useMemo(() => (term ? parseNotices(term.lines) : []), [term]);
 
   return (
     <Dialog isOpen onOpenChange={(open) => !open && onClose()} purpose="form">
@@ -293,6 +239,25 @@ export function DownloadModal({
             status="warning"
             title="HF_TOKEN is not set — gated or private repositories may fail to download."
           />
+        )}
+        {notices.length > 0 && (
+          <Banner
+            status={
+              notices.some((n) => n.severity === 'error') ? 'error' : 'warning'
+            }
+            title={notices[0].text}
+            defaultIsExpanded={notices.length > 1}
+          >
+            {notices.length > 1 && (
+              <VStack gap={1}>
+                {notices.slice(1).map((n, i) => (
+                  <Text key={i} type="supporting">
+                    {n.text}
+                  </Text>
+                ))}
+              </VStack>
+            )}
+          </Banner>
         )}
         {progress && (
           <VStack gap={2}>
@@ -319,14 +284,24 @@ export function DownloadModal({
             )}
           </VStack>
         )}
-        <CodeBlock
-          code={term?.lines.join('\n') || ' '}
-          language="plaintext"
-          hasCopyButton={false}
-          isWrapped
-          width="100%"
-          maxHeight={384}
-        />
+        <VStack gap={2}>
+          <Button
+            label={showOutput ? 'Hide full output ▴' : 'Show full output ▾'}
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowOutput((v) => !v)}
+          />
+          {showOutput && (
+            <CodeBlock
+              code={term?.lines.join('\n') || ' '}
+              language="plaintext"
+              hasCopyButton={false}
+              isWrapped
+              width="100%"
+              maxHeight={384}
+            />
+          )}
+        </VStack>
         {command && (
           <VStack gap={2}>
             <Button
