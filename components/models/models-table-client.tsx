@@ -330,7 +330,7 @@ function AuditCell({
   // results.
   const plainBadge = (
     <Badge
-      label={audit.cached ? `${label} (cached)` : label}
+      label={label}
       variant={variant}
       xstyle={audit.cached ? styles.dimmed : undefined}
     />
