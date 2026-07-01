@@ -12,6 +12,7 @@ import {parseRoute} from '@/lib/locations';
 import {getModelsTableData} from '@/components/models/models-table';
 import {HomeClient} from '@/components/home/home-client';
 import {LemonadeClient} from '@/components/lemonade/lemonade-client';
+import {HfDownloadClient} from '@/components/hf-download/hf-download-client';
 
 export function generateMetadata(): Metadata {
   return {title: `Turbo Jumbo - ${localPeer?.name ?? 'unknown'}`};
@@ -37,6 +38,18 @@ export default async function Home({
     ...p,
     isLocal: p === localPeer,
   }));
+
+  if (view === 'hf') {
+    return (
+      <HfDownloadClient
+        activeLocation={activeLocation}
+        localModelsPath={localModelsDir ?? ''}
+        hfTokenSet={!!process.env.HF_TOKEN}
+        logLevel={config.log_level ?? 'info'}
+        peerConfigs={peerConfigs}
+      />
+    );
+  }
 
   if (view === 'lemonade') {
     return (

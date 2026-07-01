@@ -2,11 +2,12 @@
 
 import {useState, useMemo, useCallback, useEffect, useRef} from 'react';
 import {useRouter} from 'next/navigation';
-import {locationHref, lemonadeHref} from '@/lib/locations';
+import {locationHref, lemonadeHref, hfHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
+import {Button} from '@astryxdesign/core/Button';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {withPeerPaths} from '@/lib/peer-paths';
@@ -37,7 +38,6 @@ import {
   type ConflictItem,
 } from '@/components/models/conflicts-modal';
 import {useInventoryLocations} from '@/components/models/use-inventory-locations';
-import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
 import {ModelKindTabs} from '@/components/models/model-kind-tabs';
 import {SetSourceModal} from '@/components/models/set-source-modal';
 import {RevisionsModal} from '@/components/models/revisions-modal';
@@ -957,9 +957,10 @@ export function HomeClient({
         )}
 
         {localModelsPath && canDownloadLocally && (
-          <HuggingFaceDownload
-            localModelsPath={localModelsPath}
-            hfTokenSet={hfTokenSet}
+          <Button
+            label="Add from Hugging Face"
+            variant="secondary"
+            onClick={() => router.push(hfHref(activeLocation, peerConfigs))}
           />
         )}
         {checkingUpdates && (
