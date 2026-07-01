@@ -44,9 +44,9 @@ async function repoTree(repoId: string): Promise<TreeFile[]> {
 /**
  * Every file in `repoId`'s HF tree, each judged against the local copy under
  * `storageBase/<repoId>`: `missing` (not on disk), `invalid` (size differs from
- * HF, or the .tjmeta sidecar's recorded hash/size disagree with its source),
- * else `present`. No live hashing — only the file size and any sidecar the
- * download already recorded.
+ * HF, or the sidecar can't attest the file — its source size is unknown, or its
+ * recorded hash/size disagree with the source), else `present`. No live hashing
+ * — only the file size and any sidecar the download already recorded.
  */
 export async function repoFileStatuses(
   storageBase: string,
@@ -75,12 +75,16 @@ export async function repoFileStatuses(
     }
     let state: RepoFileState = size === f.size ? 'present' : 'invalid';
     if (state === 'present') {
-      // A sidecar that disagrees with its own source (truncated or corrupted at
-      // download) marks the file invalid without re-hashing it now.
+      // A sidecar whose own source can't attest the file marks it invalid
+      // without re-hashing now: an unknown source size (the source was never
+      // resolved — e.g. a small non-LFS file HF serves no checksum for), a
+      // recorded size that disagrees with the source, or disagreeing hashes
+      // (truncated or corrupted at download).
       const meta = await readFileMetaByPath(base, `${repoId}/${f.path}`);
       if (
         meta &&
-        ((meta.computedSize > 0 && meta.computedSize !== meta.sourceSize) ||
+        (meta.sourceSize <= 0 ||
+          (meta.computedSize > 0 && meta.computedSize !== meta.sourceSize) ||
           (!!meta.sourceSha256 &&
             !!meta.computedSha256 &&
             meta.sourceSha256 !== meta.computedSha256))
