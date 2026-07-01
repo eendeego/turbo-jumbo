@@ -12,6 +12,7 @@ import {
   readFileMetaByPath,
   readModelSidecar,
   removeFileMeta,
+  summarizeModel,
   upsertFileMeta,
   writeModelSidecar,
   type TjModel,
@@ -26,6 +27,55 @@ const entry = (o: Partial<TjModelFile>): TjModelFile => ({
   sourceSha256: '',
   computedSha256: '',
   ...o,
+});
+
+const model = (o: Partial<TjModel>): TjModel => ({
+  modelUrl: 'https://huggingface.co/org/repo',
+  repoId: 'org/repo',
+  files: [],
+  ...o,
+});
+
+test('summarizeModel sums file count and source size', () => {
+  const s = summarizeModel(
+    model({
+      files: [
+        entry({path: 'a.gguf', sourceSize: 100}),
+        entry({path: 'b.gguf', sourceSize: 250}),
+      ],
+    }),
+  );
+  expect(s.fileCount).toBe(2);
+  expect(s.totalSourceSize).toBe(350);
+  expect(s.repoId).toBe('org/repo');
+  expect(s.modelUrl).toBe('https://huggingface.co/org/repo');
+});
+
+test('summarizeModel passes through commits and date', () => {
+  const s = summarizeModel(
+    model({
+      sourceCommit: 'abc123',
+      repoCommit: 'def456',
+      repoCommitDate: '2026-06-12T00:00:00Z',
+    }),
+  );
+  expect(s.sourceCommit).toBe('abc123');
+  expect(s.repoCommit).toBe('def456');
+  expect(s.repoCommitDate).toBe('2026-06-12T00:00:00Z');
+});
+
+test('summarizeModel keeps MIXED_COMMIT as the source commit', () => {
+  const s = summarizeModel(model({sourceCommit: MIXED_COMMIT}));
+  expect(s.sourceCommit).toBe(MIXED_COMMIT);
+});
+
+test('summarizeModel omits commit fields when absent', () => {
+  const s = summarizeModel(model({}));
+  expect(s.sourceCommit).toBeUndefined();
+  expect(s.repoCommit).toBeUndefined();
+  expect(s.repoCommitDate).toBeUndefined();
+  expect(s.fileCount).toBe(0);
+  expect(s.totalSourceSize).toBe(0);
 });
 
 test('modelDirForRepo maps a flat-layout file to its repo dir and key', () => {
