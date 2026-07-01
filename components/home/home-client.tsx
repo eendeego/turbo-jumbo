@@ -281,6 +281,12 @@ export function HomeClient({
                 next.set(event.file, event);
                 return next;
               });
+              // Register streamed verdicts whose path wasn't in the selection
+              // (e.g. a synthetic missing-mmproj verdict), so rowAudit — which
+              // filters by auditedPaths — picks them up.
+              setAuditedPaths((prev) =>
+                prev.has(event.file) ? prev : new Set(prev).add(event.file),
+              );
               // The verdict supersedes any hashing progress for the file.
               setAuditProgress((prev) => {
                 if (!prev.has(event.file)) return prev;

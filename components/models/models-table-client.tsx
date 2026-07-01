@@ -1185,7 +1185,18 @@ export function ModelsTableClient({
             align: 'center' as const,
             renderCell: (item: DisplayRow) => {
               const results = auditResults ?? new Map<string, AuditResult>();
-              const failures = item.paths
+              // A model (depth 0) row also shows verdicts for files that
+              // belong to it but aren't on disk — e.g. a synthetic
+              // missing-mmproj verdict keyed `<repoId>/mmproj-F16.gguf`.
+              const companionPaths =
+                item.depth === 0
+                  ? [...results.keys()].filter(
+                      (p) =>
+                        p.startsWith(item.key + '/') && !item.paths.includes(p),
+                    )
+                  : [];
+              const auditPaths = [...item.paths, ...companionPaths];
+              const failures = auditPaths
                 .map((p) => results.get(p))
                 .filter(
                   (r): r is AuditResult => r != null && r.status !== 'pass',
@@ -1195,7 +1206,7 @@ export function ModelsTableClient({
                 <HStack gap={1} vAlign="center" hAlign="center" wrap="nowrap">
                   <AuditCell
                     audit={rowAudit(
-                      item.paths,
+                      auditPaths,
                       auditedPaths,
                       results,
                       auditing,
