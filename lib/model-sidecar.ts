@@ -47,3 +47,33 @@ export function modelDirForRepo(
   }
   return null;
 }
+
+/**
+ * Merge a freshly observed file record into a prior one without losing known
+ * information. The source block (urls, commit pin, expected size/sha) moves
+ * atomically — wholesale from `next` when it resolved a source, else from
+ * `prev`. The observed size is always fresh; the computed hash carries from
+ * `prev` only while the on-disk size is unchanged.
+ */
+export function mergeFileMeta(
+  prev: TjModelFile | null,
+  next: TjModelFile,
+): TjModelFile {
+  if (!prev) return next;
+  const source = next.sourceSha256 ? next : prev;
+  const computedSha256 =
+    next.computedSha256 ||
+    (prev.computedSize === next.computedSize ? prev.computedSha256 : '');
+  return {
+    path: next.path,
+    originUrl: source.originUrl,
+    ...(source.sourceCommit ? {sourceCommit: source.sourceCommit} : {}),
+    ...(source.sourceCommitDate
+      ? {sourceCommitDate: source.sourceCommitDate}
+      : {}),
+    sourceSize: source.sourceSize,
+    computedSize: next.computedSize,
+    sourceSha256: source.sourceSha256,
+    computedSha256,
+  };
+}
