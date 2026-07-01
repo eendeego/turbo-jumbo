@@ -8,6 +8,7 @@ import {
   cachedResultFromMeta,
   copyFileWithMeta,
   decideStatus,
+  duplicateResult,
   expectedRelPath,
   hfSummary,
   moveFileWithMeta,
@@ -112,6 +113,22 @@ test('error when sha could not be computed despite matching size', () => {
 
 test('expectedRelPath joins repoId and repoPath', () => {
   expect(expectedRelPath(hf)).toBe('o/r/M.Q4.gguf');
+});
+
+test('duplicateResult names the other copies, not the file itself', () => {
+  expect(duplicateResult('a/M.gguf', ['M.gguf', 'a/M.gguf'])).toEqual({
+    file: 'a/M.gguf',
+    status: 'duplicate',
+    message: 'duplicate of M.gguf',
+  });
+  expect(
+    duplicateResult('M.gguf', ['M.gguf', 'a/M.gguf', 'b/M.gguf'], true),
+  ).toEqual({
+    file: 'M.gguf',
+    status: 'duplicate',
+    message: 'duplicate of a/M.gguf, b/M.gguf',
+    cached: true,
+  });
 });
 
 const cachedMeta = {

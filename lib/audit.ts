@@ -20,6 +20,7 @@ export type AuditStatus =
   | 'incomplete'
   | 'checksum-mismatch'
   | 'misplaced'
+  | 'duplicate'
   | 'unverifiable'
   | 'error';
 
@@ -168,6 +169,26 @@ export function cachedResultFromMeta(
     ...(message ? {message} : {}),
     hf,
     cached: true,
+  };
+}
+
+/**
+ * Fast-fail verdict for a file whose basename collides with other files in the
+ * same location (see `duplicateBasenames`). Duplication wins over content
+ * checks — the file is never resolved or hashed — so the message names the
+ * other copies for the user to resolve via the delete flow.
+ */
+export function duplicateResult(
+  relPath: string,
+  allPaths: string[],
+  cached = false,
+): AuditResult {
+  const others = allPaths.filter((p) => p !== relPath);
+  return {
+    file: relPath,
+    status: 'duplicate',
+    message: `duplicate of ${others.join(', ')}`,
+    ...(cached ? {cached: true} : {}),
   };
 }
 

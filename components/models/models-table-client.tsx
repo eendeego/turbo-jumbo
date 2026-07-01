@@ -99,15 +99,17 @@ const AUDIT_BADGE: Record<
   incomplete: {label: 'Incomplete', variant: 'error'},
   'checksum-mismatch': {label: 'Mismatch', variant: 'error'},
   misplaced: {label: 'Misplaced', variant: 'warning'},
+  duplicate: {label: 'Duplicate', variant: 'warning'},
   unverifiable: {label: 'Unverifiable', variant: 'neutral'},
   error: {label: 'Error', variant: 'error'},
 };
 
 // Higher = more severe; a row aggregating several files shows its worst result.
 const AUDIT_SEVERITY: Record<AuditStatus, number> = {
-  error: 5,
-  'checksum-mismatch': 4,
-  incomplete: 3,
+  error: 6,
+  'checksum-mismatch': 5,
+  incomplete: 4,
+  duplicate: 3,
   misplaced: 2,
   unverifiable: 1,
   pass: 0,
