@@ -89,6 +89,25 @@ test('scanModels groups a file by its sidecar org/repo when present', async () =
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('scanModels names a model from its dir tjmodel.json, over the path repo', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  // Generic safetensors: without a sidecar the dir 'x/y' would name it. A model
+  // sidecar at the dir root overrides with the authoritative repo id.
+  await writeFile(base, 'x/y/model.safetensors');
+  await fsp.writeFile(
+    path.join(base, 'x/y/tjmodel.json'),
+    JSON.stringify({
+      modelUrl: 'https://huggingface.co/unsloth/Cool-Model',
+      repoId: 'unsloth/Cool-Model',
+      files: [],
+    }),
+  );
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['unsloth/Cool-Model']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('scanModels skips the configured lemonade directory', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
   await writeFile(base, 'Keep-Me-Q4_K_M.gguf');

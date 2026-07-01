@@ -11,6 +11,7 @@ import {metaPath, pathImpliedRepo} from '@/lib/audit';
 import {parseHubCachePath} from '@/lib/hf-cache';
 import {readSafetensorsDtype} from '@/lib/safetensors';
 import {isMmprojFilename, repoIdFromModelUrl} from '@/lib/model-name';
+import {MODEL_SIDECAR_NAME} from '@/lib/model-sidecar';
 import {WEIGHT_EXT_RE, isWeightFile} from '@/lib/weight-files';
 
 // Re-exported so existing `@/lib/models` importers keep working.
@@ -46,6 +47,33 @@ function sidecarRepoId(fullPath: string): string | null {
       : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * The repoId recorded in the model sidecar (`tjmodel.json`) that owns `fullPath`,
+ * found by walking up from the file's directory to the nearest ancestor holding
+ * one (bounded by `storagePath`). Read synchronously to fit the sync scan; the
+ * authoritative name for the whole model dir. Returns null when none is found.
+ */
+function modelSidecarRepoId(
+  fullPath: string,
+  storagePath: string,
+): string | null {
+  let dir = path.dirname(fullPath);
+  const root = path.resolve(storagePath);
+  for (;;) {
+    try {
+      const raw = fs.readFileSync(path.join(dir, MODEL_SIDECAR_NAME), 'utf8');
+      const m = JSON.parse(raw) as {repoId?: unknown};
+      return typeof m.repoId === 'string' ? m.repoId : null;
+    } catch {
+      // no sidecar here; keep walking up
+    }
+    if (path.resolve(dir) === root) return null;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 
@@ -213,6 +241,7 @@ export function scanModels(
         // filename-derived name when there's no sidecar.
         const modelName =
           cacheRepoId ??
+          modelSidecarRepoId(fullPath, root) ??
           sidecarRepoId(fullPath) ??
           flatRepoId ??
           extractModelName(`${base}.gguf`);
@@ -251,6 +280,7 @@ export function scanModels(
         }
         const modelName =
           cacheRepoId ??
+          modelSidecarRepoId(fullPath, root) ??
           sidecarRepoId(fullPath) ??
           flatRepoId ??
           extractModelName(entry.name);
