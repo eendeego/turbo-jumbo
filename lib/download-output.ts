@@ -49,9 +49,12 @@ export function parseProgress(lines: string[]): DownloadProgress | null {
   let hasDownload = false;
 
   for (const line of lines) {
-    // "Downloading ...:   5% 523M/9.97G [00:12<04:39, 33.8MB/s]"
+    // "Downloading ...:   5% 523M/9.97G [00:12<04:39, 33.8MB/s]" and the final
+    // "Download complete: 100% 9.97G/9.97G [..]" line. hf's "Downloading" bar can
+    // stop emitting before 100%, so the "Download complete:" line is what carries
+    // the bar to 100% in that case.
     const dl = line.match(
-      /Downloading[^:]*:\s+(\d+)%\s+([\d.]+\s*\S+)\/([\d.]+\s*\S+)\s+\[([^\]]*)\]/,
+      /Download(?:ing[^:]*|\s+complete):\s+(\d+)%\s+([\d.]+\s*\S+)\/([\d.]+\s*\S+)\s+\[([^\]]*)\]/,
     );
     if (dl) {
       hasDownload = true;

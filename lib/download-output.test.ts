@@ -86,6 +86,35 @@ test('parseNotices ignores the per-repo download header', () => {
   expect(notices).toEqual([]);
 });
 
+// A real run where hf's transfer bar stopped emitting at 90% and completion was
+// only signaled by the "Download complete:" lines — the "Downloading" bar never
+// reached 100%.
+const stalledBarRun = [
+  'Hint: A new version of huggingface_hub (1.21.0) is available! You are using version 1.20.1.',
+  'To update, run: hf update',
+  'Downloading (incomplete total...): 0.00B [00:00, ?B/s]',
+  'Downloading (incomplete total...):  90% 2.24G/2.49G [00:21<00:01, 199MB/s] ',
+  'Fetching 1 files: 100% 1/1 [00:21<00:00, 21.38s/it]',
+  'Download complete: 100% 2.49G/2.49G [00:21<00:00, 199MB/s]                ✓ Downloaded',
+  '  path: /mnt/models/turbo-jumbo/unsloth/Phi-4-mini-instruct-GGUF',
+  'Download complete: 100% 2.49G/2.49G [00:21<00:00, 116MB/s]',
+  '',
+  'Process exited with code 0',
+  '',
+  'Recording sources...',
+  '  Phi-4-mini-instruct-Q4_K_M.gguf: pass',
+];
+
+test('parseProgress reaches 100% from the "Download complete" line when the download bar stalled below 100%', () => {
+  const p = parseProgress(stalledBarRun);
+  expect(p).not.toBeNull();
+  expect(p!.percent).toBe(100);
+  expect(p!.downloaded).toBe('2.49G');
+  expect(p!.total).toBe('2.49G');
+  expect(p!.filesDone).toBe(1);
+  expect(p!.filesTotal).toBe(1);
+});
+
 test('parseProgress still parses the download and files bars', () => {
   const p = parseProgress(versionHintRun);
   expect(p).not.toBeNull();
