@@ -6,6 +6,7 @@ import {locationHref} from '@/lib/locations';
 import type {Peer as PeerConfig} from '@/lib/config';
 import {LayoutContent} from '@astryxdesign/core/Layout';
 import {HfDownloadPicker} from '@/components/hf-download/hf-download-picker';
+import {downloadTarget} from '@/lib/download-target';
 
 /**
  * Content for the Hugging Face download view: a focused task launched from a
@@ -30,10 +31,12 @@ export function HfDownloadClient({
     router.push(locationHref(activeLocation, peerConfigs));
   }, [router, activeLocation, peerConfigs]);
 
+  const target = downloadTarget(activeLocation, peerConfigs, localModelsPath);
+
   return (
     <LayoutContent padding={5}>
       <HfDownloadPicker
-        localModelsPath={localModelsPath}
+        target={target}
         hfTokenSet={hfTokenSet}
         onClose={backToTable}
       />

@@ -13,6 +13,7 @@ import {
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
 import {copyToClipboard} from '@/lib/clipboard';
+import type {DownloadTarget} from '@/lib/download-target';
 import {defaultDownloadSelection} from '@/lib/hf-download';
 import {parseHfUrl} from '@/lib/hf-url';
 
@@ -31,11 +32,11 @@ function formatBytes(bytes: number): string {
  * options, and a Copy/Run footer. `onClose` returns to the location's table.
  */
 export function HfDownloadPicker({
-  localModelsPath,
+  target,
   hfTokenSet,
   onClose,
 }: {
-  localModelsPath: string;
+  target: DownloadTarget;
   hfTokenSet: boolean;
   onClose: () => void;
 }) {
@@ -51,7 +52,7 @@ export function HfDownloadPicker({
     start,
     cancel,
     reset,
-  } = useDownloadRunner(localModelsPath);
+  } = useDownloadRunner(target.displayPath, target.url);
   const [files, setFiles] = useState<HfFile[] | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
@@ -148,9 +149,9 @@ export function HfDownloadPicker({
         branch: parsed.branch,
         filePaths: selectedFiles.map((f) => f.path),
       },
-      localModelsPath,
+      target.displayPath,
     );
-  }, [parsed, files, selectedFiles, localModelsPath]);
+  }, [parsed, files, selectedFiles, target.displayPath]);
 
   const toggleFile = (path: string, checked: boolean) => {
     setSelectedPaths((prev) => {
