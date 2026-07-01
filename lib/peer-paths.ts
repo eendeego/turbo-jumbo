@@ -1,5 +1,6 @@
 import type {Model} from './models';
 import type {ModelRow} from '@/components/models/models-table-client';
+import {isMmprojFilename} from '@/lib/model-name';
 
 // A file's basename is the identity hosts usually agree on: model names are
 // derived per host (the sidecar's org/repo when one exists, otherwise the
@@ -22,7 +23,7 @@ const GENERIC_WEIGHT_RE =
  * same-named file then has a different key and won't be conflated.
  */
 export function fileJoinKey(modelName: string, basename: string): string {
-  return GENERIC_WEIGHT_RE.test(basename)
+  return GENERIC_WEIGHT_RE.test(basename) || isMmprojFilename(basename)
     ? `${modelName} ${basename}`
     : basename;
 }

@@ -293,6 +293,19 @@ test('peerFileKeys qualifies a generic name by its model', () => {
   expect(keys.has(fileJoinKey('org-a/Model', 'model.safetensors'))).toBe(true);
 });
 
+test('fileJoinKey qualifies an mmproj projector by model name', () => {
+  expect(fileJoinKey('unsloth/A-GGUF', 'mmproj-F16.gguf')).toBe(
+    'unsloth/A-GGUF mmproj-F16.gguf',
+  );
+  expect(fileJoinKey('unsloth/A-GGUF', 'mmproj-F16.gguf')).not.toBe(
+    fileJoinKey('unsloth/B-GGUF', 'mmproj-F16.gguf'),
+  );
+});
+
+test('fileJoinKey leaves a specific gguf weight name unqualified', () => {
+  expect(fileJoinKey('unsloth/A-GGUF', 'A-Q4_K_M.gguf')).toBe('A-Q4_K_M.gguf');
+});
+
 test('merges paths when the peer has duplicate copies of a quant', () => {
   const models = [row('LFM2-1.2B', [quant('Q6_K', ['LFM2-1.2B-Q6_K.gguf'])])];
   const peer: Model[] = [
