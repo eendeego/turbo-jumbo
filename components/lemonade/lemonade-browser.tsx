@@ -19,6 +19,7 @@ import {
   type DownloadRequest,
 } from '@/components/hf-download/download-runner';
 import {ModelLabelIcon} from '@/components/lemonade/model-label-icon';
+import type {DownloadTarget} from '@/lib/download-target';
 import {sortLabelsForDisplay} from '@/lib/lemonade-labels';
 import type {Model} from '@/lib/models';
 import {
@@ -268,7 +269,8 @@ function StatusMarker({info}: {info: LemonadeDownloadInfo | undefined}) {
  */
 export function LemonadeBrowser({
   hfTokenSet,
-  localModelsPath,
+  target,
+  targetName,
   inventoryLocations,
   lemonadeCacheModels,
   incompleteRepos,
@@ -276,7 +278,10 @@ export function LemonadeBrowser({
   onDownloaded,
 }: {
   hfTokenSet: boolean;
-  localModelsPath: string;
+  // Where the download runs (endpoint + display path), and the peer name of the
+  // machine it lands on — used to skip files already present there.
+  target: DownloadTarget;
+  targetName: string | null;
   inventoryLocations: InventoryLocation[];
   // Models found in Lemonade's own cache directory, surfaced with a distinct
   // token alongside the regular download-status marker.
@@ -315,7 +320,7 @@ export function LemonadeBrowser({
   const [showTerminal, setShowTerminal] = useState(false);
   const [downloadTitle, setDownloadTitle] = useState('');
   const {term, progress, running, command, start, startMany, cancel, reset} =
-    useDownloadRunner(localModelsPath);
+    useDownloadRunner(target.displayPath, target.url);
 
   useEffect(() => {
     let cancelled = false;
@@ -478,9 +483,9 @@ export function LemonadeBrowser({
         );
         return;
       }
-      const localModels =
-        inventoryLocations.find((l) => l.isLocal)?.models ?? [];
-      const missing = missingVariantFiles(all, localModels, model.repoId);
+      const targetModels =
+        inventoryLocations.find((l) => l.name === targetName)?.models ?? [];
+      const missing = missingVariantFiles(all, targetModels, model.repoId);
       setDownloadTitle(model.name);
       setShowTerminal(true);
       void start({
@@ -504,8 +509,8 @@ export function LemonadeBrowser({
     setResolving(true);
     setResolveError(null);
     try {
-      const localModels =
-        inventoryLocations.find((l) => l.isLocal)?.models ?? [];
+      const targetModels =
+        inventoryLocations.find((l) => l.name === targetName)?.models ?? [];
       const reqs: DownloadRequest[] = [];
       const unresolved: string[] = [];
       for (const job of planRepoJobs(checkpoints)) {
@@ -528,7 +533,7 @@ export function LemonadeBrowser({
           unresolved.push(`${job.repoId} (${job.variants.join(', ')})`);
           continue;
         }
-        const missing = missingVariantFiles(all, localModels, job.repoId);
+        const missing = missingVariantFiles(all, targetModels, job.repoId);
         reqs.push({
           repoId: job.repoId,
           branch: 'main',

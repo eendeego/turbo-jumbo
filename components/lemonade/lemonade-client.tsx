@@ -6,6 +6,7 @@ import {locationHref} from '@/lib/locations';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {LEMONADE_CATALOG_URL} from '@/lib/lemonade';
+import {downloadTarget} from '@/lib/download-target';
 import {LayoutContent} from '@astryxdesign/core/Layout';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
@@ -117,10 +118,21 @@ export function LemonadeClient({
     router.push(locationHref(activeLocation, peerConfigs));
   }, [router, activeLocation, peerConfigs]);
 
-  // Downloads run only on the local machine, so the All and local-peer views
-  // can download; a remote peer's view is browse-only.
+  // Where the download runs: the All tab and the local peer download on this
+  // machine; a remote peer's tab downloads on that peer via the proxy.
+  const target = downloadTarget(activeLocation, peerConfigs, localModelsPath);
+  // The inventory whose presence decides which files to skip: the machine the
+  // download will run on (All → the local peer), identified by peer name to
+  // match the InventoryLocation entries.
+  const targetPeerAddress =
+    activeLocation === 'all' ? localPeerAddress : activeLocation;
+  const targetName =
+    peerConfigs.find((p) => p.address === targetPeerAddress)?.name ?? null;
+  // Any peer tab (and All) can download now; only Cold Storage has no Lemonade
+  // view, and it never reaches here.
   const canDownload =
-    activeLocation === 'all' || activeLocation === localPeerAddress;
+    activeLocation === 'all' ||
+    peerConfigs.some((p) => p.address === activeLocation);
 
   return (
     <LayoutContent padding={5}>
@@ -147,7 +159,8 @@ export function LemonadeClient({
 
         <LemonadeBrowser
           hfTokenSet={hfTokenSet}
-          localModelsPath={localModelsPath}
+          target={target}
+          targetName={targetName}
           inventoryLocations={inventoryLocations}
           lemonadeCacheModels={lemonadeCacheModels}
           incompleteRepos={incompleteRepos}
