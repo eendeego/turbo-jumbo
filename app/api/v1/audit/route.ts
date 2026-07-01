@@ -10,6 +10,7 @@ import {
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
 import {hashProgressEmitter} from '@/lib/audit-progress';
 import {clearHfCache} from '@/lib/hf-infer';
+import {detectMissingMmproj} from '@/lib/mmproj';
 
 // How many files to audit at once. Each job reads an entire (multi-GB) file to
 // hash it, so this is capped low: too high thrashes a single disk and the runs
@@ -160,6 +161,34 @@ export async function POST(req: Request) {
     await Promise.all(
       Array.from({length: Math.min(concurrency, jobs.length)}, worker),
     );
+
+    // After the per-file verdicts: for vision models among the selected files,
+    // flag a projector that exists on HF but not locally. Local only — the
+    // re-download fix that clears it isn't available for cold storage or peers.
+    if (body.location === 'local' && !signal.aborted) {
+      const allRelPaths = models.flatMap((m) =>
+        m.files.flatMap((f) =>
+          f.isSplit ? f.files.map((s) => s.path) : [f.path],
+        ),
+      );
+      const repoIds = [
+        ...new Set(
+          models
+            .filter(
+              (m) =>
+                m.name.includes('/') &&
+                m.files.some((f) =>
+                  f.isSplit
+                    ? f.files.some((s) => selected.has(s.path))
+                    : selected.has(f.path),
+                ),
+            )
+            .map((m) => m.name),
+        ),
+      ];
+      const extra = await detectMissingMmproj(repoIds, allRelPaths, 'main');
+      for (const r of extra) await emit(r);
+    }
 
     try {
       await writer.close();
