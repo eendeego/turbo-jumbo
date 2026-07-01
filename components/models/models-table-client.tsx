@@ -551,6 +551,32 @@ function CopyNameButton({name}: {name: string}) {
   );
 }
 
+/**
+ * A small "open in new tab" icon linking to a model's Hugging Face page. Only
+ * meaningful for `org/repo` models, whose name is the repo id; the repo URL is
+ * the sidecar `modelUrl` (`https://huggingface.co/<repoId>`) reconstructed here.
+ */
+function OpenHfButton({repoId}: {repoId: string}) {
+  return (
+    <IconButton
+      label={`Open ${repoId} on Hugging Face`}
+      icon={<Icon icon="externalLink" size="sm" />}
+      variant="ghost"
+      size="sm"
+      tooltip="Open on Hugging Face"
+      onClick={(e) => {
+        // Sits next to the row's toggle button; don't expand/collapse on click.
+        e.stopPropagation();
+        window.open(
+          `https://huggingface.co/${repoId}`,
+          '_blank',
+          'noopener,noreferrer',
+        );
+      }}
+    />
+  );
+}
+
 function NameCell({
   row,
   isExpanded,
@@ -654,6 +680,7 @@ function NameCell({
         </HoverCard>
       )}
       <CopyNameButton name={row.label} />
+      {row.label.includes('/') && <OpenHfButton repoId={row.label} />}
     </HStack>
   );
 }
