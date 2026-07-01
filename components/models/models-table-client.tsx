@@ -167,6 +167,8 @@ function AuditFailureContent({
   onRedownload,
   redownloading,
   onShowRevisions,
+  onFixDuplicate,
+  fixingDuplicate,
 }: {
   failures: AuditResult[];
   onFix?: (path: string) => void;
@@ -175,6 +177,8 @@ function AuditFailureContent({
   onRedownload?: (file: AuditResult) => void;
   redownloading?: boolean;
   onShowRevisions?: (file: AuditResult) => void;
+  onFixDuplicate?: (path: string) => void;
+  fixingDuplicate?: boolean;
 }) {
   return (
     <VStack gap={3}>
@@ -194,6 +198,10 @@ function AuditFailureContent({
         // revisions it ruled out, viewable in a modal.
         const canShowRevisions =
           (f.revisionsChecked?.length ?? 0) > 0 && onShowRevisions != null;
+        // Duplicate groups can be resolved server-side: invalid/older copies
+        // deleted, the surviving copy placed at the expected path.
+        const canFixDuplicate =
+          f.status === 'duplicate' && !f.cached && onFixDuplicate != null;
         return (
           <VStack
             key={f.file}
@@ -238,6 +246,17 @@ function AuditFailureContent({
                   size="sm"
                   onClick={() => onFix?.(f.file)}
                   isDisabled={fixing}
+                />
+              </HStack>
+            )}
+            {canFixDuplicate && (
+              <HStack>
+                <Button
+                  label={fixingDuplicate ? 'Fixing…' : 'Fix'}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onFixDuplicate?.(f.file)}
+                  isDisabled={fixingDuplicate}
                 />
               </HStack>
             )}
@@ -288,6 +307,8 @@ function AuditCell({
   onRedownload,
   redownloading,
   onShowRevisions,
+  onFixDuplicate,
+  fixingDuplicate,
 }: {
   audit: RowAudit;
   failures?: AuditResult[];
@@ -297,6 +318,8 @@ function AuditCell({
   onRedownload?: (file: AuditResult) => void;
   redownloading?: boolean;
   onShowRevisions?: (file: AuditResult) => void;
+  onFixDuplicate?: (path: string) => void;
+  fixingDuplicate?: boolean;
 }) {
   if (audit == null) return null;
   if (audit.kind === 'pending') {
@@ -327,6 +350,8 @@ function AuditCell({
           onRedownload={onRedownload}
           redownloading={redownloading}
           onShowRevisions={onShowRevisions}
+          onFixDuplicate={onFixDuplicate}
+          fixingDuplicate={fixingDuplicate}
         />
       }
     >
@@ -508,6 +533,8 @@ export function ModelsTableClient({
   onShowRevisions,
   onFixColdIncomplete,
   coldFixing = false,
+  onFixDuplicate,
+  fixingDuplicate = false,
 }: {
   models: ModelRow[];
   peers: PeerConfig[];
@@ -527,6 +554,8 @@ export function ModelsTableClient({
   onShowRevisions?: (file: AuditResult) => void;
   onFixColdIncomplete?: (paths: string[]) => void;
   coldFixing?: boolean;
+  onFixDuplicate?: (paths: string[]) => void;
+  fixingDuplicate?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -795,6 +824,12 @@ export function ModelsTableClient({
                   onRedownload={onRedownload}
                   redownloading={redownloading}
                   onShowRevisions={onShowRevisions}
+                  onFixDuplicate={
+                    onFixDuplicate
+                      ? (path) => onFixDuplicate([path])
+                      : undefined
+                  }
+                  fixingDuplicate={fixingDuplicate}
                 />
               );
             },
