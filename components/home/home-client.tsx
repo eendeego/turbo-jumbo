@@ -738,7 +738,7 @@ export function HomeClient({
     return peer.isLocal ? `${peer.name} (local)` : peer.name;
   }, [activeLocation, peerConfigs]);
 
-  async function onDelete(dryRun: boolean) {
+  async function onDelete(dryRun: boolean, keepCold: boolean) {
     setConfirming(false);
     setDeleting(true);
     setError(null);
@@ -750,10 +750,19 @@ export function HomeClient({
       });
 
       if (activeLocation === 'all') {
-        // Delete from every location in parallel.
+        // Delete from every location in parallel — sparing cold storage when
+        // the user asked to keep the cold backup.
         const requests: Promise<Response>[] = [
           fetch('/api/v1/local-models', {method: 'DELETE', headers, body}),
-          fetch('/api/v1/cold-storage', {method: 'DELETE', headers, body}),
+          ...(keepCold
+            ? []
+            : [
+                fetch('/api/v1/cold-storage', {
+                  method: 'DELETE',
+                  headers,
+                  body,
+                }),
+              ]),
           ...peerConfigs
             .filter((p) => !p.isLocal)
             .map((p) =>
@@ -1102,6 +1111,7 @@ export function HomeClient({
             activeLocation === 'cold-storage' ||
             anyMissingFromColdStorage(fileInfo, coldModels)
           }
+          showKeepCold={activeLocation === 'all'}
           onConfirm={onDelete}
           onCancel={() => setConfirming(false)}
         />

@@ -56,7 +56,11 @@ interface DeleteModalProps {
   files: FileInfo[];
   from?: string;
   requireDoubleConfirm: boolean;
-  onConfirm: (dryRun: boolean) => void;
+  // When set, offer a "Keep in cold storage" checkbox that spares the cold
+  // copy from a delete that would otherwise also remove it. Only meaningful for
+  // a scope that deletes from cold storage alongside other locations.
+  showKeepCold?: boolean;
+  onConfirm: (dryRun: boolean, keepCold: boolean) => void;
   onCancel: () => void;
 }
 
@@ -64,6 +68,7 @@ export function DeleteModal({
   files,
   from,
   requireDoubleConfirm,
+  showKeepCold = false,
   onConfirm,
   onCancel,
 }: DeleteModalProps) {
@@ -71,12 +76,25 @@ export function DeleteModal({
   // Dev-only escape hatch: the delete endpoints log what they would remove
   // instead of removing it. Owned by the modal so it resets on every open.
   const [dryRun, setDryRun] = useState(false);
+  // Spare the cold-storage copy from the delete. Off by default so the action
+  // stays a full delete unless the user opts to keep the cold backup.
+  const [keepCold, setKeepCold] = useState(false);
   const isDev = process.env.NODE_ENV === 'development';
 
   function handleDelete() {
     if (requireDoubleConfirm) setStep('warn');
-    else onConfirm(dryRun);
+    else onConfirm(dryRun, keepCold);
   }
+
+  // The warn-step wording, narrowed when the cold copy is being spared.
+  const warnMessage =
+    from === 'all locations'
+      ? keepCold
+        ? 'This will delete these files from local storage and every other machine, but keep the cold-storage copy. This cannot be undone.'
+        : 'This will delete these files from all locations, including cold storage. This cannot be undone.'
+      : from === 'cold storage'
+        ? 'These files will be permanently deleted from cold storage and cannot be recovered.'
+        : 'Some of these files are not backed up in cold storage and cannot be recovered after deletion.';
 
   return (
     <Dialog
@@ -101,6 +119,14 @@ export function DeleteModal({
               />
             ))}
           </List>
+          {showKeepCold && (
+            <CheckboxInput
+              label="Keep in cold storage"
+              value={keepCold}
+              onChange={setKeepCold}
+              size="sm"
+            />
+          )}
           {isDev && (
             <CheckboxInput
               label="Dry run (log only, no actual deletion)"
@@ -121,13 +147,7 @@ export function DeleteModal({
       ) : (
         <VStack gap={4}>
           <Heading level={3}>Are you sure?</Heading>
-          <Text type="supporting">
-            {from === 'all locations'
-              ? 'This will delete these files from all locations, including cold storage. This cannot be undone.'
-              : from === 'cold storage'
-                ? 'These files will be permanently deleted from cold storage and cannot be recovered.'
-                : 'Some of these files are not backed up in cold storage and cannot be recovered after deletion.'}
-          </Text>
+          <Text type="supporting">{warnMessage}</Text>
           <HStack gap={2} hAlign="end">
             <Button
               label="Back"
@@ -137,7 +157,7 @@ export function DeleteModal({
             <Button
               label="Confirm delete"
               variant="destructive"
-              onClick={() => onConfirm(dryRun)}
+              onClick={() => onConfirm(dryRun, keepCold)}
             />
           </HStack>
         </VStack>
