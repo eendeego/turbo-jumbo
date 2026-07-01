@@ -45,9 +45,17 @@ export function handleWsUpgrade(
   socket.on('error', (err: Error) => {
     logger.error(`[ws] socket error: ${err.message}`);
   });
-  wss.handleUpgrade(req, socket, head, (ws) =>
-    wss!.emit('connection', ws, req),
-  );
+  try {
+    wss.handleUpgrade(req, socket, head, (ws) =>
+      wss!.emit('connection', ws, req),
+    );
+  } catch (err) {
+    // Bun's built-in ws shim can throw on malformed handshakes instead of
+    // cleanly rejecting them (e.g. TypeError in its abortHandshake path).
+    // Don't let that take down the upgrade dispatcher — just drop the socket.
+    logger.error(`[ws] handleUpgrade threw:`, err as Error);
+    socket.destroy();
+  }
 }
 
 export function getWsServer(): WebSocketServer | null {

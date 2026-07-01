@@ -3,10 +3,10 @@
 import {useEffect, useState, useCallback, useRef} from 'react';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/model-types';
-import type {WsMessage} from '@/lib/ws-messages';
 import type {PeerModels} from '@/components/peers/peer';
 import {AsyncState} from '@/lib/async-state';
 import {clientLog} from '@/lib/client-log';
+import {subscribeToPeerEvents} from '@/lib/ws-client';
 
 // Shared peer state: fetches the peer list, polls each peer's models through
 // the same-origin proxy, and reacts to peer-down WebSocket notifications. Lets
@@ -98,40 +98,15 @@ export function usePeerModels() {
   }, [activePeers]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    function connect() {
-      if (cancelled) return;
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
-
-      socket.onopen = () => clientLog('info', '[ws] connected');
-
-      socket.onmessage = (e: MessageEvent) => {
-        const msg = JSON.parse(e.data as string) as WsMessage;
-        if (msg.type === 'peer-down') {
-          clientLog('info', `[ws] peer-down: ${msg.address}`);
-          lastPayloadRef.current.delete(msg.address);
-          setPeerModels((prev) =>
-            new Map(prev).set(msg.address, AsyncState.error('Host is down')),
-          );
-        }
-      };
-
-      socket.onclose = (e: CloseEvent) => {
-        clientLog('info', `[ws] closed: code=${e.code} reason="${e.reason}"`);
-        if (!cancelled) setTimeout(connect, 3000);
-      };
-      socket.onerror = () => {
-        clientLog('warn', '[ws] connection error');
-        socket.close();
-      };
-    }
-
-    connect();
-    return () => {
-      cancelled = true;
-    };
+    return subscribeToPeerEvents((msg) => {
+      if (msg.type === 'peer-down') {
+        clientLog('info', `[ws] peer-down: ${msg.address}`);
+        lastPayloadRef.current.delete(msg.address);
+        setPeerModels((prev) =>
+          new Map(prev).set(msg.address, AsyncState.error('Host is down')),
+        );
+      }
+    });
   }, []);
 
   const handleModelsRefreshed = useCallback(
