@@ -293,19 +293,27 @@ function UpdateBadge({updates}: {updates: UpdateResult[]}) {
           <Text type="supporting">Newer version on Hugging Face</Text>
           {updates.map((u) => {
             const name = u.file.split('/').pop() ?? u.file;
+            const local = u.localCommitDate
+              ? u.localCommitDate.slice(0, 10)
+              : 'unknown';
+            const remote = u.latestCommitDate
+              ? u.latestCommitDate.slice(0, 10)
+              : 'unknown';
             return (
-              <Text key={u.file} type="body">
-                {name}
-                {u.latestCommitUrl && (
-                  <>
-                    {' '}
-                    <Link href={u.latestCommitUrl} isExternalLink>
-                      {(u.latestCommit ?? '').slice(0, 12)}
-                    </Link>
-                  </>
-                )}
-                {u.latestCommitDate && ` (${u.latestCommitDate.slice(0, 10)})`}
-              </Text>
+              <VStack key={u.file} gap={0}>
+                <Text type="body">{name}</Text>
+                <Text type="supporting">
+                  Local: {local} · Hugging Face: {remote}
+                  {u.latestCommitUrl && u.latestCommit && (
+                    <>
+                      {' '}
+                      <Link href={u.latestCommitUrl} isExternalLink>
+                        {u.latestCommit.slice(0, 12)}
+                      </Link>
+                    </>
+                  )}
+                </Text>
+              </VStack>
             );
           })}
         </VStack>
