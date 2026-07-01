@@ -327,6 +327,32 @@ export function collectionDownloadPlan(
   return plan;
 }
 
+/** A per-repo download job: the repo and the variants to resolve within it. */
+export interface RepoJob {
+  repoId: string;
+  variants: Array<string | null>;
+}
+
+/**
+ * Group checkpoints into one job per repo, preserving first-seen order and
+ * de-duping variants — so a repo named by several checkpoints (a model and its
+ * mmproj, say) is fetched once with every variant resolved against one listing.
+ */
+export function planRepoJobs(checkpoints: Checkpoint[]): RepoJob[] {
+  const order: string[] = [];
+  const byRepo = new Map<string, Array<string | null>>();
+  for (const cp of checkpoints) {
+    let variants = byRepo.get(cp.repoId);
+    if (!variants) {
+      variants = [];
+      byRepo.set(cp.repoId, variants);
+      order.push(cp.repoId);
+    }
+    if (!variants.includes(cp.variant)) variants.push(cp.variant);
+  }
+  return order.map((repoId) => ({repoId, variants: byRepo.get(repoId)!}));
+}
+
 const isMmproj = (name: string) => name.toLowerCase().startsWith('mmproj');
 
 /**

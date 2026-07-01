@@ -9,6 +9,7 @@ import {
   missingVariantFiles,
   parseCheckpoint,
   parseLemonade,
+  planRepoJobs,
   resolveCheckpointFiles,
   type InventoryLocation,
   type LemonadeModel,
@@ -440,6 +441,20 @@ test('collectionDownloadPlan flattens and de-dupes component checkpoints in orde
     {repoId: 'o/a', variant: 'Q4_K_M'},
     {repoId: 'o/a', variant: 'mmproj-F16.gguf'},
     {repoId: 'o/k', variant: null},
+  ]);
+});
+
+test('planRepoJobs groups checkpoints by repo, preserving order, de-duping variants', () => {
+  expect(
+    planRepoJobs([
+      {repoId: 'o/a', variant: 'Q4_K_M'},
+      {repoId: 'o/a', variant: 'mmproj-F16.gguf'},
+      {repoId: 'o/b', variant: null},
+      {repoId: 'o/a', variant: 'Q4_K_M'}, // duplicate, dropped
+    ]),
+  ).toEqual([
+    {repoId: 'o/a', variants: ['Q4_K_M', 'mmproj-F16.gguf']},
+    {repoId: 'o/b', variants: [null]},
   ]);
 });
 

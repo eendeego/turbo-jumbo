@@ -161,6 +161,41 @@ export function useDownloadRunner() {
   const [running, setRunning] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Stream one request onto `initial`, redrawing the terminal and progress as
+  // output arrives; returns the final buffer so a multi-repo run can continue
+  // appending. Shared by `start` (one repo) and `startMany` (a plan).
+  const runOne = async (
+    req: DownloadRequest,
+    abort: AbortController,
+    initial: TermState,
+  ): Promise<TermState> => {
+    let state = initial;
+    const res = await fetch('/api/v1/hf-download', {
+      method: 'POST',
+      signal: abort.signal,
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(req),
+    });
+
+    if (!res.ok || !res.body) {
+      state = applyChunk(state, `Error: ${res.statusText}\n`);
+      setTerm({...state});
+      return state;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      state = applyChunk(state, decoder.decode(value, {stream: true}));
+      setTerm({...state});
+      const p = parseProgress(state.lines);
+      if (p) setProgress(p);
+    }
+    return state;
+  };
+
   const start = async (req: DownloadRequest) => {
     if (running) return;
     const abort = new AbortController();
@@ -170,33 +205,48 @@ export function useDownloadRunner() {
     setProgress(null);
 
     try {
-      const res = await fetch('/api/v1/hf-download', {
-        method: 'POST',
-        signal: abort.signal,
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(req),
-      });
-
-      if (!res.ok || !res.body) {
-        setTerm({lines: [`Error: ${res.statusText}`], col: 0});
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let state: TermState = {lines: [''], col: 0};
-
-      while (true) {
-        const {done, value} = await reader.read();
-        if (done) break;
-        state = applyChunk(state, decoder.decode(value, {stream: true}));
-        setTerm({...state});
-        const p = parseProgress(state.lines);
-        if (p) setProgress(p);
-      }
+      await runOne(req, abort, {lines: [''], col: 0});
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {
         setTerm({lines: [`Error: ${String(e)}`], col: 0});
+      }
+    } finally {
+      abortRef.current = null;
+      setRunning(false);
+    }
+  };
+
+  // Run several requests in sequence (one per repo), into a single terminal
+  // with a header before each. `onJob` fires as each starts, for a progress
+  // title. Stops early if cancelled. Used for omni collection downloads.
+  const startMany = async (
+    reqs: DownloadRequest[],
+    onJob?: (index: number, req: DownloadRequest) => void,
+  ) => {
+    if (running || reqs.length === 0) return;
+    const abort = new AbortController();
+    abortRef.current = abort;
+    setRunning(true);
+    let state: TermState = {lines: [''], col: 0};
+    setTerm(state);
+    setProgress(null);
+
+    try {
+      for (let i = 0; i < reqs.length; i++) {
+        if (abort.signal.aborted) break;
+        onJob?.(i, reqs[i]);
+        state = applyChunk(
+          state,
+          `${i > 0 ? '\n' : ''}=== ${reqs[i].repoId}  (${i + 1}/${reqs.length}) ===\n`,
+        );
+        setTerm({...state});
+        setProgress(null);
+        state = await runOne(reqs[i], abort, state);
+      }
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === 'AbortError')) {
+        state = applyChunk(state, `\nError: ${String(e)}\n`);
+        setTerm({...state});
       }
     } finally {
       abortRef.current = null;
@@ -210,7 +260,7 @@ export function useDownloadRunner() {
     setProgress(null);
   };
 
-  return {term, progress, running, start, cancel, reset};
+  return {term, progress, running, start, startMany, cancel, reset};
 }
 
 /** Streaming progress + terminal output dialog for a download run. When a

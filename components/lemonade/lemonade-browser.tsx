@@ -16,14 +16,19 @@ import {Icon} from '@astryxdesign/core/Icon';
 import {
   DownloadModal,
   useDownloadRunner,
+  type DownloadRequest,
 } from '@/components/hf-download/download-runner';
 import {ModelLabelIcon} from '@/components/lemonade/model-label-icon';
 import {sortLabelsForDisplay} from '@/lib/lemonade-labels';
 import {
+  collectionDownloadPlan,
   lemonadeDownloadStatus,
   lemonadeStatusTooltip,
   matchVariantFiles,
   missingVariantFiles,
+  planRepoJobs,
+  resolveCheckpointFiles,
+  type Checkpoint,
   type InventoryLocation,
   type LemonadeComponent,
   type LemonadeDownloadInfo,
@@ -32,6 +37,28 @@ import {
 } from '@/lib/lemonade';
 
 type HfFile = {path: string; size: number};
+
+// What's currently picked for download: a standalone model, one component of a
+// collection, or a whole collection.
+type Selection =
+  | {kind: 'model'; model: LemonadeModel}
+  | {kind: 'component'; collectionName: string; component: LemonadeComponent}
+  | {kind: 'collection'; collection: OmniCollection};
+
+function selectionKey(s: Selection): string {
+  if (s.kind === 'model') return `model:${s.model.name}`;
+  if (s.kind === 'collection') return `coll:${s.collection.name}`;
+  return `comp:${s.collectionName}:${s.component.name}`;
+}
+
+function selectionLabel(s: Selection): {title: string; sizeGb: number} {
+  if (s.kind === 'model') return {title: s.model.name, sizeGb: s.model.sizeGb};
+  if (s.kind === 'collection')
+    return {title: s.collection.name, sizeGb: s.collection.sizeGb};
+  return {title: s.component.name, sizeGb: s.component.sizeGb};
+}
+
+const uniq = <T,>(xs: T[]): T[] => [...new Set(xs)];
 
 function formatGb(sizeGb: number): string {
   return `${sizeGb.toFixed(2)} GB`;
@@ -54,14 +81,7 @@ function modelEndContent(
 ) {
   return (
     <HStack gap={1} vAlign="center">
-      {info && info.status !== 'none' && (
-        <HoverCard placement="above" content={lemonadeStatusTooltip(info)}>
-          <Badge
-            label={info.status === 'complete' ? 'downloaded' : 'partial'}
-            variant={info.status === 'complete' ? 'blue' : 'orange'}
-          />
-        </HoverCard>
-      )}
+      <StatusMarker info={info} />
       {model.suggested && <Badge label="suggested" variant="green" />}
       {model.labels.length > 0 && (
         <HStack gap={1} vAlign="center">
@@ -75,15 +95,39 @@ function modelEndContent(
   );
 }
 
-// A collection member this app can't store (image, transcription, TTS): shown
-// for context, greyed and non-selectable.
-function externalComponentDescription(component: LemonadeComponent) {
+// A collection member's secondary line: the repo(s) its checkpoints pull from.
+function componentSecondary(component: LemonadeComponent): string {
+  const repos = uniq(component.checkpoints.map((c) => c.repoId));
+  if (repos.length === 0) return component.modality;
+  if (repos.length === 1) return repos[0];
+  return `${repos[0]} +${repos.length - 1}`;
+}
+
+// A collection member's end-of-row content. Known llamacpp members also show
+// a download-status marker; every member shows its modality and size.
+function componentEndContent(
+  component: LemonadeComponent,
+  info: LemonadeDownloadInfo | undefined,
+) {
   return (
-    <HStack gap={2} vAlign="center">
-      <Text type="supporting">not stored here</Text>
+    <HStack gap={1} vAlign="center">
+      {component.downloadable && <StatusMarker info={info} />}
       <Badge label={component.modality} variant="neutral" />
       <Text type="supporting">{formatGb(component.sizeGb)}</Text>
     </HStack>
+  );
+}
+
+// The download-status marker shared by model rows and collection children.
+function StatusMarker({info}: {info: LemonadeDownloadInfo | undefined}) {
+  if (!info || info.status === 'none') return null;
+  return (
+    <HoverCard placement="above" content={lemonadeStatusTooltip(info)}>
+      <Badge
+        label={info.status === 'complete' ? 'downloaded' : 'partial'}
+        variant={info.status === 'complete' ? 'blue' : 'orange'}
+      />
+    </HoverCard>
   );
 }
 
@@ -105,11 +149,10 @@ function collectionAggregateStatus(
 }
 
 /**
- * Catalog browser for the Lemonade SDK's GGUF models: pick one, and its
- * checkpoint files (variant-matched, mmproj included) download through the
- * regular HF runner into local storage. Omni models render as expandable
- * collections whose GGUF members are selectable here; their image/audio/TTS
- * members are shown for context but aren't stored by this app.
+ * Catalog browser for the Lemonade SDK's models. Pick a single GGUF model, or
+ * an omni collection / one of its components, and the selection's files —
+ * across every repo it spans — download through the regular HF runner into
+ * local storage (sequentially, one repo at a time).
  */
 export function LemonadeBrowser({
   hfTokenSet,
@@ -125,13 +168,15 @@ export function LemonadeBrowser({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
-  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(null);
   const [sendToCold, setSendToCold] = useState(false);
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [showTerminal, setShowTerminal] = useState(false);
-  const {term, progress, running, start, cancel, reset} = useDownloadRunner();
+  const [downloadTitle, setDownloadTitle] = useState('');
+  const {term, progress, running, start, startMany, cancel, reset} =
+    useDownloadRunner();
 
   useEffect(() => {
     let cancelled = false;
@@ -160,12 +205,6 @@ export function LemonadeBrowser({
       cancelled = true;
     };
   }, []);
-
-  const modelByName = useMemo(() => {
-    const map = new Map<string, LemonadeModel>();
-    for (const m of models ?? []) map.set(m.name, m);
-    return map;
-  }, [models]);
 
   const visible = useMemo(() => {
     if (!models) return [];
@@ -205,44 +244,39 @@ export function LemonadeBrowser({
     return map;
   }, [models, inventoryLocations]);
 
-  const selected = useMemo(
-    () => models?.find((m) => m.name === selectedName) ?? null,
-    [models, selectedName],
-  );
+  const selectedKey = selection ? selectionKey(selection) : null;
+  const selLabel = selection ? selectionLabel(selection) : null;
 
-  // Resolve the model's repo file list, pick the variant's files, and hand
-  // off to the regular download runner.
-  const startDownload = async () => {
-    if (!selected || resolving || running) return;
+  // A single GGUF model: resolve the variant's files in its one repo and run
+  // the downloader once. Unchanged from the original single-model path.
+  const startModel = async (model: LemonadeModel) => {
+    if (resolving || running) return;
     setResolving(true);
     setResolveError(null);
     try {
       const params = new URLSearchParams({
-        repoId: selected.repoId,
+        repoId: model.repoId,
         branch: 'main',
       });
       const res = await fetch(`/api/v1/hf-files?${params}`);
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const files = (await res.json()) as HfFile[];
-      const all = matchVariantFiles(files, selected.variant, selected.mmproj);
+      const all = matchVariantFiles(files, model.variant, model.mmproj);
       if (all.length === 0) {
         setResolveError(
-          `No files in ${selected.repoId} match "${selected.variant ?? 'any gguf'}".`,
+          `No files in ${model.repoId} match "${model.variant ?? 'any gguf'}".`,
         );
         return;
       }
-      // Download only what's missing from local storage (where downloads land);
-      // if everything is already present, fall back to the full set (the hf CLI
-      // skips complete files).
       const localModels =
         inventoryLocations.find((l) => l.isLocal)?.models ?? [];
-      const missing = missingVariantFiles(all, localModels, selected.repoId);
-      const filePaths = missing.length > 0 ? missing : all;
+      const missing = missingVariantFiles(all, localModels, model.repoId);
+      setDownloadTitle(model.name);
       setShowTerminal(true);
       void start({
-        repoId: selected.repoId,
+        repoId: model.repoId,
         branch: 'main',
-        filePaths,
+        filePaths: missing.length > 0 ? missing : all,
         sendToCold,
         deleteAfterTransfer,
       });
@@ -251,6 +285,68 @@ export function LemonadeBrowser({
     } finally {
       setResolving(false);
     }
+  };
+
+  // A collection or one of its components: resolve every checkpoint into a
+  // per-repo download request, then run them in sequence through the runner.
+  const startPlan = async (checkpoints: Checkpoint[], title: string) => {
+    if (resolving || running) return;
+    setResolving(true);
+    setResolveError(null);
+    try {
+      const localModels =
+        inventoryLocations.find((l) => l.isLocal)?.models ?? [];
+      const reqs: DownloadRequest[] = [];
+      for (const job of planRepoJobs(checkpoints)) {
+        const params = new URLSearchParams({
+          repoId: job.repoId,
+          branch: 'main',
+        });
+        const res = await fetch(`/api/v1/hf-files?${params}`);
+        if (!res.ok)
+          throw new Error(`${job.repoId}: ${res.status} ${res.statusText}`);
+        const files = (await res.json()) as HfFile[];
+        const all = uniq(
+          job.variants.flatMap((v) => resolveCheckpointFiles(files, v)),
+        );
+        if (all.length === 0) continue;
+        const missing = missingVariantFiles(all, localModels, job.repoId);
+        reqs.push({
+          repoId: job.repoId,
+          branch: 'main',
+          filePaths: missing.length > 0 ? missing : all,
+          sendToCold,
+          deleteAfterTransfer,
+        });
+      }
+      if (reqs.length === 0) {
+        setResolveError(`Found no files to download for ${title}.`);
+        return;
+      }
+      setDownloadTitle(title);
+      setShowTerminal(true);
+      await startMany(reqs, (i, req) =>
+        setDownloadTitle(`${title} — ${req.repoId} (${i + 1}/${reqs.length})`),
+      );
+    } catch (e) {
+      setResolveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const onDownload = () => {
+    if (!selection) return;
+    if (selection.kind === 'model') return void startModel(selection.model);
+    if (selection.kind === 'component')
+      return void startPlan(
+        selection.component.checkpoints,
+        selection.component.name,
+      );
+    return void startPlan(
+      collectionDownloadPlan(selection.collection),
+      selection.collection.name,
+    );
   };
 
   // Closing the terminal returns to the catalog; the selection stays.
@@ -263,7 +359,7 @@ export function LemonadeBrowser({
   if (showTerminal) {
     return (
       <DownloadModal
-        title={`Downloading ${selected?.name ?? ''}…`}
+        title={`Downloading ${downloadTitle}…`}
         term={term}
         progress={progress}
         running={running}
@@ -315,11 +411,17 @@ export function LemonadeBrowser({
               {visibleCollections.map((c) => {
                 const isExpanded = expanded.has(c.name);
                 const aggregate = collectionAggregateStatus(c, statusByName);
+                const collSelection: Selection = {
+                  kind: 'collection',
+                  collection: c,
+                };
                 return (
                   <Fragment key={c.name}>
                     <ListItem
                       label={c.name}
                       description={`${c.components.length} components`}
+                      isSelected={selectedKey === selectionKey(collSelection)}
+                      onClick={() => setSelection(collSelection)}
                       startContent={
                         <IconButton
                           label={isExpanded ? 'Collapse' : 'Expand'}
@@ -330,32 +432,16 @@ export function LemonadeBrowser({
                               icon={isExpanded ? 'chevronDown' : 'chevronRight'}
                             />
                           }
-                          onClick={() => toggleCollection(c.name)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCollection(c.name);
+                          }}
                         />
                       }
-                      onClick={() => toggleCollection(c.name)}
                       endContent={
                         <HStack gap={1} vAlign="center">
                           <Badge label="omni" variant="purple" />
-                          {aggregate && aggregate.status !== 'none' && (
-                            <HoverCard
-                              placement="above"
-                              content={lemonadeStatusTooltip(aggregate)}
-                            >
-                              <Badge
-                                label={
-                                  aggregate.status === 'complete'
-                                    ? 'downloaded'
-                                    : 'partial'
-                                }
-                                variant={
-                                  aggregate.status === 'complete'
-                                    ? 'blue'
-                                    : 'orange'
-                                }
-                              />
-                            </HoverCard>
-                          )}
+                          <StatusMarker info={aggregate} />
                           {c.suggested && (
                             <Badge label="suggested" variant="green" />
                           )}
@@ -365,33 +451,27 @@ export function LemonadeBrowser({
                     />
                     {isExpanded &&
                       c.components.map((comp) => {
-                        const model = comp.downloadable
-                          ? modelByName.get(comp.name)
-                          : undefined;
-                        return model ? (
-                          <ListItem
-                            key={comp.name}
-                            label={model.name}
-                            description={`${model.repoId}${model.variant ? `:${model.variant}` : ''}`}
-                            startContent={
-                              <span {...stylex.props(styles.indent)} />
-                            }
-                            isSelected={selectedName === model.name}
-                            onClick={() => setSelectedName(model.name)}
-                            endContent={modelEndContent(
-                              model,
-                              statusByName.get(model.name),
-                            )}
-                          />
-                        ) : (
+                        const compSelection: Selection = {
+                          kind: 'component',
+                          collectionName: c.name,
+                          component: comp,
+                        };
+                        return (
                           <ListItem
                             key={comp.name}
                             label={comp.name}
+                            description={componentSecondary(comp)}
                             startContent={
                               <span {...stylex.props(styles.indent)} />
                             }
-                            isDisabled
-                            description={externalComponentDescription(comp)}
+                            isSelected={
+                              selectedKey === selectionKey(compSelection)
+                            }
+                            onClick={() => setSelection(compSelection)}
+                            endContent={componentEndContent(
+                              comp,
+                              statusByName.get(comp.name),
+                            )}
                           />
                         );
                       })}
@@ -403,8 +483,8 @@ export function LemonadeBrowser({
                   key={m.name}
                   label={m.name}
                   description={`${m.repoId}${m.variant ? `:${m.variant}` : ''}`}
-                  isSelected={selectedName === m.name}
-                  onClick={() => setSelectedName(m.name)}
+                  isSelected={selectedKey === `model:${m.name}`}
+                  onClick={() => setSelection({kind: 'model', model: m})}
                   endContent={modelEndContent(m, statusByName.get(m.name))}
                 />
               ))}
@@ -438,9 +518,9 @@ export function LemonadeBrowser({
         </VStack>
         <HStack gap={2} hAlign="between" vAlign="center">
           <Text type="supporting">
-            {selected
-              ? `${selected.name} · ${formatGb(selected.sizeGb)}`
-              : 'No model selected'}
+            {selLabel
+              ? `${selLabel.title} · ${formatGb(selLabel.sizeGb)}`
+              : 'Nothing selected'}
           </Text>
           <HStack gap={2} hAlign="end">
             <Button
@@ -453,8 +533,8 @@ export function LemonadeBrowser({
               label={resolving ? 'Resolving…' : 'Download'}
               variant="primary"
               size="sm"
-              onClick={() => void startDownload()}
-              isDisabled={selected == null || resolving}
+              onClick={onDownload}
+              isDisabled={selection == null || resolving}
             />
           </HStack>
         </HStack>
