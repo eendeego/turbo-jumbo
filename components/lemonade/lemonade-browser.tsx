@@ -232,7 +232,7 @@ export function LemonadeBrowser({
                                   : 'partial'
                               }
                               variant={
-                                info.status === 'complete' ? 'green' : 'orange'
+                                info.status === 'complete' ? 'blue' : 'orange'
                               }
                             />
                           </HoverCard>
