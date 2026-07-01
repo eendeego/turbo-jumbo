@@ -20,6 +20,7 @@ import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
 import type {AuditResult, AuditStatus} from '@/lib/audit';
 import {modelDisplayName} from '@/lib/model-name';
+import {fileBasename, peerFileBasenames} from '@/lib/peer-paths';
 
 export interface ShardInfo {
   filename: string;
@@ -434,23 +435,21 @@ function NameCell({
 function PeersCell({
   row,
   peers,
-  peerQuantKeys,
-  peerModelKeys,
+  peerBasenames,
 }: {
   row: DisplayRow;
   peers: PeerConfig[];
-  peerQuantKeys: Map<string, Set<string>>;
-  peerModelKeys: Map<string, Set<string>>;
+  peerBasenames: Map<string, Set<string>>;
 }) {
   if (peers.length === 0 || row.depth === 2) return null;
   return (
     <HStack gap={1} vAlign="center" wrap="nowrap">
       {peers.map((peer) => {
-        const quantKey = `${row.parentName}::${row.label}`;
+        // Joined by file basename, not model name: names are derived per host
+        // and can disagree for the same file (see lib/peer-paths.ts).
+        const names = peerBasenames.get(peer.address);
         const hasPeer =
-          row.depth > 0
-            ? (peerQuantKeys.get(peer.address)?.has(quantKey) ?? false)
-            : (peerModelKeys.get(peer.address)?.has(row.parentName) ?? false);
+          names != null && row.paths.some((p) => names.has(fileBasename(p)));
         return (
           <Badge
             key={peer.address}
@@ -568,26 +567,14 @@ export function ModelsTableClient({
     });
   }, []);
 
-  // peerAddress -> Set<"modelName::quant"> and peerAddress -> Set<modelName>.
-  const peerQuantKeys = useMemo(() => {
+  // Build lookup: peerAddress -> Set<file basename>. Files are matched across
+  // hosts by basename because model names are derived per host and can
+  // disagree for the same file (see lib/peer-paths.ts).
+  const peerBasenames = useMemo(() => {
     const map = new Map<string, Set<string>>();
     for (const [address, lo] of peerModels) {
       if (lo.type !== 'value') continue;
-      const keys = new Set<string>();
-      for (const m of lo.value)
-        for (const f of m.files) keys.add(`${m.name}::${f.quant}`);
-      map.set(address, keys);
-    }
-    return map;
-  }, [peerModels]);
-
-  const peerModelKeys = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const [address, lo] of peerModels) {
-      if (lo.type !== 'value') continue;
-      const keys = new Set<string>();
-      for (const m of lo.value) keys.add(m.name);
-      map.set(address, keys);
+      map.set(address, peerFileBasenames(lo.value));
     }
     return map;
   }, [peerModels]);
@@ -598,13 +585,13 @@ export function ModelsTableClient({
     return models
       .map((m) => {
         const quants = m.quants
-          .filter((q) =>
-            activeLocation === 'cold-storage'
-              ? q.inColdStorage
-              : (peerQuantKeys
-                  .get(activeLocation)
-                  ?.has(`${m.name}::${q.label}`) ?? false),
-          )
+          .filter((q) => {
+            if (activeLocation === 'cold-storage') return q.inColdStorage;
+            const names = peerBasenames.get(activeLocation);
+            return (
+              names != null && q.paths.some((p) => names.has(fileBasename(p)))
+            );
+          })
           // On the cold-storage tab, delete/select via the cold-storage paths.
           .map((q) =>
             activeLocation === 'cold-storage' && q.coldPaths.length > 0
@@ -623,7 +610,7 @@ export function ModelsTableClient({
         } satisfies ModelRow;
       })
       .filter((m): m is ModelRow => m !== null);
-  }, [models, activeLocation, peerQuantKeys]);
+  }, [models, activeLocation, peerBasenames]);
 
   const showCheckboxes = onToggleSelected != null;
 
@@ -776,8 +763,7 @@ export function ModelsTableClient({
               <PeersCell
                 row={item}
                 peers={peers}
-                peerQuantKeys={peerQuantKeys}
-                peerModelKeys={peerModelKeys}
+                peerBasenames={peerBasenames}
               />
             ),
           } satisfies TableColumn<DisplayRow>,
