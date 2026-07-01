@@ -256,7 +256,8 @@ export function HomeClient({
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // The "Sync from Lemonade" modal (move Lemonade-only models into Turbo Jumbo).
+  // The "Consolidate with Lemonade" modal (dedupe/move/link models so one copy
+  // on disk is shared between Turbo Jumbo and Lemonade).
   const [syncOpen, setSyncOpen] = useState(false);
 
   const locations: LocationTab[] = useMemo(
@@ -1049,7 +1050,7 @@ export function HomeClient({
         {localModelsPath && canDownloadLocally && (
           <HStack gap={2} hAlign="end">
             <Button
-              label="Sync from Lemonade…"
+              label="Consolidate with Lemonade…"
               variant="secondary"
               size="sm"
               onClick={() => setSyncOpen(true)}

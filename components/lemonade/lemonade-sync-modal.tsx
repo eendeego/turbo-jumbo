@@ -130,7 +130,7 @@ export function LemonadeSyncModal({
       purpose="form"
     >
       <VStack gap={4}>
-        <Heading level={3}>Sync from Lemonade</Heading>
+        <Heading level={3}>Consolidate with Lemonade</Heading>
         <Text type="supporting">
           Moves models that exist only in Lemonade into Turbo Jumbo&apos;s file
           structure, and deduplicates files Turbo Jumbo already holds — then
