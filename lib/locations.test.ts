@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {parseRoute, lemonadeHref} from '@/lib/locations';
+import {parseRoute, lemonadeHref, hfHref} from '@/lib/locations';
 import type {Peer} from '@/lib/config';
 
 const peers: Peer[] = [
@@ -70,5 +70,45 @@ test('round-trip lemonadeHref → parseRoute', () => {
   expect(parseRoute(segments, peers)).toEqual({
     location: '192.0.2.1',
     view: 'lemonade',
+  });
+});
+
+test('parseRoute: download/hf → all/hf', () => {
+  expect(parseRoute(['download', 'hf'], peers)).toEqual({
+    location: 'all',
+    view: 'hf',
+  });
+});
+
+test('parseRoute: <local-slug>/download/hf → local peer/hf', () => {
+  expect(parseRoute(['my-box', 'download', 'hf'], peers)).toEqual({
+    location: '192.0.2.1',
+    view: 'hf',
+  });
+});
+
+test('parseRoute: remote peer has no hf → null', () => {
+  expect(parseRoute(['remote-two', 'download', 'hf'], peers)).toBeNull();
+});
+
+test('parseRoute: cold-storage has no hf → null', () => {
+  expect(parseRoute(['cold-storage', 'download', 'hf'], peers)).toBeNull();
+});
+
+test('parseRoute: bad hf shapes → null', () => {
+  expect(parseRoute(['download', 'hf', 'extra'], peers)).toBeNull();
+});
+
+test('hfHref: all and local peer', () => {
+  expect(hfHref('all', peers)).toBe('/download/hf');
+  expect(hfHref('192.0.2.1', peers)).toBe('/my-box/download/hf');
+});
+
+test('round-trip hfHref → parseRoute (local peer)', () => {
+  const href = hfHref('192.0.2.1', peers); // '/my-box/download/hf'
+  const segments = href.split('/').filter(Boolean);
+  expect(parseRoute(segments, peers)).toEqual({
+    location: '192.0.2.1',
+    view: 'hf',
   });
 });
