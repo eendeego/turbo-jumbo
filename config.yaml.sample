@@ -18,8 +18,22 @@ peers:
   # This machine.
   - name: this-machine
     address: 192.168.1.10:3000
+
+    # Directory containing the model subdirectories. Required for the local peer.
+    # Local models live in <base_path>/turbo-jumbo and Lemonade's own model cache
+    # in <base_path>/lemonade (override the names below).
     base_path: /mnt/models
+
+    # Cold-storage (slow, archival) model directory. Required for the local peer.
     cold_storage_path: /mnt/cold-storage
+
+    # Subdirectory under base_path holding the local (turbo-jumbo) models.
+    # Optional. Default: turbo-jumbo
+    # turbo_jumbo_subdir: turbo-jumbo
+
+    # Subdirectory under base_path holding Lemonade's model cache. Optional.
+    # Default: lemonade
+    # lemonade_subdir: lemonade
 
   # A remote peer — only name and address are needed.
   - name: my-server

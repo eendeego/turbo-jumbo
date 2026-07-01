@@ -48,6 +48,41 @@ test('rejects an invalid log_level', () => {
   ).not.toBeNull();
 });
 
+test('accepts all documented options', () => {
+  expect(
+    validateRawConfig({
+      log_level: 'debug',
+      peer_check_interval: 30,
+      peers: [
+        {
+          name: 'A',
+          address: '[2001:db8::1]:3000',
+          base_path: '/mnt/models',
+          cold_storage_path: '/mnt/cold-storage',
+          turbo_jumbo_subdir: 'tj',
+          lemonade_subdir: 'lmnd',
+        },
+      ],
+    }),
+  ).toBeNull();
+});
+
+test('rejects an unknown peer key (e.g. the old local_path)', () => {
+  const err = validateRawConfig({
+    peers: [{name: 'A', address: '192.0.2.1:3000', local_path: '/mnt/models'}],
+  });
+  expect(err).toContain('local_path');
+});
+
+test('rejects a non-numeric peer_check_interval', () => {
+  expect(
+    validateRawConfig({
+      peer_check_interval: 'soon',
+      peers: [{name: 'A', address: '192.0.2.1:3000'}],
+    }),
+  ).not.toBeNull();
+});
+
 const peer = (overrides: Partial<Peer>): Peer => ({
   name: 'Test',
   address: '192.0.2.1:3000',
