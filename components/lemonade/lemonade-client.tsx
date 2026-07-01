@@ -1,35 +1,29 @@
 'use client';
 
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 import {useRouter} from 'next/navigation';
-import {
-  locationHref,
-  lemonadeHref,
-  COLD_STORAGE_LOCATION,
-} from '@/lib/locations';
+import {locationHref} from '@/lib/locations';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {LEMONADE_CATALOG_URL} from '@/lib/lemonade';
-import {AppShell} from '@astryxdesign/core/AppShell';
+import {LayoutContent} from '@astryxdesign/core/Layout';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {Link} from '@astryxdesign/core/Link';
-import {
-  LocationTabs,
-  type LocationTab,
-} from '@/components/models/location-tabs';
 import {LemonadeBrowser} from '@/components/lemonade/lemonade-browser';
-import {ThemeToggle} from '@/components/theme/theme-toggle';
-import {Log} from '@/components/log/log';
 import {useInventoryLocations} from '@/components/models/use-inventory-locations';
 
+/**
+ * Content for the "Add from Lemonade" view. The AppShell/TopNav (and global
+ * console) come from the route layout; this renders only the heading, catalog
+ * note, Back button, and the browser.
+ */
 export function LemonadeClient({
   activeLocation,
   coldModels,
   localModelsPath,
   hfTokenSet,
-  logLevel,
   peerConfigs,
   localPeerAddress,
   localPeerModels,
@@ -39,7 +33,6 @@ export function LemonadeClient({
   coldModels: Model[];
   localModelsPath: string;
   hfTokenSet: boolean;
-  logLevel: string;
   peerConfigs: PeerConfig[];
   localPeerAddress: string | null;
   localPeerModels: Model[];
@@ -52,29 +45,6 @@ export function LemonadeClient({
     localPeerModels,
     coldModels,
   });
-
-  const locations: LocationTab[] = useMemo(
-    () =>
-      peerConfigs.map((p) => ({
-        id: p.address,
-        label: p.name,
-        isLocal: p.isLocal ?? false,
-      })),
-    [peerConfigs],
-  );
-
-  // Switching location stays in Lemonade, except Cold Storage (no Lemonade
-  // there) which drops to its table.
-  const handleLocationChange = useCallback(
-    (id: string) => {
-      router.push(
-        id === COLD_STORAGE_LOCATION
-          ? locationHref(id, peerConfigs)
-          : lemonadeHref(id, peerConfigs),
-      );
-    },
-    [router, peerConfigs],
-  );
 
   // Re-scan the local peer after a download so its status markers update.
   const refreshLocalModels = useCallback(async () => {
@@ -153,21 +123,8 @@ export function LemonadeClient({
     activeLocation === 'all' || activeLocation === localPeerAddress;
 
   return (
-    <AppShell contentPadding={5} height="auto">
-      <VStack gap={6}>
-        <HStack vAlign="center">
-          <StackItem size="fill">
-            <Heading level={1}>Turbo Jumbo</Heading>
-          </StackItem>
-          <ThemeToggle />
-        </HStack>
-
-        <LocationTabs
-          locations={locations}
-          activeLocation={activeLocation}
-          onLocationChange={handleLocationChange}
-        />
-
+    <LayoutContent padding={5}>
+      <VStack gap={4}>
         <HStack vAlign="center">
           <StackItem size="fill">
             <Heading level={2}>Add from Lemonade</Heading>
@@ -198,8 +155,6 @@ export function LemonadeClient({
           onDownloaded={onDownloaded}
         />
       </VStack>
-
-      <Log logLevel={logLevel} />
-    </AppShell>
+    </LayoutContent>
   );
 }
