@@ -80,14 +80,16 @@ export function parseProgress(lines: string[]): DownloadProgress | null {
   return {percent, downloaded, total, speed, eta, filesDone, filesTotal};
 }
 
-// hf's download/fetch/complete progress lines, the resulting "  path: …" line,
-// and the cold-storage `[███░░] NN%` bar. These drive the bars, never notices.
+// hf's download/fetch/complete progress lines, its "✓ Downloaded" success line
+// and the resulting "  path: …" line, and the cold-storage `[███░░] NN%` bar.
+// These report progress/completion, never notices.
 function isProgressLine(line: string): boolean {
   const t = line.trimStart();
   return (
     /^Downloading\b/.test(t) ||
     /^Fetching\s+\d+\s+files?:/.test(t) ||
     /^Download complete:/.test(t) ||
+    /^✓\s+Downloaded\b/.test(t) ||
     /^path:\s/.test(t) ||
     /^\[[█░]+\]/.test(t)
   );

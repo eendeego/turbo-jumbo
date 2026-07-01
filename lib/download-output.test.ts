@@ -74,6 +74,16 @@ test('parseNotices excludes cold-storage progress and wrapper status', () => {
   expect(notices).toEqual([]);
 });
 
+test('parseNotices excludes hf\'s standalone "✓ Downloaded" success line', () => {
+  const notices = parseNotices([
+    'Fetching 2 files: 100% 2/2 [00:21<00:00, 10.7s/it]',
+    '✓ Downloaded',
+    '  path: /mnt/models/turbo-jumbo/ggml-org/gemma-3-4b-it-GGUF',
+    'Process exited with code 0',
+  ]);
+  expect(notices).toEqual([]);
+});
+
 test('parseNotices ignores the per-repo download header', () => {
   const notices = parseNotices([
     '=== mikkoph/kokoro-onnx  (1/1) ===',
