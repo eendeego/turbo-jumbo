@@ -761,6 +761,18 @@ export async function resolveSource(
   filename: string,
 ): Promise<HfFileInfo | null> {
   const cache = parseHubCachePath(relPath);
+  // A hub-cache file records its installed revision in the path (`snapshots/
+  // <rev>`, = refs/main). Pin the source to that rev — keeping branch `main` so
+  // the update check still compares against the branch head — so the sidecar
+  // records the actual installed commit, not whatever main points at now.
+  if (cache) {
+    const atRev = await resolveHfFileByPath(
+      cache.repoId,
+      cache.rev,
+      cache.repoPath,
+    );
+    if (atRev) return {...atRev, branch: 'main', commit: cache.rev};
+  }
   const implied = cache
     ? {repoId: cache.repoId, repoPath: cache.repoPath}
     : pathImpliedRepo(relPath);

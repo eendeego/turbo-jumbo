@@ -1889,3 +1889,43 @@ test('auditFileUpdate: null (not checkable) without a sidecar or recorded commit
 
   await fsp.rm(base, {recursive: true, force: true});
 });
+
+test('resolveSource pins a hub-cache file to its snapshot revision', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-cache-'));
+  const rel = 'models--org--repo/snapshots/abc123/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, 'data');
+
+  const realFetch = globalThis.fetch;
+  clearHfCache();
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models/org/repo/tree/abc123')) {
+      return new Response(
+        JSON.stringify([
+          {
+            type: 'file',
+            path: 'm.gguf',
+            size: 4,
+            lfs: {oid: 'sha256:beef', size: 4},
+            lastCommit: {id: 'abc123', date: '2025-01-01T00:00:00.000Z'},
+          },
+        ]),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  try {
+    const hf = await resolveSource(full, rel, 'org/repo', 'm.gguf');
+    expect(hf?.commit).toBe('abc123');
+    expect(hf?.branch).toBe('main');
+    expect(hf?.sha256).toBe('beef');
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
