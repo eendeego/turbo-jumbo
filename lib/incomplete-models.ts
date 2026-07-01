@@ -6,6 +6,7 @@ import {
   isPickOneSafetensorsRepo,
   repoDownloadFiles,
 } from '@/lib/hf-download';
+import {isDiffusersRepo} from '@/lib/diffusers';
 import {isClutterFile} from '@/lib/repo-clutter';
 import {listRepoFiles, type HfFileInfo} from '@/lib/hf-infer';
 import {hfSummary, type AuditResult, type TjMeta} from '@/lib/audit';
@@ -72,11 +73,15 @@ export async function findIncompleteRepos(
       try {
         const expected = await expectedFiles(m.name);
         if (expected.length === 0) return null;
-        // A pick-one repo — ggml whisper.cpp-style `.bin` weights, or a
-        // Comfy-Org split_files safetensors bundle — isn't a whole-repo
-        // download: like GGUF, each file is an independent model/component, so
-        // the repo's other variants aren't "missing".
-        if (isPickOneBinRepo(expected) || isPickOneSafetensorsRepo(expected))
+        // A pick-one repo — ggml whisper.cpp-style `.bin` weights, a Comfy-Org
+        // split_files safetensors bundle, or a diffusers pipeline — isn't a
+        // whole-repo download: like GGUF, each file is an independent
+        // model/component, so the repo's other variants aren't "missing".
+        if (
+          isPickOneBinRepo(expected) ||
+          isPickOneSafetensorsRepo(expected) ||
+          isDiffusersRepo(expected)
+        )
           return null;
         const dir = nodePath.join(base, m.name);
         const incomplete = expected.some(

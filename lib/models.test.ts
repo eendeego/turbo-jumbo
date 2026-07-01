@@ -176,6 +176,22 @@ test('duplicateBasenames ignores same-named files in different cache repos', asy
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('duplicateBasenames does not flag diffusers components that share a basename', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
+  // unet/ and vae/ both ship diffusion_pytorch_model.fp16.safetensors — same
+  // basename, different components, not duplicates.
+  await writeFile(
+    base,
+    'stabilityai/sdxl-turbo/unet/diffusion_pytorch_model.fp16.safetensors',
+  );
+  await writeFile(
+    base,
+    'stabilityai/sdxl-turbo/vae/diffusion_pytorch_model.fp16.safetensors',
+  );
+  expect(duplicateBasenames(scanModels(base)).size).toBe(0);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('duplicateBasenames does not flag mmproj projectors shared across repos', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
   await writeFile(base, 'unsloth/Model-A-GGUF/mmproj-F16.gguf');

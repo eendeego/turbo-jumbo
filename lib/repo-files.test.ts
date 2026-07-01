@@ -102,6 +102,33 @@ test('a split_files bundle reports only present files, not un-downloaded variant
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('a diffusers pipeline reports only present component files', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
+  const repoId = 'stabilityai/sdxl-turbo';
+  mockTree(repoId, [
+    {path: 'model_index.json', size: 600},
+    {path: 'unet/diffusion_pytorch_model.fp16.safetensors', size: 5000},
+    {path: 'unet/diffusion_pytorch_model.safetensors', size: 10000},
+    {path: 'vae/diffusion_pytorch_model.fp16.safetensors', size: 160},
+    {path: 'text_encoder/model.fp16.safetensors', size: 246},
+  ]);
+  // Only the fp16 unet and vae are downloaded.
+  await writeFileOfSize(
+    path.join(base, repoId, 'unet/diffusion_pytorch_model.fp16.safetensors'),
+    5000,
+  );
+  await writeFileOfSize(
+    path.join(base, repoId, 'vae/diffusion_pytorch_model.fp16.safetensors'),
+    160,
+  );
+  const out = await repoFileStatuses(base, repoId);
+  expect(out.map((f) => f.path).sort()).toEqual([
+    'unet/diffusion_pytorch_model.fp16.safetensors',
+    'vae/diffusion_pytorch_model.fp16.safetensors',
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('a checksum-less file whose size differs from HF is invalid', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
   const repoId = 'rf/wrong-size';

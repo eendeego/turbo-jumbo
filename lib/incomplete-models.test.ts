@@ -104,6 +104,24 @@ test('does not flag a Comfy split_files safetensors bundle as incomplete', async
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('does not flag a diffusers pipeline with a partial download as incomplete', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-inc-'));
+  const repoId = 'stabilityai/sdxl-turbo';
+  // Only the fp16 unet is present; the rest of the pipeline isn't "missing".
+  await writeSized(
+    path.join(base, repoId, 'unet/diffusion_pytorch_model.fp16.safetensors'),
+    50,
+  );
+  mockTree(repoId, [
+    {path: 'model_index.json', size: 6},
+    {path: 'unet/diffusion_pytorch_model.fp16.safetensors', size: 50},
+    {path: 'unet/diffusion_pytorch_model.safetensors', size: 100},
+    {path: 'vae/diffusion_pytorch_model.fp16.safetensors', size: 16},
+  ]);
+  expect(await findIncompleteRepos(base)).toEqual([]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('still flags a whole-repo (onnx) model missing a file as incomplete', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-inc-'));
   const repoId = 'ktest/kokoro';

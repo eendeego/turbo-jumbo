@@ -11,6 +11,7 @@ import {metaPath, pathImpliedRepo} from '@/lib/audit';
 import {parseHubCachePath} from '@/lib/hf-cache';
 import {readSafetensorsDtype} from '@/lib/safetensors';
 import {isMmprojFilename, repoIdFromModelUrl} from '@/lib/model-name';
+import {isDiffusersComponentFile} from '@/lib/diffusers';
 import {MODEL_SIDECAR_NAME} from '@/lib/model-sidecar';
 import {
   WEIGHT_EXT_RE,
@@ -363,6 +364,10 @@ export function duplicateBasenames(models: Model[]): Map<string, string[]> {
     // A cache-layout file is uniquely placed by its repo's snapshot; it is
     // never a stray basename duplicate the way a flat-layout copy can be.
     if (parseHubCachePath(relPath)) return;
+    // A diffusers component weight (`unet/…`, `vae/…`) carries a generic basename
+    // (`diffusion_pytorch_model.safetensors`) shared across components — its
+    // folder, not its name, identifies it, so it's never a basename duplicate.
+    if (isDiffusersComponentFile(relPath)) return;
     const name = path.basename(relPath);
     // mmproj projector files carry generic names (mmproj-F16.gguf) that recur
     // across vision models; same-named copies in different repos aren't

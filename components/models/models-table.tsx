@@ -1,6 +1,7 @@
 import type {Model, ModelFile} from '@/lib/model-types';
 import {modelDisplayName, isMmprojFilename} from '@/lib/model-name';
 import {normalizeModelNames} from '@/lib/models';
+import {isDiffusersRepo, diffusersComponentKey} from '@/lib/diffusers';
 import {fileJoinKey} from '@/lib/peer-paths';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
 import type {ModelRow, QuantInfo} from './models-table-client';
@@ -31,11 +32,27 @@ export function buildModelRows(
   // (see normalizeModelNames).
   const [localModels, coldModels] = normalizeModelNames([localScan, coldScan]);
 
+  // Models laid out as diffusers pipelines (component folders at two
+  // precisions): presented as present-only, precision-collapsed component
+  // variants rather than a whole-repo file list — so their weights key by
+  // component (unet, vae, …), merging fp16/fp32 siblings, instead of by quant.
+  const diffusersModels = new Set<string>();
+  for (const m of [...localModels, ...coldModels]) {
+    const paths = m.files.flatMap((f) =>
+      f.isSplit ? f.files.map((s) => s.path) : [f.path],
+    );
+    if (isDiffusersRepo(paths)) diffusersModels.add(m.name);
+  }
+
   // A projector (mmproj) is keyed by its filename, not its quant label, so a
-  // real F16 weight and mmproj-F16.gguf don't collide; weights key by quant.
-  const fileLabel = (f: ModelFile): string => {
+  // real F16 weight and mmproj-F16.gguf don't collide; a diffusers weight keys
+  // by its component folder; everything else keys by quant.
+  const fileLabel = (f: ModelFile, isDiffusers: boolean): string => {
     const base = f.isSplit ? f.representativeFilename : f.filename;
-    return isMmprojFilename(base) ? base : f.quant;
+    if (isMmprojFilename(base)) return base;
+    if (isDiffusers && !f.isSplit)
+      return diffusersComponentKey(f.path).component;
+    return f.quant;
   };
 
   // Index cold files by join key. This is what survives the differences between
@@ -79,42 +96,44 @@ export function buildModelRows(
   // against peer copies of the same quant.
   const coldQuantSizes = new Map<string, number>();
   for (const m of coldModels) {
+    const isDiffusers = diffusersModels.has(m.name);
     for (const f of m.files) {
       coldQuantSizes.set(
-        `${m.name}::${fileLabel(f)}`,
+        `${m.name}::${fileLabel(f, isDiffusers)}`,
         f.isSplit ? f.totalSize : f.size,
       );
     }
   }
 
   // Local file paths + display name per model::fileLabel, for selection/deletion.
+  // A diffusers component accumulates its precision siblings (fp16 + fp32)
+  // under one key, since they're collapsed into a single variant row.
   const localPathsMap = new Map<string, string[]>();
   const localDisplayNames = new Map<string, string>();
   for (const m of localModels) {
+    const isDiffusers = diffusersModels.has(m.name);
     for (const f of m.files) {
-      const key = `${m.name}::${fileLabel(f)}`;
-      if (f.isSplit) {
-        localPathsMap.set(
-          key,
-          f.files.map((s) => s.path),
-        );
-        localDisplayNames.set(key, f.representativeFilename);
-      } else {
-        localPathsMap.set(key, [f.path]);
-        localDisplayNames.set(key, f.filename);
-      }
+      const key = `${m.name}::${fileLabel(f, isDiffusers)}`;
+      const paths = f.isSplit ? f.files.map((s) => s.path) : [f.path];
+      const prev = localPathsMap.get(key);
+      localPathsMap.set(key, prev && isDiffusers ? [...prev, ...paths] : paths);
+      localDisplayNames.set(
+        key,
+        f.isSplit ? f.representativeFilename : f.filename,
+      );
     }
   }
 
   const rowMap = new Map<string, Map<string, QuantInfo>>();
   for (const m of [...localModels, ...coldModels]) {
+    const isDiffusers = diffusersModels.has(m.name);
     let quantMap = rowMap.get(m.name);
     if (!quantMap) {
       quantMap = new Map();
       rowMap.set(m.name, quantMap);
     }
     for (const f of m.files) {
-      const label = fileLabel(f);
+      const label = fileLabel(f, isDiffusers);
       if (!quantMap.has(label)) {
         const quantKey = `${m.name}::${label}`;
         // Match each file to its cold copy by filename; size then decides
@@ -167,6 +186,19 @@ export function buildModelRows(
           isProjector: isMmprojFilename(
             f.isSplit ? f.representativeFilename : f.filename,
           ),
+          // The precisions present for a diffusers component (fp16 / fp32),
+          // shown as a badge; undefined for non-diffusers quants.
+          ...(isDiffusers
+            ? {
+                precisions: [
+                  ...new Set(
+                    (localPathsMap.get(quantKey) ?? relPaths)
+                      .map((p) => diffusersComponentKey(p).precision)
+                      .filter((x): x is string => x != null),
+                  ),
+                ],
+              }
+            : {}),
         });
       }
     }
@@ -180,14 +212,30 @@ export function buildModelRows(
           Number(quantBits(a.label)) - Number(quantBits(b.label)),
       );
       const weights = quants.filter((q) => !q.isProjector);
-      const bits = [...new Set(weights.map((q) => quantBits(q.label)))];
       const sizes = weights.map((q) => q.size).filter((s) => s > 0);
+      const isDiffusers = diffusersModels.has(name);
+      // A diffusers pipeline's components are additive (you need all of them),
+      // so the row shows one total size, not a min–max range of alternatives.
+      const total = sizes.reduce((a, b) => a + b, 0);
+      const precisions = [
+        ...new Set(weights.flatMap((q) => q.precisions ?? [])),
+      ];
       return {
         name,
-        quantizations: bits.join(', '),
+        quantizations: isDiffusers
+          ? precisions.join(', ') || 'diffusers'
+          : [...new Set(weights.map((q) => quantBits(q.label)))].join(', '),
         quants,
-        minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
-        maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
+        minSize: isDiffusers
+          ? total
+          : sizes.length > 0
+            ? Math.min(...sizes)
+            : 0,
+        maxSize: isDiffusers
+          ? total
+          : sizes.length > 0
+            ? Math.max(...sizes)
+            : 0,
         ...coldStorageRollup(quants),
       };
     })

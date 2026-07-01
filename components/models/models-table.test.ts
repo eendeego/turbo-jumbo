@@ -17,6 +17,99 @@ function single(
   };
 }
 
+// A weight at a repo-relative path (the form scanModels produces), so its
+// component folder survives — used for diffusers-layout tests.
+function comp(path: string, quant: string, size = 100): Model['files'][number] {
+  return {
+    isSplit: false,
+    filename: path.split('/').pop() ?? path,
+    path,
+    quant,
+    size,
+    missing: false,
+  };
+}
+
+test('buildModelRows collapses a diffusers pipeline into per-component variant rows', () => {
+  const local: Model[] = [
+    {
+      name: 'stabilityai/sdxl-turbo',
+      files: [
+        comp(
+          'stabilityai/sdxl-turbo/unet/diffusion_pytorch_model.fp16.safetensors',
+          'F16',
+          5000,
+        ),
+        comp(
+          'stabilityai/sdxl-turbo/vae/diffusion_pytorch_model.fp16.safetensors',
+          'F16',
+          160,
+        ),
+        comp(
+          'stabilityai/sdxl-turbo/text_encoder/model.fp16.safetensors',
+          'F16',
+          246,
+        ),
+        comp(
+          'stabilityai/sdxl-turbo/text_encoder_2/model.fp16.safetensors',
+          'F16',
+          1400,
+        ),
+      ],
+    },
+  ];
+  const [row] = buildModelRows(local, []);
+  // One row per component, not a single collapsed 'F16' quant.
+  expect(row.quants.map((q) => q.label).sort()).toEqual([
+    'text_encoder',
+    'text_encoder_2',
+    'unet',
+    'vae',
+  ]);
+  // Additive: model size is the sum, shown as one number (min === max).
+  expect(row.minSize).toBe(5000 + 160 + 246 + 1400);
+  expect(row.maxSize).toBe(row.minSize);
+  // Summary shows precision, not garbled component names.
+  expect(row.quantizations).toBe('fp16');
+  const unet = row.quants.find((q) => q.label === 'unet')!;
+  expect(unet.precisions).toEqual(['fp16']);
+  expect(unet.paths).toEqual([
+    'stabilityai/sdxl-turbo/unet/diffusion_pytorch_model.fp16.safetensors',
+  ]);
+  expect(unet.size).toBe(5000);
+});
+
+test('buildModelRows merges fp16+fp32 of a diffusers component into one row', () => {
+  const local: Model[] = [
+    {
+      name: 'stabilityai/sdxl-turbo',
+      files: [
+        comp(
+          'stabilityai/sdxl-turbo/unet/diffusion_pytorch_model.fp16.safetensors',
+          'F16',
+          5000,
+        ),
+        comp(
+          'stabilityai/sdxl-turbo/unet/diffusion_pytorch_model.safetensors',
+          'F32',
+          10000,
+        ),
+      ],
+    },
+  ];
+  const [row] = buildModelRows(local, []);
+  expect(row.quants.map((q) => q.label)).toEqual(['unet']);
+  const unet = row.quants[0];
+  expect([...unet.paths].sort()).toEqual([
+    'stabilityai/sdxl-turbo/unet/diffusion_pytorch_model.fp16.safetensors',
+    'stabilityai/sdxl-turbo/unet/diffusion_pytorch_model.safetensors',
+  ]);
+  // fp32 carries no precision infix, so only fp16 is badged; size is one
+  // precision (the first seen), never the sum.
+  expect(unet.precisions).toEqual(['fp16']);
+  expect(unet.size).toBe(5000);
+});
+
 test('buildModelRows keeps an mmproj as an isProjector quant, out of the summary', () => {
   const local: Model[] = [
     {

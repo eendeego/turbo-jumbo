@@ -29,6 +29,7 @@ import type {
 import {isMmprojFilename, modelDisplayName} from '@/lib/model-name';
 import {ggmlModelVariant} from '@/lib/weight-files';
 import {isPickOneSafetensorsRepo} from '@/lib/hf-download';
+import {isDiffusersRepo} from '@/lib/diffusers';
 import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peer-paths';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
 import {rowAudit, rowUpdates, type RowAudit} from '@/lib/row-audit';
@@ -56,6 +57,9 @@ export interface QuantInfo {
   presentShards: number;
   missingIndices: number[];
   isProjector?: boolean;
+  // The precisions present for a diffusers component (fp16 / fp32), shown as a
+  // badge; undefined for non-diffusers quants.
+  precisions?: string[];
 }
 
 export type {LocationTab} from '@/components/models/location-tabs';
@@ -133,6 +137,8 @@ interface DisplayRow extends Record<string, unknown> {
   sizeBreakdownGroups?: SizeBreakdownGroup[];
   undersizedLocations: Set<string>;
   isProjector?: boolean;
+  // Precisions present for a diffusers component variant row (e.g. ['fp16']).
+  precisions?: string[];
   // Set on a whole-repo model's per-file child rows (present/missing/invalid).
   fileState?: RepoFileState;
   // Set on a whole-repo model row (depth 0): its invalid + missing files, for
@@ -159,7 +165,10 @@ function isWholeRepoModel(m: ModelRow): boolean {
     ) &&
     // A Comfy-Org split_files safetensors bundle is likewise a collection of
     // independent component/quant files, shown as variant rows, not a whole repo.
-    !isPickOneSafetensorsRepo(m.quants.flatMap((q) => q.paths))
+    !isPickOneSafetensorsRepo(m.quants.flatMap((q) => q.paths)) &&
+    // A diffusers pipeline is shown as present-only, precision-collapsed
+    // component variant rows (see buildModelRows), not a whole-repo file list.
+    !isDiffusersRepo(m.quants.flatMap((q) => q.paths))
   );
 }
 
@@ -675,6 +684,9 @@ function NameCell({
       return (
         <HStack gap={2} vAlign="center" xstyle={styles.indent1}>
           <Text type="body">{row.label}</Text>
+          {row.precisions && row.precisions.length > 0 && (
+            <Badge label={row.precisions.join(', ')} variant="neutral" />
+          )}
           <Text type="supporting">{row.filename}</Text>
         </HStack>
       );
@@ -1126,6 +1138,18 @@ export function ModelsTableClient({
     for (const [address, lo] of peerModels) {
       if (lo.type !== 'value') continue;
       for (const m of lo.value) {
+        // A diffusers pipeline reuses one basename across components (unet/ and
+        // vae/ both ship diffusion_pytorch_model.safetensors), so a filename key
+        // would compare unrelated components; its variants aren't size-checked
+        // across locations.
+        if (
+          isDiffusersRepo(
+            m.files.flatMap((f) =>
+              f.isSplit ? f.files.map((s) => s.path) : [f.path],
+            ),
+          )
+        )
+          continue;
         for (const f of m.files) {
           // Join copies across locations by filename, not the quant label:
           // several `.bin`/`.safetensors` files in one repo can share a quant
@@ -1397,6 +1421,7 @@ export function ModelsTableClient({
           sizeBreakdown: info?.mismatch ? info.breakdown : null,
           undersizedLocations: info?.undersized ?? new Set<string>(),
           isProjector: q.isProjector,
+          precisions: q.precisions,
         });
         if (!q.isSingleFile && expanded.has(quantKey)) {
           for (const shard of q.shards) {
