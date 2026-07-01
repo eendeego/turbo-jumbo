@@ -206,3 +206,24 @@ export async function upsertFileMeta(
     await writeModelSidecar(basePath, dir, model);
   });
 }
+
+/**
+ * Remove a file's entry from its model sidecar, serialized per dir. When the
+ * sidecar has no entries left, the `tjmodel.json` file is deleted.
+ */
+export async function removeFileMeta(
+  basePath: string,
+  dir: string,
+  key: string,
+): Promise<void> {
+  await withSidecarLock(sidecarPath(basePath, dir), async () => {
+    const model = await readModelSidecar(basePath, dir);
+    if (!model) return;
+    model.files = model.files.filter((f) => f.path !== key);
+    if (model.files.length === 0) {
+      await fsp.rm(sidecarPath(basePath, dir), {force: true});
+    } else {
+      await writeModelSidecar(basePath, dir, model);
+    }
+  });
+}

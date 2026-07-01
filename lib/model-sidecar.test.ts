@@ -9,6 +9,7 @@ import {
   readFileMeta,
   readFileMetaByPath,
   readModelSidecar,
+  removeFileMeta,
   upsertFileMeta,
   writeModelSidecar,
   type TjModel,
@@ -190,5 +191,18 @@ test('readFileMetaByPath finds a hub-cache file by its in-repo key', async () =>
 test('readFileMetaByPath returns null when no model sidecar is found', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
   expect(await readFileMetaByPath(base, 'org/repo/a.gguf')).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('removeFileMeta drops one entry, deleting the sidecar when it empties', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  await upsertFileMeta(base, 'org/repo', 'org/repo', entry({path: 'a.gguf'}));
+  await upsertFileMeta(base, 'org/repo', 'org/repo', entry({path: 'b.gguf'}));
+  await removeFileMeta(base, 'org/repo', 'a.gguf');
+  expect(
+    (await readModelSidecar(base, 'org/repo'))?.files.map((f) => f.path),
+  ).toEqual(['b.gguf']);
+  await removeFileMeta(base, 'org/repo', 'b.gguf');
+  expect(await readModelSidecar(base, 'org/repo')).toBeNull();
   await fsp.rm(base, {recursive: true, force: true});
 });
