@@ -13,7 +13,7 @@ import {readSafetensorsDtype} from '@/lib/safetensors';
 import {isMmprojFilename, repoIdFromModelUrl} from '@/lib/model-name';
 import {isDiffusersComponentFile} from '@/lib/diffusers';
 import {MODEL_SIDECAR_NAME, summarizeModel} from '@/lib/model-sidecar';
-import type {SidecarSummary, TjModel} from '@/lib/model-sidecar';
+import type {SidecarSummary, TjModel, TjModelFile} from '@/lib/model-sidecar';
 import {
   WEIGHT_EXT_RE,
   ggmlModelVariant,
@@ -98,6 +98,15 @@ function modelSidecarSummary(
 ): SidecarSummary | null {
   const m = readSidecarFor(fullPath, storagePath);
   return m && typeof m.repoId === 'string' ? summarizeModel(m) : null;
+}
+
+/** The per-file records of the sidecar owning `fullPath`, or null. */
+function modelSidecarFiles(
+  fullPath: string,
+  storagePath: string,
+): TjModelFile[] | null {
+  const m = readSidecarFor(fullPath, storagePath);
+  return m && Array.isArray(m.files) ? m.files : null;
 }
 
 // A quantization token: IQ2_XS, Q4_K_M, MXFP4 (Microscaling FP4), BF16, F16, …
@@ -376,10 +385,14 @@ export function scanModels(
     .map(([name, files]) => {
       const sample = sampleByModel.get(name);
       const sidecar = sample ? modelSidecarSummary(sample, storagePath) : null;
+      const sidecarFiles = sample
+        ? modelSidecarFiles(sample, storagePath)
+        : null;
       return {
         name,
         files: files.sort((a, b) => a.quant.localeCompare(b.quant)),
         ...(sidecar ? {sidecar} : {}),
+        ...(sidecarFiles ? {sidecarFiles} : {}),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

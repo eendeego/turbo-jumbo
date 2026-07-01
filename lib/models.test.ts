@@ -674,6 +674,39 @@ test('scanModels attaches the sidecar summary to a model', async () => {
   await fsp.rm(root, {recursive: true, force: true});
 });
 
+test('scanModels attaches the raw sidecar files to a model', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'scan-'));
+  const dir = path.join(root, 'models--org--repo');
+  await fsp.mkdir(dir, {recursive: true});
+  const sidecar: TjModel = {
+    modelUrl: 'https://huggingface.co/org/repo',
+    repoId: 'org/repo',
+    files: [
+      {
+        path: 'model.gguf',
+        originUrl: 'https://huggingface.co/org/repo/blob/main/model.gguf',
+        sourceCommit: 'abc123',
+        sourceSize: 500,
+        computedSize: 500,
+        sourceSha256: 'aa',
+        computedSha256: 'aa',
+      },
+    ],
+  };
+  await fsp.writeFile(
+    path.join(dir, MODEL_SIDECAR_NAME),
+    JSON.stringify(sidecar),
+  );
+  await fsp.writeFile(path.join(dir, 'model.gguf'), Buffer.alloc(500));
+
+  const m = scanModels(root).find((x) => x.name === 'org/repo');
+  expect(m!.sidecarFiles).toBeDefined();
+  expect(m!.sidecarFiles!.map((f) => f.path)).toEqual(['model.gguf']);
+  expect(m!.sidecarFiles![0].sourceCommit).toBe('abc123');
+
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
 test('scanModels leaves sidecar undefined when there is none', async () => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'scan-'));
   await fsp.mkdir(path.join(root, 'loose'), {recursive: true});

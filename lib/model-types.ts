@@ -2,7 +2,7 @@
 // (lib/models.ts) and client components. Must stay free of Node imports
 // (fs, path) since client bundles pull in anything this module imports.
 
-import type {SidecarSummary} from '@/lib/sidecar-types';
+import type {SidecarSummary, TjModelFile} from '@/lib/sidecar-types';
 
 export interface SingleFile {
   isSplit: false;
@@ -50,4 +50,7 @@ export interface Model {
   // The model-level summary of this copy's tjmodel.json sidecar, when it has
   // one. Carried to the model-name hovercard. Absent for sidecar-less models.
   sidecar?: SidecarSummary;
+  // The owning sidecar's raw per-file records, for matching provenance to file
+  // rows downstream. Absent for sidecar-less models.
+  sidecarFiles?: TjModelFile[];
 }
