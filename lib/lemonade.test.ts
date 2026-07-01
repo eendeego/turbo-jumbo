@@ -1,9 +1,14 @@
 import {test, expect} from 'bun:test';
 import {
+  lemonadeDownloadStatus,
   lemonadeGgufModels,
+  lemonadeStatusTooltip,
   matchVariantFiles,
   parseCheckpoint,
+  type InventoryLocation,
+  type LemonadeModel,
 } from '@/lib/lemonade';
+import type {Model} from '@/lib/model-types';
 
 test('parseCheckpoint splits a repo from its variant', () => {
   expect(parseCheckpoint('unsloth/Qwen3-0.6B-GGUF:Q4_0')).toEqual({
@@ -147,4 +152,169 @@ test('matchVariantFiles matches split shards of the variant', () => {
     'big-Q4_K_M-00001-of-00002.gguf',
     'big-Q4_K_M-00002-of-00002.gguf',
   ]);
+});
+
+// --- lemonadeDownloadStatus ---------------------------------------------
+
+function model(over: Partial<LemonadeModel> = {}): LemonadeModel {
+  return {
+    name: 'Qwen3-0.6B-GGUF',
+    repoId: 'unsloth/Qwen3-0.6B-GGUF',
+    variant: 'Q4_0',
+    mmproj: null,
+    suggested: false,
+    labels: [],
+    sizeGb: 0.4,
+    ...over,
+  };
+}
+
+// A single-file model named by its repo (as the hub-cache scan names it).
+function repoModel(name: string, files: Model['files']): Model {
+  return {name, files};
+}
+
+function single(
+  filename: string,
+  quant: string,
+  missing = false,
+): Model['files'][number] {
+  return {isSplit: false, filename, path: filename, quant, size: 1, missing};
+}
+
+function loc(name: string, models: Model[]): InventoryLocation {
+  return {name, models};
+}
+
+test('lemonadeDownloadStatus matches a quant-token variant case-insensitively', () => {
+  const local = loc('local', [
+    repoModel('unsloth/Qwen3-0.6B-GGUF', [
+      single('Qwen3-0.6B-Q4_0.gguf', 'Q4_0'),
+    ]),
+  ]);
+  const info = lemonadeDownloadStatus(model({variant: 'q4_0'}), [local]);
+  expect(info.status).toBe('complete');
+  expect(info.locations).toEqual([{name: 'local', status: 'complete'}]);
+});
+
+test('lemonadeDownloadStatus matches an exact-filename variant', () => {
+  const local = loc('local', [
+    repoModel('unsloth/gemma-3-270m-it-GGUF', [
+      single('gemma-3-270m-it-UD-IQ2_M.gguf', 'IQ2_M'),
+    ]),
+  ]);
+  const info = lemonadeDownloadStatus(
+    model({
+      repoId: 'unsloth/gemma-3-270m-it-GGUF',
+      variant: 'gemma-3-270m-it-UD-IQ2_M.gguf',
+    }),
+    [local],
+  );
+  expect(info.status).toBe('complete');
+});
+
+test('lemonadeDownloadStatus matches a whole-repo (null) variant via any gguf', () => {
+  const local = loc('local', [
+    repoModel('pqnet/bge-reranker-v2-m3-Q8_0-GGUF', [
+      single('bge-reranker-v2-m3-Q8_0.gguf', 'Q8_0'),
+    ]),
+  ]);
+  const info = lemonadeDownloadStatus(
+    model({repoId: 'pqnet/bge-reranker-v2-m3-Q8_0-GGUF', variant: null}),
+    [local],
+  );
+  expect(info.status).toBe('complete');
+});
+
+test('lemonadeDownloadStatus reports partial when a shard is missing', () => {
+  const split: Model['files'][number] = {
+    isSplit: true,
+    representativeFilename: 'Qwen3-0.6B-Q4_0-00001-of-00002.gguf',
+    files: [{path: 'Qwen3-0.6B-Q4_0-00001-of-00002.gguf', size: 1}],
+    quant: 'Q4_0',
+    totalShards: 2,
+    presentShards: 1,
+    missingIndices: [2],
+    totalSize: 1,
+  };
+  const local = loc('local', [repoModel('unsloth/Qwen3-0.6B-GGUF', [split])]);
+  const info = lemonadeDownloadStatus(model(), [local]);
+  expect(info.status).toBe('partial');
+  expect(info.locations).toEqual([{name: 'local', status: 'partial'}]);
+});
+
+test('lemonadeDownloadStatus reports partial when the named mmproj is absent', () => {
+  const local = loc('local', [
+    repoModel('unsloth/Qwen3-VL-GGUF', [single('Qwen3-VL-Q4_0.gguf', 'Q4_0')]),
+  ]);
+  const info = lemonadeDownloadStatus(
+    model({repoId: 'unsloth/Qwen3-VL-GGUF', mmproj: 'mmproj-F16.gguf'}),
+    [local],
+  );
+  expect(info.status).toBe('partial');
+});
+
+test('lemonadeDownloadStatus is complete when the named mmproj is present', () => {
+  const local = loc('local', [
+    repoModel('unsloth/Qwen3-VL-GGUF', [
+      single('Qwen3-VL-Q4_0.gguf', 'Q4_0'),
+      single('mmproj-F16.gguf', 'F16'),
+    ]),
+  ]);
+  const info = lemonadeDownloadStatus(
+    model({repoId: 'unsloth/Qwen3-VL-GGUF', mmproj: 'mmproj-F16.gguf'}),
+    [local],
+  );
+  expect(info.status).toBe('complete');
+});
+
+test('lemonadeDownloadStatus returns none when nothing matches', () => {
+  const local = loc('local', [
+    repoModel('someone/else-GGUF', [single('else-Q4_0.gguf', 'Q4_0')]),
+  ]);
+  const info = lemonadeDownloadStatus(model(), [local]);
+  expect(info.status).toBe('none');
+  expect(info.locations).toEqual([]);
+});
+
+test('lemonadeDownloadStatus takes the best status across locations, preserving order', () => {
+  const partialSplit: Model['files'][number] = {
+    isSplit: true,
+    representativeFilename: 'Qwen3-0.6B-Q4_0-00001-of-00002.gguf',
+    files: [{path: 'Qwen3-0.6B-Q4_0-00001-of-00002.gguf', size: 1}],
+    quant: 'Q4_0',
+    totalShards: 2,
+    presentShards: 1,
+    missingIndices: [2],
+    totalSize: 1,
+  };
+  const myServer = loc('my-server', [
+    repoModel('unsloth/Qwen3-0.6B-GGUF', [partialSplit]),
+  ]);
+  const cold = loc('cold storage', [
+    repoModel('unsloth/Qwen3-0.6B-GGUF', [
+      single('Qwen3-0.6B-Q4_0.gguf', 'Q4_0'),
+    ]),
+  ]);
+  const info = lemonadeDownloadStatus(model(), [myServer, cold]);
+  expect(info.status).toBe('complete');
+  expect(info.locations).toEqual([
+    {name: 'my-server', status: 'partial'},
+    {name: 'cold storage', status: 'complete'},
+  ]);
+});
+
+// --- lemonadeStatusTooltip ----------------------------------------------
+
+test('lemonadeStatusTooltip groups locations by status', () => {
+  expect(
+    lemonadeStatusTooltip({
+      status: 'complete',
+      locations: [
+        {name: 'my-server', status: 'partial'},
+        {name: 'cold storage', status: 'complete'},
+        {name: 'local', status: 'complete'},
+      ],
+    }),
+  ).toBe('Complete: cold storage, local. Partial: my-server.');
 });

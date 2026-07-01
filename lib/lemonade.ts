@@ -3,6 +3,8 @@
 // entries matter here — they are single GGUF files in HF repos, which is what
 // this app stores; other recipes (ONNX, whisper, SD) are multi-file layouts.
 
+import type {Model, ModelFile} from '@/lib/model-types';
+
 /** One downloadable GGUF model from the Lemonade catalog. */
 export interface LemonadeModel {
   name: string;
@@ -114,4 +116,107 @@ export function matchVariantFiles(
     if (extra && !picked.includes(extra.path)) picked.push(extra.path);
   }
   return picked;
+}
+
+export type DownloadStatus = 'none' | 'partial' | 'complete';
+
+/** One storage location's scan, labeled for display in the marker tooltip. */
+export interface InventoryLocation {
+  name: string; // "local", "cold storage", a peer name like "my-server"
+  models: Model[];
+}
+
+/** Where a catalog entry is present, and how complete each copy is. */
+export interface LemonadeDownloadInfo {
+  status: DownloadStatus; // best across all locations
+  locations: Array<{name: string; status: 'partial' | 'complete'}>;
+}
+
+// Strip a `-NNNNN-of-MMMMM` shard suffix that sits just before the extension,
+// so a split group's representative filename can be compared to a Lemonade
+// exact-filename variant (which names the unsharded file).
+const SHARD_SUFFIX_RE = /-\d+-of-\d+(?=\.[^.]+$)/i;
+const stripShard = (name: string) => name.replace(SHARD_SUFFIX_RE, '');
+
+const groupFilename = (f: ModelFile) =>
+  f.isSplit ? f.representativeFilename : f.filename;
+
+// A weight group counts as present-and-whole when every shard is accounted for
+// (single files are atomic; a failed stat marks them missing).
+const groupComplete = (f: ModelFile): boolean =>
+  f.isSplit
+    ? f.totalShards > 0 && f.presentShards === f.totalShards
+    : !f.missing;
+
+// Does this scanned weight group satisfy the catalog entry's variant? Mirrors
+// matchVariantFiles' selection rules, but over already-scanned ModelFiles
+// (which carry a quant label and, for split groups, a representative name).
+function fileMatchesVariant(f: ModelFile, variant: string | null): boolean {
+  const base = (groupFilename(f).split('/').pop() ?? '').toLowerCase();
+  const isMmprojFile = base.startsWith('mmproj');
+  if (!base.endsWith('.gguf')) return false;
+  if (variant == null) return !isMmprojFile;
+  if (variant.toLowerCase().endsWith('.gguf')) {
+    const v = variant.toLowerCase();
+    return base === v || stripShard(base) === stripShard(v);
+  }
+  if (isMmprojFile) return false;
+  const token = variant.toLowerCase();
+  return f.quant.toLowerCase() === token || base.includes(token);
+}
+
+function locationStatus(model: LemonadeModel, models: Model[]): DownloadStatus {
+  // The hub-cache scan names a model by its repo id, which is where Lemonade
+  // downloads land — so the entry's repo id is the join key.
+  const files = models
+    .filter((m) => m.name === model.repoId)
+    .flatMap((m) => m.files);
+  const matched = files.filter((f) => fileMatchesVariant(f, model.variant));
+  if (matched.length === 0) return 'none';
+  let complete = matched.every(groupComplete);
+  if (model.mmproj) {
+    const want = model.mmproj.toLowerCase();
+    const hasMmproj = files.some(
+      (f) =>
+        (groupFilename(f).split('/').pop() ?? '').toLowerCase() === want &&
+        groupComplete(f),
+    );
+    if (!hasMmproj) complete = false;
+  }
+  return complete ? 'complete' : 'partial';
+}
+
+/**
+ * Whether a Lemonade catalog entry is already downloaded, across the given
+ * locations. Status is the best any single location offers (complete > partial
+ * > none); `locations` lists every location that has a copy, in input order,
+ * with that location's own completeness.
+ */
+export function lemonadeDownloadStatus(
+  model: LemonadeModel,
+  locations: InventoryLocation[],
+): LemonadeDownloadInfo {
+  const hits: Array<{name: string; status: 'partial' | 'complete'}> = [];
+  for (const loc of locations) {
+    const s = locationStatus(model, loc.models);
+    if (s !== 'none') hits.push({name: loc.name, status: s});
+  }
+  const status: DownloadStatus = hits.some((h) => h.status === 'complete')
+    ? 'complete'
+    : hits.length > 0
+      ? 'partial'
+      : 'none';
+  return {status, locations: hits};
+}
+
+/** Tooltip text for a marker: locations grouped by completeness. */
+export function lemonadeStatusTooltip(info: LemonadeDownloadInfo): string {
+  const names = (s: 'partial' | 'complete') =>
+    info.locations.filter((l) => l.status === s).map((l) => l.name);
+  const complete = names('complete');
+  const partial = names('partial');
+  const parts: string[] = [];
+  if (complete.length) parts.push(`Complete: ${complete.join(', ')}.`);
+  if (partial.length) parts.push(`Partial: ${partial.join(', ')}.`);
+  return parts.join(' ');
 }
