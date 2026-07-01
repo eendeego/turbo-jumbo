@@ -7,7 +7,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
-import {withPeerPaths} from '@/lib/peer-paths';
+import {fileJoinKey, fileSizesByKey, withPeerPaths} from '@/lib/peer-paths';
 import type {ModelRow} from '@/components/models/models-table-client';
 import {
   ModelsTableClient,
@@ -55,6 +55,7 @@ function fileRefFromSummary(
 function selectedFileInfo(
   models: ModelRow[],
   selected: Set<string>,
+  sourceSizeByKey: Map<string, number>,
 ): FileInfo[] {
   const result: FileInfo[] = [];
   for (const model of models) {
@@ -70,10 +71,19 @@ function selectedFileInfo(
           filename: q.displayName,
           // The source size, so a smaller cold-storage/peer copy (an incomplete
           // transfer) isn't treated as already present — a single file joins to
-          // one destination key, so its size compares directly. A split's
-          // representative name would compare against a single shard, so leave
-          // size off for splits (presence falls back to name-only).
-          ...(q.isSingleFile ? {size: q.size} : {}),
+          // one destination key, so its size compares directly. Use the largest
+          // copy known across locations, not q.size: a row built from a
+          // truncated cold copy carries that truncated size, which would hide
+          // that a peer holds the complete file. A split's representative name
+          // would compare against a single shard, so leave size off for splits
+          // (presence falls back to name-only).
+          ...(q.isSingleFile
+            ? {
+                size:
+                  sourceSizeByKey.get(fileJoinKey(model.name, q.displayName)) ??
+                  q.size,
+              }
+            : {}),
         });
       } else {
         // Split quant with multiple selected shards: list each shard file.
@@ -406,9 +416,31 @@ export function HomeClient({
     [tableModels, seededPeerModels],
   );
 
+  // The largest copy of each file known across cold storage, local, and every
+  // peer, keyed by fileJoinKey (matching allFilesPresent). A row built from a
+  // truncated cold/local copy reports that truncated size as its quant size, so
+  // the copy modal's "already in cold storage" check needs the true (complete)
+  // size from wherever the full copy lives — otherwise a peer's full file can't
+  // be copied over a truncated cold copy.
+  const sourceSizeByKey = useMemo(() => {
+    const max = new Map<string, number>();
+    const merge = (list: Model[]) => {
+      for (const [key, size] of fileSizesByKey(list)) {
+        const prev = max.get(key);
+        if (prev == null || size > prev) max.set(key, size);
+      }
+    };
+    merge(coldModels);
+    merge(localPeerModels);
+    for (const lo of seededPeerModels.values()) {
+      if (lo.type === 'value') merge(lo.value);
+    }
+    return max;
+  }, [coldModels, localPeerModels, seededPeerModels]);
+
   const fileInfo = useMemo(
-    () => selectedFileInfo(augmentedModels, selected),
-    [augmentedModels, selected],
+    () => selectedFileInfo(augmentedModels, selected, sourceSizeByKey),
+    [augmentedModels, selected, sourceSizeByKey],
   );
 
   // Incomplete repos for the table's current view: a single location's set, or
