@@ -238,6 +238,25 @@ export async function listRepoFiles(
     .filter((i): i is HfFileInfo => i != null);
 }
 
+/**
+ * Map every file path in a repo (at a branch) to its byte size — the LFS object
+ * size when present, else the blob size. null on fetch failure. Unlike
+ * listRepoFiles this keeps non-LFS files, since it's sizing a download's
+ * progress bar, not verifying checksums. Reuses the run's tree cache.
+ */
+export async function repoFileSizes(
+  repoId: string,
+  branch: string,
+): Promise<Map<string, number> | null> {
+  const entries = await fetchTree(repoId, branch);
+  if (!entries) return null;
+  const sizes = new Map<string, number>();
+  for (const e of entries) {
+    if (e.type === 'file') sizes.set(e.path, e.lfs?.size ?? e.size);
+  }
+  return sizes;
+}
+
 export interface HfCommitRef {
   id: string; // commit SHA
   date: string; // ISO 8601, '' if absent

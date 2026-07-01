@@ -253,6 +253,9 @@ export function DownloadModal({
             )}
           </Banner>
         )}
+        {running && !progress && (
+          <ProgressBar label="Downloading…" isIndeterminate />
+        )}
         {progress && (
           <VStack gap={2}>
             <ProgressBar

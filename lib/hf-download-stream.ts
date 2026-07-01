@@ -9,7 +9,7 @@ import {
   readMetaResolved,
   updateMetaResolved,
 } from '@/lib/audit';
-import {resolveHfFileByPath} from '@/lib/hf-infer';
+import {repoFileSizes, resolveHfFileByPath} from '@/lib/hf-infer';
 import {repoIdFromModelUrl} from '@/lib/model-name';
 import {
   clearMissingFlag,
@@ -100,6 +100,35 @@ function fmtBytes(b: number): string {
   if (b >= 1e9) return `${(b / 1e9).toFixed(1)}GB`;
   if (b >= 1e6) return `${(b / 1e6).toFixed(1)}MB`;
   return `${(b / 1e3).toFixed(1)}KB`;
+}
+
+function fmtTime(sec: number): string {
+  const s = Number.isFinite(sec) && sec > 0 ? Math.floor(sec) : 0;
+  const m = Math.floor(s / 60);
+  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// Bytes-on-disk under `dir`, summed recursively, tolerant of files vanishing
+// mid-walk (hf moves completed blobs out of its `.cache` staging area). Missing
+// directory → 0. Used to gauge download progress, since hf prints none itself.
+async function dirBytes(dir: string): Promise<number> {
+  let entries: import('fs').Dirent[];
+  try {
+    entries = await fsp.readdir(dir, {withFileTypes: true});
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const ent of entries) {
+    const full = path.join(dir, ent.name);
+    try {
+      if (ent.isDirectory()) total += await dirBytes(full);
+      else if (ent.isFile()) total += (await fsp.stat(full)).size;
+    } catch {
+      /* file moved/removed between readdir and stat */
+    }
+  }
+  return total;
 }
 
 async function moveToColdstorage(
@@ -268,7 +297,54 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
           : process.env,
       });
 
-      signal.addEventListener('abort', () => proc.kill('SIGTERM'));
+      // hf prints no progress while downloading, so synthesize it: size the bar
+      // from the repo's file sizes, then poll bytes-on-disk and emit a
+      // tqdm-shaped `Downloading: NN% …` line (parsed by parseProgress) each
+      // tick. Best-effort — if the repo can't be sized (offline/rate-limited)
+      // we emit nothing and the client falls back to an indeterminate bar.
+      const t0 = Date.now();
+      let totalBytes = 0;
+      let pollTimer: ReturnType<typeof setInterval> | null = null;
+      const stopPoll = () => {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = null;
+      };
+      void (async () => {
+        const sizes = await repoFileSizes(repoId, branch);
+        if (!sizes || signal.aborted) return;
+        totalBytes = (filePaths as string[]).reduce(
+          (sum, fp) => sum + (sizes.get(fp) ?? 0),
+          0,
+        );
+        if (totalBytes <= 0) return;
+        let lastDone = 0;
+        let lastT = t0;
+        pollTimer = setInterval(() => {
+          void dirBytes(localDir).then((raw) => {
+            // The walk is async; if the run ended (stopPoll cleared the timer)
+            // while it was in flight, the controller may be closed — don't
+            // enqueue onto it.
+            if (pollTimer === null) return;
+            const done = Math.min(raw, totalBytes);
+            const now = Date.now();
+            const dt = (now - lastT) / 1000;
+            const speed = dt > 0 ? (done - lastDone) / dt : 0;
+            lastDone = done;
+            lastT = now;
+            const pct = Math.min(99, Math.floor((done / totalBytes) * 100));
+            const eta = speed > 0 ? (totalBytes - done) / speed : 0;
+            enqueue(
+              `\rDownloading: ${pct}% ${fmtBytes(done)}/${fmtBytes(totalBytes)}` +
+                ` [${fmtTime((now - t0) / 1000)}<${fmtTime(eta)}, ${fmtBytes(speed)}/s]`,
+            );
+          });
+        }, 1000);
+      })();
+
+      signal.addEventListener('abort', () => {
+        stopPoll();
+        proc.kill('SIGTERM');
+      });
 
       const onData = (chunk: Buffer) => {
         const text = stripAnsi(chunk.toString());
@@ -279,11 +355,21 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
       proc.stderr.on('data', onData);
 
       proc.on('error', (err) => {
+        stopPoll();
         enqueue(`\nError: ${err.message}\n`);
         controller.close();
       });
 
       proc.on('close', async (code) => {
+        stopPoll();
+        // Carry the bar to 100% — the poll caps at 99% and hf's silence means
+        // nothing else would.
+        if (code === 0 && totalBytes > 0) {
+          const tb = fmtBytes(totalBytes);
+          enqueue(
+            `\rDownload complete: 100% ${tb}/${tb} [${fmtTime((Date.now() - t0) / 1000)}]\n`,
+          );
+        }
         enqueue(`\nProcess exited with code ${code}\n`);
         try {
           if (code !== 0) {
