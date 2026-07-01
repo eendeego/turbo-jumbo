@@ -231,6 +231,30 @@ test('scanModels names a sidecar-less flat-layout mmproj by its path repo', asyn
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('scanModels names a sidecar-less GGUF under <org>/<repo>/ by its path repo', async () => {
+  // The filename carries the model name, but the file sits under its repo dir
+  // with no sidecar. The directory is authoritative, so it joins a sidecar'd
+  // copy on another host instead of showing as the short `gemma-3-4b-it`.
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  await writeFile(
+    base,
+    'ggml-org/gemma-3-4b-it-GGUF/gemma-3-4b-it-Q4_K_M.gguf',
+  );
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['ggml-org/gemma-3-4b-it-GGUF']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('scanModels still uses the filename for a loose GGUF (no repo dir)', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  await writeFile(base, 'gemma-3-4b-it-Q4_K_M.gguf');
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['gemma-3-4b-it']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('scanModels ignores the cache blobs and refs entries', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
   await writeFile(
@@ -433,16 +457,6 @@ test('scanModels names flat sharded safetensors by repo and groups them', async 
   const models = scanModels(base);
   expect(models.map((m) => m.name)).toEqual(['org/repo']);
   expect(models[0].files[0].isSplit).toBe(true);
-  await fsp.rm(base, {recursive: true, force: true});
-});
-
-test('scanModels still names a flat gguf by its filename, not its directory', async () => {
-  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
-  // GGUF filenames carry the model name, so directory-naming must not apply.
-  await writeFile(base, 'unsloth/Qwen3-GGUF/Qwen3-Q4_K_M.gguf');
-
-  const models = scanModels(base);
-  expect(models.map((m) => m.name)).toEqual(['Qwen3']);
   await fsp.rm(base, {recursive: true, force: true});
 });
 

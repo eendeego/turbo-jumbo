@@ -233,15 +233,17 @@ export function scanModels(
       // In the hub cache layout the repo is encoded in the directory, so it's
       // the authoritative name regardless of the (often generic) filename.
       const cacheRepoId = parseHubCachePath(relPath)?.repoId ?? null;
-      // Flat-layout files with generic filenames — safetensors/bin weights
-      // (model.safetensors) and mmproj projector GGUFs (mmproj-F16.gguf) —
-      // don't carry the model name, so derive their repo from the
-      // `<org>/<repo>/` directory the flat mirror stores them under. Other GGUF
-      // filenames carry the model name, so they keep their filename-derived one.
-      const flatRepoId =
-        /\.(safetensors|bin)$/i.test(entry.name) || isMmprojFilename(entry.name)
-          ? (pathImpliedRepo(relPath)?.repoId ?? null)
-          : null;
+      // A weight file stored under an `<org>/<repo>/` directory (the flat mirror
+      // layout) takes that repo as its name when no sidecar says otherwise — the
+      // directory is authoritative even for a GGUF whose filename carries the
+      // model name. Otherwise the same file is named `gemma-3-4b-it` on a host
+      // without a sidecar but `ggml-org/gemma-3-4b-it-GGUF` on one with it, so
+      // the two copies don't join (and the peer tab shows the wrong name). A
+      // truly loose file (no `<org>/<repo>/` path) still falls back to its
+      // filename-derived name.
+      const flatRepoId = isWeightFile(entry.name)
+        ? (pathImpliedRepo(relPath)?.repoId ?? null)
+        : null;
       const splitMatch = entry.name.match(SPLIT_RE);
 
       if (splitMatch) {
