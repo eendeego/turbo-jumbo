@@ -1,3 +1,5 @@
+import {isWeightFile} from '@/lib/models';
+
 const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BRANCH_RE = /^[A-Za-z0-9_./-]+$/;
 const FOLDER_RE = /^[A-Za-z0-9_. -]+$/;
@@ -28,8 +30,10 @@ export async function GET(req: Request) {
 
   const entries: HfEntry[] = await hfRes.json();
 
+  // At the repo root, list model weight files (GGUF, safetensors, .bin); a
+  // folder is browsed in full, since the user pointed at it deliberately.
   const files = entries
-    .filter((e) => e.type === 'file' && (folder || e.path.endsWith('.gguf')))
+    .filter((e) => e.type === 'file' && (folder || isWeightFile(e.path)))
     .map((e) => ({path: e.path, size: e.size}));
 
   return Response.json(files);

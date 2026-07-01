@@ -6,6 +6,7 @@ import {
   duplicateBasenames,
   extractModelName,
   extractQuant,
+  isWeightFile,
   normalizeModelNames,
   scanModels,
   type Model,
@@ -19,6 +20,18 @@ async function writeFile(base: string, rel: string, content = 'data') {
   await fsp.writeFile(full, content);
   return full;
 }
+
+test('isWeightFile recognizes model weight extensions, case-insensitively', () => {
+  expect(isWeightFile('model.gguf')).toBe(true);
+  expect(isWeightFile('model.safetensors')).toBe(true);
+  expect(isWeightFile('pytorch_model.bin')).toBe(true);
+  expect(isWeightFile('sub/dir/model-00001-of-00004.SAFETENSORS')).toBe(true);
+  // Non-weight repo files are excluded.
+  expect(isWeightFile('config.json')).toBe(false);
+  expect(isWeightFile('tokenizer.model')).toBe(false);
+  expect(isWeightFile('README.md')).toBe(false);
+  expect(isWeightFile('model.safetensors.index.json')).toBe(false);
+});
 
 test('detects a trailing quant token (dot- and dash-delimited)', () => {
   expect(extractQuant('My-Model.Q4_K_M.gguf')).toBe('Q4_K_M');

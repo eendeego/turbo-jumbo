@@ -87,7 +87,9 @@ function computeDefaultSelection(
 ): Set<string> {
   if (!filename) return new Set();
 
-  const shardMatch = filename.match(/^(.+)-(\d{5})-of-(\d{5})(\.gguf)$/i);
+  const shardMatch = filename.match(
+    /^(.+)-(\d{5})-of-(\d{5})(\.(?:gguf|safetensors|bin))$/i,
+  );
   if (shardMatch) {
     const [, base, , total, ext] = shardMatch;
     const shards = files.filter((f) => {

@@ -56,8 +56,19 @@ const QUANT_TOKEN =
 const QUANT_RE = new RegExp(`[-_.](${QUANT_TOKEN})(?=[-_.]|$)`, 'gi');
 const SPLIT_RE = /^(.+)-(\d+)-of-(\d+)\.(gguf|safetensors|bin)$/i;
 
+// The model weight formats this app tracks: GGUF, safetensors, and legacy
+// PyTorch `.bin`. Companion files (config.json, tokenizer, *.index.json) are
+// not weights.
+const WEIGHT_EXT_RE = /\.(gguf|safetensors|bin)$/i;
+
+/** Whether a path names a model weight file (by extension), ignoring any
+ *  directory prefix. */
+export function isWeightFile(p: string): boolean {
+  return WEIGHT_EXT_RE.test(p);
+}
+
 function stripExtension(filename: string): string {
-  return filename.replace(/\.(gguf|safetensors|bin)$/i, '');
+  return filename.replace(WEIGHT_EXT_RE, '');
 }
 
 function lastQuantMatch(base: string): RegExpMatchArray | null {
@@ -220,7 +231,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
         accum.presentIndices.add(index);
         accum.presentPaths.push({path: relPath, size});
         accum.totalSize += size;
-      } else if (/\.(gguf|safetensors|bin)$/i.test(entry.name)) {
+      } else if (isWeightFile(entry.name)) {
         let size = 0;
         let missing = false;
         try {
