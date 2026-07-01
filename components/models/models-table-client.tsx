@@ -613,6 +613,7 @@ export function augmentWithPeerOnlyQuants(
   type PeerOnly = {
     modelName: string;
     label: string;
+    isProjector: boolean;
     isSingleFile: boolean;
     filename: string | null;
     displayName: string;
@@ -622,32 +623,19 @@ export function augmentWithPeerOnlyQuants(
     presentShards: number;
     missingIndices: number[];
   };
-  const peerProjectors = new Map<string, ProjectorInfo[]>();
-  const addPeerProjector = (
-    modelName: string,
-    filename: string,
-    size: number,
-  ) => {
-    const list = peerProjectors.get(modelName) ?? [];
-    if (!list.some((p) => p.filename === filename)) list.push({filename, size});
-    peerProjectors.set(modelName, list);
-  };
-
   const peerOnly = new Map<string, PeerOnly>();
   for (const [, lo] of peerModels) {
     if (lo.type !== 'value') continue;
     for (const m of lo.value) {
       for (const f of m.files) {
-        const projBase = f.isSplit ? f.representativeFilename : f.filename;
-        if (isMmprojFilename(projBase)) {
-          addPeerProjector(m.name, projBase, f.isSplit ? f.totalSize : f.size);
-          continue;
-        }
-        const key = `${m.name}::${f.quant}`;
+        const base = f.isSplit ? f.representativeFilename : f.filename;
+        const label = isMmprojFilename(base) ? base : f.quant;
+        const key = `${m.name}::${label}`;
         if (existingKeys.has(key) || peerOnly.has(key)) continue;
         peerOnly.set(key, {
           modelName: m.name,
-          label: f.quant,
+          label,
+          isProjector: isMmprojFilename(base),
           isSingleFile: !f.isSplit,
           filename: f.isSplit ? null : f.filename,
           displayName: f.isSplit ? f.representativeFilename : f.filename,
@@ -661,7 +649,7 @@ export function augmentWithPeerOnlyQuants(
     }
   }
 
-  if (peerOnly.size === 0 && peerProjectors.size === 0) return models;
+  if (peerOnly.size === 0) return models;
 
   const byModel = new Map<string, ModelRow>();
   for (const m of models) byModel.set(m.name, {...m, quants: [...m.quants]});
@@ -683,6 +671,7 @@ export function augmentWithPeerOnlyQuants(
       totalShards: p.totalShards,
       presentShards: p.presentShards,
       missingIndices: p.missingIndices,
+      isProjector: p.isProjector,
     };
     const existing = byModel.get(p.modelName);
     if (existing) {
@@ -700,36 +689,29 @@ export function augmentWithPeerOnlyQuants(
     }
   }
 
-  // Fold peer projector files into each model's projector list (deduped by
-  // filename), so a projector that lives only on a peer still shows.
-  for (const [name, projs] of peerProjectors) {
-    const row = byModel.get(name);
-    if (!row) continue;
-    const merged = [...(row.projectors ?? [])];
-    for (const p of projs) {
-      if (!merged.some((x) => x.filename === p.filename)) merged.push(p);
-    }
-    row.projectors = merged;
-  }
-
   // Recompute aggregates and ordering; mirrors the server-side aggregation
   // in models-table.tsx.
   return [...byModel.values()]
     .map((m) => {
       const quants = [...m.quants].sort(
-        (a, b) => Number(quantBits(a.label)) - Number(quantBits(b.label)),
+        (a, b) =>
+          Number(!!a.isProjector) - Number(!!b.isProjector) ||
+          Number(quantBits(a.label)) - Number(quantBits(b.label)),
       );
-      const sizes = quants.map((q) => q.size).filter((s) => s > 0);
+      const weights = quants.filter((q) => !q.isProjector);
+      const sizes = weights.map((q) => q.size).filter((s) => s > 0);
       return {
         ...m,
         quants,
-        quantizations: [...new Set(quants.map((q) => quantBits(q.label)))].join(
-          ', ',
-        ),
+        quantizations: [
+          ...new Set(weights.map((q) => quantBits(q.label))),
+        ].join(', '),
         minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
         maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
-        allInColdStorage: quants.every((q) => q.coldComplete),
-        noneInColdStorage: quants.every((q) => !q.inColdStorage),
+        allInColdStorage:
+          weights.length > 0 && weights.every((q) => q.coldComplete),
+        noneInColdStorage:
+          weights.length === 0 || weights.every((q) => !q.inColdStorage),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -817,9 +799,8 @@ export function ModelsTableClient({
       if (lo.type !== 'value') continue;
       for (const m of lo.value) {
         for (const f of m.files) {
-          const projBase = f.isSplit ? f.representativeFilename : f.filename;
-          if (isMmprojFilename(projBase)) continue;
-          const key = `${m.name}::${f.quant}`;
+          const base = f.isSplit ? f.representativeFilename : f.filename;
+          const key = `${m.name}::${isMmprojFilename(base) ? base : f.quant}`;
           const size = f.isSplit ? f.totalSize : f.size;
           const existing = map.get(key);
           if (existing) existing.push({address, size});
