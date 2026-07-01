@@ -1,10 +1,23 @@
 import fs from 'fs';
 import path from 'path';
-import type {Model, ModelFile, Shard, SingleFile, SplitGroup} from '@/lib/model-types';
+import type {
+  Model,
+  ModelFile,
+  Shard,
+  SingleFile,
+  SplitGroup,
+} from '@/lib/model-types';
 import {metaPath} from '@/lib/audit';
+import {parseHubCachePath} from '@/lib/hf-cache';
 import {repoIdFromModelUrl} from '@/lib/model-name';
 
-export type {Model, ModelFile, Shard, SingleFile, SplitGroup} from '@/lib/model-types';
+export type {
+  Model,
+  ModelFile,
+  Shard,
+  SingleFile,
+  SplitGroup,
+} from '@/lib/model-types';
 export {shardPath, shardSize} from '@/lib/model-types';
 
 /**
@@ -147,6 +160,9 @@ export function scanModels(storagePath: string | undefined): Model[] {
 
       const fullPath = path.join(dir, entry.name);
       const relPath = path.relative(root, fullPath);
+      // In the hub cache layout the repo is encoded in the directory, so it's
+      // the authoritative name regardless of the (often generic) filename.
+      const cacheRepoId = parseHubCachePath(relPath)?.repoId ?? null;
       const splitMatch = entry.name.match(SPLIT_RE);
 
       if (splitMatch) {
@@ -156,7 +172,9 @@ export function scanModels(storagePath: string | undefined): Model[] {
         // Prefer the authoritative org/repo from the sidecar; fall back to the
         // filename-derived name when there's no sidecar.
         const modelName =
-          sidecarRepoId(fullPath) ?? extractModelName(`${base}.gguf`);
+          cacheRepoId ??
+          sidecarRepoId(fullPath) ??
+          extractModelName(`${base}.gguf`);
         const quant = extractQuant(`${base}.gguf`);
         const key = `${modelName}::${base}`;
 
@@ -191,7 +209,9 @@ export function scanModels(storagePath: string | undefined): Model[] {
           missing = true;
         }
         const modelName =
-          sidecarRepoId(fullPath) ?? extractModelName(entry.name);
+          cacheRepoId ??
+          sidecarRepoId(fullPath) ??
+          extractModelName(entry.name);
         const file: SingleFile = {
           isSplit: false,
           filename: entry.name,

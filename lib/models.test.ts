@@ -111,6 +111,34 @@ test('scanModels splits same-filename variants by their sidecar repos', async ()
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('scanModels names a cache-layout file by its decoded repo id', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  await writeFile(
+    base,
+    'models--unsloth--Qwen3-0.6B-GGUF/snapshots/abc123/Qwen3-0.6B-Q4_0.gguf',
+  );
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['unsloth/Qwen3-0.6B-GGUF']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('scanModels ignores the cache blobs and refs entries', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  await writeFile(
+    base,
+    'models--unsloth--Qwen3-0.6B-GGUF/snapshots/abc123/Qwen3-0.6B-Q4_0.gguf',
+  );
+  await writeFile(base, 'models--unsloth--Qwen3-0.6B-GGUF/refs/main', 'abc123');
+  // A blob file: no model extension, so it must not become its own model.
+  await writeFile(base, 'models--unsloth--Qwen3-0.6B-GGUF/blobs/deadbeef');
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['unsloth/Qwen3-0.6B-GGUF']);
+  expect(models[0].files).toHaveLength(1);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('duplicateBasenames flags a root copy and a nested copy of the same file', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
   const fname = 'gemma-4-26B-A4B-it-UD-IQ2_M.gguf';
