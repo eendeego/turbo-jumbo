@@ -602,6 +602,26 @@ export function ModelsTableClient({
     [effectiveModels],
   );
 
+  // Everything the current view can expand: each model, and each split
+  // quant's shard group. Drives the expand-all chevron in the Model header.
+  const allExpandableKeys = useMemo(() => {
+    const keys: string[] = [];
+    for (const m of effectiveModels) {
+      keys.push(m.name);
+      for (const q of m.quants) {
+        if (!q.isSingleFile) keys.push(`${m.name}::${q.label}`);
+      }
+    }
+    return keys;
+  }, [effectiveModels]);
+
+  const toggleAll = useCallback(() => {
+    setExpanded((prev) => {
+      const allExpanded = allExpandableKeys.every((k) => prev.has(k));
+      return allExpanded ? new Set() : new Set(allExpandableKeys);
+    });
+  }, [allExpandableKeys]);
+
   // Memoized so row objects keep their identity across unrelated re-renders;
   // Table's per-row memo bails out via shallow compare otherwise (the nested
   // paths/sizeRange arrays would be rebuilt every render).
@@ -731,7 +751,27 @@ export function ModelsTableClient({
       : []),
     {
       key: 'label',
-      header: 'Model',
+      header: (() => {
+        const allExpanded =
+          allExpandableKeys.length > 0 &&
+          allExpandableKeys.every((k) => expanded.has(k));
+        return (
+          <HStack gap={1} vAlign="center" wrap="nowrap">
+            <IconButton
+              label={allExpanded ? 'Collapse all rows' : 'Expand all rows'}
+              tooltip={allExpanded ? 'Collapse all rows' : 'Expand all rows'}
+              icon={
+                <Icon icon={allExpanded ? 'chevronDown' : 'chevronRight'} />
+              }
+              variant="ghost"
+              size="sm"
+              onClick={toggleAll}
+              isDisabled={allExpandableKeys.length === 0}
+            />
+            <Text type="body">Model</Text>
+          </HStack>
+        );
+      })(),
       width: proportional(1),
       renderCell: (item) => (
         <NameCell
