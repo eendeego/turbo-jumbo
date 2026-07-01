@@ -162,12 +162,15 @@ function modelEndContent(
   model: LemonadeModel,
   info: LemonadeDownloadInfo | undefined,
   inCache: boolean,
+  showSuggestedToken: boolean,
 ) {
   return (
     <HStack gap={1} vAlign="center">
       <StatusMarker info={info} />
       <LemonadeCacheMarker present={inCache} />
-      {model.suggested && <Badge label="suggested" variant="green" />}
+      {showSuggestedToken && model.suggested && (
+        <Badge label="suggested" variant="green" />
+      )}
       {model.labels.length > 0 && (
         <HStack gap={1} vAlign="center">
           {sortLabelsForDisplay(model.labels).map((l) => (
@@ -295,6 +298,15 @@ export function LemonadeBrowser({
   );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  // When on, the catalog is narrowed to entries the Lemonade catalog flags as
+  // `suggested` (GGUF models and omni collections), and the now-redundant
+  // suggested token is hidden.
+  const [suggestedOnly, setSuggestedOnly] = useState(true);
+  // Whether to include the standalone "extra" components (ONNX/vLLM/image/speech
+  // models). They carry no `suggested` flag, so they're controlled on their own
+  // rather than by the suggested-only filter; off by default to keep the initial
+  // view focused on the suggested GGUF models and omni collections.
+  const [showExtra, setShowExtra] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [sendToCold, setSendToCold] = useState(false);
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
@@ -338,15 +350,17 @@ export function LemonadeBrowser({
   const visibleModels = useMemo(() => {
     if (!models) return [];
     const needle = filter.trim().toLowerCase();
-    if (!needle) return models;
-    return models.filter((m) =>
-      [m.name, m.repoId, ...m.labels].some((s) =>
+    return models.filter((m) => {
+      if (suggestedOnly && !m.suggested) return false;
+      if (!needle) return true;
+      return [m.name, m.repoId, ...m.labels].some((s) =>
         s.toLowerCase().includes(needle),
-      ),
-    );
-  }, [models, filter]);
+      );
+    });
+  }, [models, filter, suggestedOnly]);
 
   const visibleExtra = useMemo(() => {
+    if (!showExtra) return [];
     const needle = filter.trim().toLowerCase();
     if (!needle) return extraModels;
     return extraModels.filter((c) =>
@@ -354,17 +368,18 @@ export function LemonadeBrowser({
         s.toLowerCase().includes(needle),
       ),
     );
-  }, [extraModels, filter]);
+  }, [extraModels, filter, showExtra]);
 
   const visibleCollections = useMemo(() => {
     const needle = filter.trim().toLowerCase();
-    if (!needle) return collections;
-    return collections.filter((c) =>
-      [c.name, ...c.labels, ...c.components.map((x) => x.name)].some((s) =>
-        s.toLowerCase().includes(needle),
-      ),
-    );
-  }, [collections, filter]);
+    return collections.filter((c) => {
+      if (suggestedOnly && !c.suggested) return false;
+      if (!needle) return true;
+      return [c.name, ...c.labels, ...c.components.map((x) => x.name)].some(
+        (s) => s.toLowerCase().includes(needle),
+      );
+    });
+  }, [collections, filter, suggestedOnly]);
 
   const toggleCollection = (name: string) =>
     setExpanded((prev) => {
@@ -605,6 +620,18 @@ export function LemonadeBrowser({
                 placeholder="Filter by name, repo or label…"
               />
             </StackItem>
+            <CheckboxInput
+              label="Suggested only"
+              value={suggestedOnly}
+              onChange={setSuggestedOnly}
+              size="sm"
+            />
+            <CheckboxInput
+              label="Extra models"
+              value={showExtra}
+              onChange={setShowExtra}
+              size="sm"
+            />
             <Text type="supporting">
               {visibleModels.length + visibleExtra.length} /{' '}
               {models.length + extraModels.length} models
@@ -701,7 +728,7 @@ export function LemonadeBrowser({
                             muted={cachePartial}
                           />
                           <IncompleteMarker incomplete={anyIncomplete} />
-                          {c.suggested && (
+                          {!suggestedOnly && c.suggested && (
                             <Badge label="suggested" variant="green" />
                           )}
                           <Text type="supporting">{formatGb(c.sizeGb)}</Text>
@@ -762,6 +789,7 @@ export function LemonadeBrowser({
                           row.model,
                           statusByName.get(row.model.name),
                           inCacheByName.get(row.model.name) ?? false,
+                          !suggestedOnly,
                         )}
                       />
                     ) : (
