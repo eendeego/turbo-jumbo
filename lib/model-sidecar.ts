@@ -17,9 +17,16 @@ export {
   MIXED_COMMIT,
   MODEL_SIDECAR_NAME,
   deriveModelCommit,
+  fileProvenance,
+  summarizeFiles,
   summarizeModel,
 } from '@/lib/sidecar-types';
-export type {SidecarSummary, TjModel, TjModelFile} from '@/lib/sidecar-types';
+export type {
+  FileProvenance,
+  SidecarSummary,
+  TjModel,
+  TjModelFile,
+} from '@/lib/sidecar-types';
 
 /** A model sidecar with its `sourceCommit` recomputed from its files. */
 function withDerivedCommit(model: TjModel): TjModel {

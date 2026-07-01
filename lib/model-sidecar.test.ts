@@ -12,6 +12,8 @@ import {
   readFileMetaByPath,
   readModelSidecar,
   removeFileMeta,
+  fileProvenance,
+  summarizeFiles,
   summarizeModel,
   upsertFileMeta,
   writeModelSidecar,
@@ -76,6 +78,50 @@ test('summarizeModel omits commit fields when absent', () => {
   expect(s.repoCommitDate).toBeUndefined();
   expect(s.fileCount).toBe(0);
   expect(s.totalSourceSize).toBe(0);
+});
+
+test('fileProvenance copies the provenance fields and omits empties', () => {
+  const p = fileProvenance(
+    entry({
+      path: 'a.gguf',
+      originUrl: 'https://huggingface.co/org/repo/blob/main/a.gguf',
+      sourceCommit: 'abc123',
+      sourceSize: 100,
+      computedSize: 100,
+      sourceSha256: 'aa',
+      computedSha256: 'aa',
+    }),
+  );
+  expect(p).toEqual({
+    originUrl: 'https://huggingface.co/org/repo/blob/main/a.gguf',
+    sourceCommit: 'abc123',
+    sourceSize: 100,
+    computedSize: 100,
+    sourceSha256: 'aa',
+    computedSha256: 'aa',
+  });
+  expect('sourceCommitDate' in p).toBe(false);
+  expect('missing' in p).toBe(false);
+});
+
+test('summarizeFiles derives a shared revision and totals', () => {
+  const s = summarizeFiles('https://huggingface.co/org/repo', 'org/repo', [
+    entry({path: 'a', sourceCommit: 'c1', sourceSize: 100}),
+    entry({path: 'b', sourceCommit: 'c1', sourceSize: 250}),
+  ]);
+  expect(s.sourceCommit).toBe('c1');
+  expect(s.fileCount).toBe(2);
+  expect(s.totalSourceSize).toBe(350);
+  expect(s.repoCommit).toBeUndefined();
+  expect(s.modelUrl).toBe('https://huggingface.co/org/repo');
+});
+
+test('summarizeFiles marks a mixed revision', () => {
+  const s = summarizeFiles('https://huggingface.co/org/repo', 'org/repo', [
+    entry({path: 'a', sourceCommit: 'c1'}),
+    entry({path: 'b', sourceCommit: 'c2'}),
+  ]);
+  expect(s.sourceCommit).toBe(MIXED_COMMIT);
 });
 
 test('modelDirForRepo maps a flat-layout file to its repo dir and key', () => {

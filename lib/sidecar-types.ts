@@ -62,6 +62,54 @@ export function summarizeModel(model: TjModel): SidecarSummary {
   };
 }
 
+/** A single file's recorded provenance, for the per-file hovercard. */
+export interface FileProvenance {
+  originUrl: string;
+  sourceCommit?: string;
+  sourceCommitDate?: string;
+  sourceSize: number;
+  computedSize: number;
+  sourceSha256: string;
+  computedSha256: string;
+  missing?: boolean;
+}
+
+/**
+ * Normalize a file record (a `TjModelFile` or a `TjMeta`) to a `FileProvenance`,
+ * dropping fields the per-file hovercard doesn't use and omitting empty optionals.
+ */
+export function fileProvenance(f: FileProvenance): FileProvenance {
+  return {
+    originUrl: f.originUrl,
+    ...(f.sourceCommit ? {sourceCommit: f.sourceCommit} : {}),
+    ...(f.sourceCommitDate ? {sourceCommitDate: f.sourceCommitDate} : {}),
+    sourceSize: f.sourceSize,
+    computedSize: f.computedSize,
+    sourceSha256: f.sourceSha256,
+    computedSha256: f.computedSha256,
+    ...(f.missing ? {missing: true} : {}),
+  };
+}
+
+/**
+ * A `SidecarSummary` over an arbitrary subset of a model's files (e.g. one split
+ * quant's shards): the shared `sourceCommit` (or `MIXED_COMMIT`) derived from
+ * those files, their count, and total source size. No repo-level `repoCommit`.
+ */
+export function summarizeFiles(
+  modelUrl: string,
+  repoId: string,
+  files: TjModelFile[],
+): SidecarSummary {
+  const sourceCommit = deriveModelCommit(files);
+  return summarizeModel({
+    modelUrl,
+    repoId,
+    ...(sourceCommit ? {sourceCommit} : {}),
+    files,
+  });
+}
+
 /**
  * A model's revision from its files: the shared `sourceCommit` when every file
  * has it and they all match, `MIXED_COMMIT` when they differ or any file is
