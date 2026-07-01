@@ -7,6 +7,7 @@ import {
 } from '@/lib/config';
 import {logger} from '@/lib/logger';
 import {scanModels, annotateColdStorage} from '@/lib/models';
+import {hasStringFiles, readJsonBody} from '@/lib/request';
 import {promises as fsp} from 'fs';
 import nodePath from 'path';
 
@@ -56,10 +57,12 @@ export async function DELETE(
   const peer = config.peers.find((p) => p.name === name);
   if (!peer) return new Response('Unknown peer', {status: 404});
 
-  const body = (await req.json()) as {files: string[]; dryRun?: boolean};
+  const body = await readJsonBody<{files: string[]; dryRun?: boolean}>(
+    req,
+    hasStringFiles,
+  );
+  if (body instanceof Response) return body;
   const {files} = body;
-  if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
-    return new Response('Invalid files', {status: 400});
 
   if (peer === localPeer) {
     if (!localModelsDir) return new Response('No local peer', {status: 400});

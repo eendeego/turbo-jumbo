@@ -8,6 +8,7 @@ import {
   type FixResult,
 } from '@/lib/audit';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
+import {hasOptionalStringFiles, readJsonBody} from '@/lib/request';
 import {clearHfCache} from '@/lib/hf-infer';
 
 /**
@@ -17,10 +18,11 @@ import {clearHfCache} from '@/lib/hf-infer';
  * selected files to where the audit would say they belong.
  */
 export async function POST(req: Request) {
-  const body = (await req.json()) as {
+  const body = await readJsonBody<{
     location?: string;
     files?: string[];
-  };
+  }>(req, hasOptionalStringFiles);
+  if (body instanceof Response) return body;
   const {files} = body;
 
   const auditTarget = resolveAuditLocation(body.location);

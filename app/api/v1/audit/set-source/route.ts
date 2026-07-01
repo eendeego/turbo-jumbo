@@ -5,6 +5,7 @@ import {
   type AuditResult,
 } from '@/lib/audit';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
+import {isObject, readJsonBody} from '@/lib/request';
 import {hashProgressEmitter} from '@/lib/audit-progress';
 import {
   canonicalBranch,
@@ -29,11 +30,12 @@ const PROGRESS_INTERVAL_MS = 500;
  * by its `status` field).
  */
 export async function POST(req: Request) {
-  const body = (await req.json()) as {
+  const body = await readJsonBody<{
     location?: string;
     file?: string;
     url?: string;
-  };
+  }>(req, isObject);
+  if (body instanceof Response) return body;
   const {file, url} = body;
 
   const target = resolveAuditLocation(body.location);

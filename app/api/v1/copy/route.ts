@@ -1,6 +1,7 @@
 import {resumeOffset} from '@/lib/audit';
 import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {logger} from '@/lib/logger';
+import {isObject, readJsonBody} from '@/lib/request';
 import {promises as fsp} from 'fs';
 import {createReadStream, createWriteStream} from 'fs';
 import nodePath from 'path';
@@ -41,7 +42,9 @@ function makeCounter(onBytes: (n: number) => void): Transform {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as CopyRequest;
+  const parsed = await readJsonBody<CopyRequest>(req, isObject);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
   const {files, toColdStorage, toPeers, deleteAfterCopy} = body;
 
   if (

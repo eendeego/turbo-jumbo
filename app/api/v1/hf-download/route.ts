@@ -10,6 +10,7 @@ import {
   updateMetaResolved,
 } from '@/lib/audit';
 import {resolveHfFileByPath} from '@/lib/hf-infer';
+import {isObject, readJsonBody} from '@/lib/request';
 import {repoIdFromModelUrl} from '@/lib/model-name';
 import {
   clearMissingFlag,
@@ -186,8 +187,15 @@ export async function POST(req: Request) {
     return new Response('No local peer configured', {status: 400});
   }
 
-  const {repoId, branch, filePaths, sendToCold, deleteAfterTransfer} =
-    await req.json();
+  const body = await readJsonBody<{
+    repoId?: unknown;
+    branch?: unknown;
+    filePaths?: unknown;
+    sendToCold?: unknown;
+    deleteAfterTransfer?: unknown;
+  }>(req, isObject);
+  if (body instanceof Response) return body;
+  const {repoId, branch, filePaths, sendToCold, deleteAfterTransfer} = body;
 
   if (
     !repoId ||

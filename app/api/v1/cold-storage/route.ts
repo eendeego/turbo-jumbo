@@ -4,6 +4,7 @@ import nodePath from 'path';
 import {coldStorageDir} from '@/lib/config';
 import {logger} from '@/lib/logger';
 import {scanModels} from '@/lib/models';
+import {hasStringFiles, readJsonBody} from '@/lib/request';
 
 export function GET() {
   const models = scanModels(coldStorageDir);
@@ -12,10 +13,12 @@ export function GET() {
 
 export async function DELETE(req: Request) {
   if (!coldStorageDir) return new Response('No cold storage', {status: 400});
-  const body = (await req.json()) as {files: string[]; dryRun?: boolean};
+  const body = await readJsonBody<{files: string[]; dryRun?: boolean}>(
+    req,
+    hasStringFiles,
+  );
+  if (body instanceof Response) return body;
   const {files} = body;
-  if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
-    return new Response('Invalid files', {status: 400});
   const base = nodePath.resolve(coldStorageDir);
   for (const file of files) {
     const full = nodePath.resolve(base, file);

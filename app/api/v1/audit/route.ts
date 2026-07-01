@@ -8,6 +8,7 @@ import {
   type AuditStartEvent,
 } from '@/lib/audit';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
+import {hasOptionalStringFiles, readJsonBody} from '@/lib/request';
 import {hashProgressEmitter} from '@/lib/audit-progress';
 import {clearHfCache} from '@/lib/hf-infer';
 import {detectMissingMmproj} from '@/lib/mmproj';
@@ -24,10 +25,11 @@ const CONCURRENCY = Number(process.env.AUDIT_CONCURRENCY) || 4;
 const PROGRESS_INTERVAL_MS = 500;
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as {
+  const body = await readJsonBody<{
     location?: string;
     files?: string[];
-  };
+  }>(req, hasOptionalStringFiles);
+  if (body instanceof Response) return body;
   const {files} = body;
 
   const target = resolveAuditLocation(body.location);

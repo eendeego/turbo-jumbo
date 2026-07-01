@@ -1,6 +1,7 @@
 import {scanModels} from '@/lib/models';
 import {auditFileUpdate, type UpdateResult} from '@/lib/audit';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
+import {isObject, readJsonBody} from '@/lib/request';
 import {clearHfCache} from '@/lib/hf-infer';
 
 // Concurrent head-commit checks. Network-bound and tree-cached per repo (quants
@@ -15,7 +16,8 @@ const CONCURRENCY = 8;
  * streaming and peer-proxying of `app/api/v1/audit/route.ts`.
  */
 export async function POST(req: Request) {
-  const body = (await req.json()) as {location?: string};
+  const body = await readJsonBody<{location?: string}>(req, isObject);
+  if (body instanceof Response) return body;
 
   const target = resolveAuditLocation(body.location);
   if (!target) {

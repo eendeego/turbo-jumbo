@@ -1,5 +1,6 @@
 import {localModelsDir} from '@/lib/config';
 import {logger} from '@/lib/logger';
+import {hasStringFiles, readJsonBody} from '@/lib/request';
 import nodePath from 'path';
 import {promises as fsp} from 'fs';
 import {createReadStream} from 'fs';
@@ -14,11 +15,10 @@ type PushRequest = {
 
 export async function POST(req: Request) {
   if (!localModelsDir) return new Response('No local peer', {status: 400});
-  const body = (await req.json()) as PushRequest;
+  const body = await readJsonBody<PushRequest>(req, hasStringFiles);
+  if (body instanceof Response) return body;
   const {files, toPeer} = body;
 
-  if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
-    return new Response('Invalid files', {status: 400});
   if (typeof toPeer !== 'string' || !toPeer)
     return new Response('Invalid toPeer', {status: 400});
 

@@ -13,6 +13,7 @@ import {
   readModelSidecar,
 } from '@/lib/model-sidecar';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
+import {isObject, readJsonBody} from '@/lib/request';
 
 /**
  * Return the last-known audit verdicts for a location, derived purely from the
@@ -20,7 +21,8 @@ import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
  * pre-fill the Audit column (toned down) before a fresh run.
  */
 export async function POST(req: Request) {
-  const body = (await req.json()) as {location?: string};
+  const body = await readJsonBody<{location?: string}>(req, isObject);
+  if (body instanceof Response) return body;
 
   const target = resolveAuditLocation(body.location);
   if (!target) {

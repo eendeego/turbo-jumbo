@@ -1,5 +1,6 @@
 import {coldStorageDir, localModelsDir} from '@/lib/config';
 import {logger} from '@/lib/logger';
+import {hasStringFiles, readJsonBody} from '@/lib/request';
 import nodePath from 'path';
 import {promises as fsp} from 'fs';
 import {createReadStream, createWriteStream} from 'fs';
@@ -29,11 +30,9 @@ export async function POST(req: Request) {
   if (!coldStorageDir || !localModelsDir)
     return new Response('No local peer configured', {status: 400});
 
-  const body = (await req.json()) as {files: string[]};
+  const body = await readJsonBody<{files: string[]}>(req, hasStringFiles);
+  if (body instanceof Response) return body;
   const {files} = body;
-
-  if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
-    return new Response('Invalid files', {status: 400});
 
   const coldBase = nodePath.resolve(coldStorageDir);
   const localBase = nodePath.resolve(localModelsDir);

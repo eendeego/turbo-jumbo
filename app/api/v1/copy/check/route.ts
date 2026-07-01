@@ -1,5 +1,6 @@
 import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {logger} from '@/lib/logger';
+import {isObject, isStringArray, readJsonBody} from '@/lib/request';
 import nodePath from 'path';
 import {promises as fsp} from 'fs';
 import {execFile} from 'child_process';
@@ -33,13 +34,28 @@ async function peerChecksumData(
 // (cold storage and/or peers), reporting size and md5 matches so the UI can
 // let the user choose what to overwrite before any bytes move.
 export async function POST(req: Request) {
-  const body = (await req.json()) as {
+  const body = await readJsonBody<{
     files: SourceFile[];
     toColdStorage: boolean;
     toPeers: string[];
-  };
+  }>(req, isObject);
+  if (body instanceof Response) return body;
 
   const {files, toColdStorage, toPeers} = body;
+  if (
+    !Array.isArray(files) ||
+    files.some(
+      (f) =>
+        typeof f?.path !== 'string' ||
+        typeof f?.from !== 'string' ||
+        typeof f?.size !== 'number',
+    )
+  ) {
+    return new Response('Invalid files', {status: 400});
+  }
+  if (!isStringArray(toPeers)) {
+    return new Response('Invalid toPeers', {status: 400});
+  }
   const localPeerAddr = localPeer?.address ?? '';
   const localBase = localModelsDir ? nodePath.resolve(localModelsDir) : '';
   const coldBase = coldStorageDir ? nodePath.resolve(coldStorageDir) : '';
