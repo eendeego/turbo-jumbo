@@ -39,6 +39,26 @@ function fileAt(
   };
 }
 
+test('orders rows alphabetically by display name, not the org-qualified name', () => {
+  const local = [
+    fileAt('zzz/Apple-GGUF', 'zzz/Apple-GGUF/apple-Q4_K_M.gguf', 'Q4_K_M', 100),
+    fileAt('Banana-GGUF', 'Banana-GGUF/banana-Q4_K_M.gguf', 'Q4_K_M', 100),
+    fileAt(
+      'aaa/Cherry-GGUF',
+      'aaa/Cherry-GGUF/cherry-Q4_K_M.gguf',
+      'Q4_K_M',
+      100,
+    ),
+  ];
+  // Displayed as Apple-GGUF, Banana-GGUF, Cherry-GGUF — that is the order,
+  // not the raw-name order (aaa/Cherry, Banana, zzz/Apple).
+  expect(buildModelRows(local, []).map((r) => r.name)).toEqual([
+    'zzz/Apple-GGUF',
+    'Banana-GGUF',
+    'aaa/Cherry-GGUF',
+  ]);
+});
+
 test('a generic safetensors is not in cold when only a different repo shares the name', () => {
   // Two unrelated models each named their weights `model.safetensors`; the
   // generic basename must not make one look present in cold because of the

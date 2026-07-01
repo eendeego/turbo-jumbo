@@ -1,4 +1,5 @@
 import type {Model} from '@/lib/model-types';
+import {modelDisplayName} from '@/lib/model-name';
 import {normalizeModelNames} from '@/lib/models';
 import {fileJoinKey} from '@/lib/peer-paths';
 import type {ModelRow, QuantInfo} from './models-table-client';
@@ -178,5 +179,13 @@ export function buildModelRows(
         noneInColdStorage: quants.every((q) => !q.inColdStorage),
       };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) =>
+      modelDisplayName(a.name).localeCompare(
+        modelDisplayName(b.name),
+        undefined,
+        {
+          sensitivity: 'base',
+        },
+      ),
+    );
 }
