@@ -15,6 +15,7 @@ export interface TjModelFile {
   computedSize: number;
   sourceSha256: string;
   computedSha256: string;
+  missing?: boolean; // expected on HF but absent locally (recorded by the audit)
 }
 
 /** A model's sidecar: shared identity plus one record per file. */
@@ -111,6 +112,9 @@ export function mergeFileMeta(
     computedSize: next.computedSize,
     sourceSha256: source.sourceSha256,
     computedSha256,
+    // The latest observation wins: a present audit clears the flag, a
+    // missing-file record sets it.
+    ...(next.missing ? {missing: true} : {}),
   };
 }
 
@@ -140,6 +144,37 @@ export async function writeModelSidecar(
   await fsp.writeFile(full, JSON.stringify(model, null, 2));
 }
 
+/**
+ * Every model directory under `basePath` that holds a `tjmodel.json`, as paths
+ * relative to `basePath`. Used to enumerate sidecar-only state (e.g. files
+ * recorded `missing`) that an on-disk scan can't see. A directory with a
+ * sidecar isn't descended into — a model dir doesn't nest another.
+ */
+export async function findModelSidecarDirs(
+  basePath: string,
+): Promise<string[]> {
+  const out: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fsp.readdir(path.join(basePath, dir), {
+        withFileTypes: true,
+      });
+    } catch {
+      return;
+    }
+    if (entries.some((e) => e.isFile() && e.name === MODEL_SIDECAR_NAME)) {
+      out.push(dir);
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) await walk(dir ? path.join(dir, e.name) : e.name);
+    }
+  }
+  await walk('');
+  return out;
+}
+
 // Per-sidecar-path promise chain: serialize read-modify-write so concurrent
 // audits of files in one model don't clobber each other's tjmodel.json.
 const writeChains = new Map<string, Promise<unknown>>();
@@ -154,7 +189,7 @@ function withSidecarLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
-function entryToMeta(modelUrl: string, e: TjModelFile): TjMeta {
+export function entryToMeta(modelUrl: string, e: TjModelFile): TjMeta {
   return {
     modelUrl,
     originUrl: e.originUrl,
@@ -164,6 +199,7 @@ function entryToMeta(modelUrl: string, e: TjModelFile): TjMeta {
     computedSize: e.computedSize,
     sourceSha256: e.sourceSha256,
     computedSha256: e.computedSha256,
+    ...(e.missing ? {missing: true} : {}),
   };
 }
 
@@ -178,6 +214,7 @@ export function metaToEntry(key: string, meta: TjMeta): TjModelFile {
     computedSize: meta.computedSize,
     sourceSha256: meta.sourceSha256,
     computedSha256: meta.computedSha256,
+    ...(meta.missing ? {missing: true} : {}),
   };
 }
 

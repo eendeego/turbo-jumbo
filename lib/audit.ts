@@ -166,6 +166,7 @@ export interface TjMeta {
   computedSize: number; // actual on-disk size in bytes, observed at audit time
   sourceSha256: string; // '' when no source could be resolved
   computedSha256: string; // '' when the file wasn't hashed (no source, or hashing failed)
+  missing?: boolean; // the file is expected on HF but absent locally (no on-disk copy)
 }
 
 /**
@@ -277,7 +278,11 @@ export function cachedResultFromMeta(
 
   let status: AuditStatus;
   let message: string | undefined;
-  if (!meta.sourceSha256) {
+  if (meta.missing) {
+    // Recorded by a prior audit as expected-on-HF but absent on disk.
+    status = 'incomplete';
+    message = 'expected file not downloaded';
+  } else if (!meta.sourceSha256) {
     status = 'unverifiable';
   } else if (
     typeof meta.computedSize === 'number' &&

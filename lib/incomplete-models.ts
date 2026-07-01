@@ -1,9 +1,14 @@
 import {logger} from '@/lib/logger';
 import {scanModels, type ModelFile} from '@/lib/models';
 import {repoDownloadFiles} from '@/lib/hf-download';
-import {listRepoFiles} from '@/lib/hf-infer';
-import {hfSummary, type AuditResult} from '@/lib/audit';
-import {existsSync} from 'fs';
+import {listRepoFiles, type HfFileInfo} from '@/lib/hf-infer';
+import {hfSummary, type AuditResult, type TjMeta} from '@/lib/audit';
+import {
+  readModelSidecar,
+  upsertFileMeta,
+  metaToEntry,
+} from '@/lib/model-sidecar';
+import {existsSync, statSync} from 'fs';
 import nodePath from 'path';
 
 // A repo's Hugging Face file list changes rarely, but it's a network round-trip,
@@ -116,16 +121,77 @@ export async function detectMissingExpectedFiles(
     }
     const lfsByPath = new Map(lfs.map((f) => [f.repoPath, f]));
     const dir = nodePath.join(base, repoId);
+    // Files this repo's sidecar currently records as missing: a stale flag on a
+    // now-present file is cleared below so the cached audit agrees with disk.
+    const sidecar = await readModelSidecar(base, repoId);
+    const flaggedMissing = new Set(
+      (sidecar?.files ?? []).filter((f) => f.missing).map((f) => f.path),
+    );
     for (const repoPath of expected) {
-      if (existsSync(nodePath.join(dir, repoPath))) continue;
+      const full = nodePath.join(dir, repoPath);
       const hf = lfsByPath.get(repoPath);
-      out.push({
-        file: `${repoId}/${repoPath}`,
-        status: 'incomplete',
-        message: 'expected file not downloaded',
-        ...(hf ? {hf: hfSummary(hf)} : {}),
-      });
+      if (!existsSync(full)) {
+        out.push({
+          file: `${repoId}/${repoPath}`,
+          status: 'incomplete',
+          message: 'expected file not downloaded',
+          ...(hf ? {hf: hfSummary(hf)} : {}),
+        });
+        await persistMissingState(base, repoId, repoPath, branch, hf, 0, true);
+      } else if (flaggedMissing.has(repoPath)) {
+        let size = 0;
+        try {
+          size = statSync(full).size;
+        } catch {
+          /* unreadable: recorded as 0, the per-file audit re-measures */
+        }
+        await persistMissingState(
+          base,
+          repoId,
+          repoPath,
+          branch,
+          hf,
+          size,
+          false,
+        );
+      }
     }
   }
   return out;
+}
+
+/**
+ * Record (or clear) the `missing` flag for one file on its model sidecar. The
+ * HF summary, when known, lets a later re-download verify against source.
+ * Best-effort: a sidecar write failure must not fail the audit.
+ */
+async function persistMissingState(
+  base: string,
+  repoId: string,
+  repoPath: string,
+  branch: string,
+  hf: HfFileInfo | undefined,
+  computedSize: number,
+  missing: boolean,
+): Promise<void> {
+  const meta: TjMeta = {
+    modelUrl: `https://huggingface.co/${repoId}`,
+    originUrl: `https://huggingface.co/${repoId}/blob/${branch}/${repoPath}`,
+    ...(hf?.commit ? {sourceCommit: hf.commit} : {}),
+    ...(hf?.commitDate ? {sourceCommitDate: hf.commitDate} : {}),
+    sourceSize: hf?.size ?? 0,
+    computedSize,
+    sourceSha256: hf?.sha256 ?? '',
+    computedSha256: '',
+    ...(missing ? {missing: true} : {}),
+  };
+  try {
+    await upsertFileMeta(base, repoId, repoId, metaToEntry(repoPath, meta));
+  } catch (e) {
+    logger.warn(
+      `[incomplete] failed to record missing state for ${repoId}/${repoPath}: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
 }

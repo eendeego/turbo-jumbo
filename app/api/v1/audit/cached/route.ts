@@ -1,4 +1,5 @@
 import path from 'path';
+import {existsSync} from 'fs';
 import {duplicateBasenames, scanModels} from '@/lib/models';
 import {
   cachedResultFromMeta,
@@ -6,6 +7,11 @@ import {
   readMetaResolved,
   type AuditResult,
 } from '@/lib/audit';
+import {
+  entryToMeta,
+  findModelSidecarDirs,
+  readModelSidecar,
+} from '@/lib/model-sidecar';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
 
 /**
@@ -53,6 +59,22 @@ export async function POST(req: Request) {
       } else {
         await fromSidecar(file.path);
       }
+    }
+  }
+
+  // Files a prior audit recorded as expected-on-HF but absent on disk live only
+  // in the sidecar — `scanModels` can't see them. Surface each as incomplete,
+  // skipping any that have since been downloaded (a stale flag).
+  for (const dir of await findModelSidecarDirs(root)) {
+    const sidecar = await readModelSidecar(root, dir);
+    if (!sidecar) continue;
+    for (const entry of sidecar.files) {
+      if (!entry.missing) continue;
+      const relPath = path.join(dir, entry.path);
+      if (existsSync(path.join(root, relPath))) continue;
+      results.push(
+        cachedResultFromMeta(relPath, entryToMeta(sidecar.modelUrl, entry)),
+      );
     }
   }
 
