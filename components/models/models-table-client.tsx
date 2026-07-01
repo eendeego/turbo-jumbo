@@ -813,6 +813,8 @@ export function ModelsTableClient({
       if (lo.type !== 'value') continue;
       for (const m of lo.value) {
         for (const f of m.files) {
+          const projBase = f.isSplit ? f.representativeFilename : f.filename;
+          if (isMmprojFilename(projBase)) continue;
           const key = `${m.name}::${f.quant}`;
           const size = f.isSplit ? f.totalSize : f.size;
           const existing = map.get(key);
