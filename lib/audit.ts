@@ -436,7 +436,7 @@ function revisionCheck(
  * when nothing in the first page of history matches), the local file's sha
  * when one was computed, and every distinct revision checked along the way.
  */
-async function findHistoricalMatch(
+export async function findHistoricalMatch(
   fullPath: string,
   hf: HfFileInfo,
   actualSize: number,
