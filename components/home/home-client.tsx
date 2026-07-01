@@ -40,6 +40,7 @@ import {
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
 import type {AuditResult, FixResult, HfSummary} from '@/lib/audit';
+import type {DuplicateFixResult} from '@/lib/fix-duplicates';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
 
@@ -119,6 +120,7 @@ export function HomeClient({
   const [auditedPaths, setAuditedPaths] = useState<Set<string>>(new Set());
   const [auditing, setAuditing] = useState(false);
   const [fixing, setFixing] = useState(false);
+  const [fixingDuplicate, setFixingDuplicate] = useState(false);
   // The file whose HF source is being set (relative path), plus the request
   // state for the modal.
   const [sourceTarget, setSourceTarget] = useState<string | null>(null);
@@ -296,6 +298,70 @@ export function HomeClient({
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setFixing(false);
+    }
+  }
+
+  // Resolve duplicate groups server-side (see /api/v1/audit/fix-duplicate):
+  // losers are deleted, the surviving copy — just re-verified by hash — ends
+  // at its expected path, so it's marked passing at its new location.
+  async function onFixDuplicate(paths: string[]) {
+    if (!auditLocation || paths.length === 0) return;
+    setFixingDuplicate(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/v1/audit/fix-duplicate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({location: auditLocation, files: paths}),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const {results} = (await res.json()) as {results: DuplicateFixResult[]};
+
+      const deleted = results.filter((r) => r.status === 'deleted');
+      const kept = results.filter((r) => r.status === 'kept');
+      if (deleted.length > 0 || kept.length > 0) {
+        setAuditResults((prev) => {
+          const next = new Map(prev);
+          for (const d of deleted) next.delete(d.file);
+          for (const k of kept) {
+            next.delete(k.file);
+            const at = k.to ?? k.file;
+            next.set(at, {file: at, status: 'pass'});
+          }
+          return next;
+        });
+        setAuditedPaths((prev) => {
+          const next = new Set(prev);
+          for (const d of deleted) next.delete(d.file);
+          for (const k of kept) {
+            next.delete(k.file);
+            next.add(k.to ?? k.file);
+          }
+          return next;
+        });
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const d of deleted) next.delete(d.file);
+          for (const k of kept) {
+            if (next.delete(k.file)) next.add(k.to ?? k.file);
+          }
+          return next;
+        });
+        await refreshModels();
+      }
+
+      const failed = results.filter((r) => r.status === 'error');
+      if (failed.length > 0) {
+        setError(
+          `Duplicate fix failed for ${failed.length} file(s): ${failed
+            .map((f) => `${f.file} (${f.message})`)
+            .join(', ')}`,
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFixingDuplicate(false);
     }
   }
 
@@ -676,6 +742,8 @@ export function HomeClient({
             localPeerAddress ? onFixColdIncomplete : undefined
           }
           coldFixing={copying}
+          onFixDuplicate={onFixDuplicate}
+          fixingDuplicate={fixingDuplicate}
         />
         {error && <Banner status="error" title={`Error: ${error}`} />}
         <ActionBar
