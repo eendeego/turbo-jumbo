@@ -1,7 +1,7 @@
 import type {AsyncState} from '@/lib/async-state';
 import type {Model} from '@/lib/model-types';
 import type {RepoFile, RepoFileState} from '@/lib/repo-files';
-import {isMmprojFilename} from '@/lib/model-name';
+import {isMmprojFilename, modelDisplayName} from '@/lib/model-name';
 import {fileBasename, fileJoinKey} from '@/lib/peer-paths';
 import {ggmlModelVariant} from '@/lib/weight-files';
 import {isPickOneSafetensorsRepo} from '@/lib/hf-download';
@@ -287,27 +287,39 @@ export function augmentWithPeerOnlyQuants(
 
   // Recompute aggregates and ordering; mirrors the server-side aggregation
   // in models-table.tsx.
-  return [...byModel.values()]
-    .map((m) => {
-      const quants = [...m.quants].sort(
-        (a, b) =>
-          Number(!!a.isProjector) - Number(!!b.isProjector) ||
-          Number(quantBits(a.label)) - Number(quantBits(b.label)),
-      );
-      const weights = quants.filter((q) => !q.isProjector);
-      const sizes = weights.map((q) => q.size).filter((s) => s > 0);
-      return {
-        ...m,
-        quants,
-        quantizations: [
-          ...new Set(weights.map((q) => quantBits(q.label))),
-        ].join(', '),
-        minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
-        maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
-        ...coldStorageRollup(quants),
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    [...byModel.values()]
+      .map((m) => {
+        const quants = [...m.quants].sort(
+          (a, b) =>
+            Number(!!a.isProjector) - Number(!!b.isProjector) ||
+            Number(quantBits(a.label)) - Number(quantBits(b.label)),
+        );
+        const weights = quants.filter((q) => !q.isProjector);
+        const sizes = weights.map((q) => q.size).filter((s) => s > 0);
+        return {
+          ...m,
+          quants,
+          quantizations: [
+            ...new Set(weights.map((q) => quantBits(q.label))),
+          ].join(', '),
+          minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
+          maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
+          ...coldStorageRollup(quants),
+        };
+      })
+      // Order by repo name, ignoring the org prefix, so the table groups by the
+      // model (Qwen3-GGUF) rather than by who published it.
+      .sort((a, b) =>
+        modelDisplayName(a.name).localeCompare(
+          modelDisplayName(b.name),
+          undefined,
+          {
+            sensitivity: 'base',
+          },
+        ),
+      )
+  );
 }
 
 /**
