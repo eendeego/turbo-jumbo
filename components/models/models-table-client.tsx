@@ -28,6 +28,7 @@ import type {
 } from '@/lib/audit';
 import {isMmprojFilename, modelDisplayName} from '@/lib/model-name';
 import {ggmlModelVariant} from '@/lib/weight-files';
+import {isPickOneSafetensorsRepo} from '@/lib/hf-download';
 import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peer-paths';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
 import {rowAudit, rowUpdates, type RowAudit} from '@/lib/row-audit';
@@ -155,7 +156,10 @@ function isWholeRepoModel(m: ModelRow): boolean {
     // whole-repo model spread across many files.
     !m.quants.every(
       (q) => ggmlModelVariant(q.filename ?? q.displayName ?? '') !== null,
-    )
+    ) &&
+    // A Comfy-Org split_files safetensors bundle is likewise a collection of
+    // independent component/quant files, shown as variant rows, not a whole repo.
+    !isPickOneSafetensorsRepo(m.quants.flatMap((q) => q.paths))
   );
 }
 

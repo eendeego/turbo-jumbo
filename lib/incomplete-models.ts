@@ -1,7 +1,12 @@
 import {logger} from '@/lib/logger';
 import {scanModels, type ModelFile} from '@/lib/models';
 import {repoFileStatuses} from '@/lib/repo-files';
-import {isPickOneBinRepo, repoDownloadFiles} from '@/lib/hf-download';
+import {
+  isPickOneBinRepo,
+  isPickOneSafetensorsRepo,
+  repoDownloadFiles,
+} from '@/lib/hf-download';
+import {isClutterFile} from '@/lib/repo-clutter';
 import {listRepoFiles, type HfFileInfo} from '@/lib/hf-infer';
 import {hfSummary, type AuditResult, type TjMeta} from '@/lib/audit';
 import {
@@ -17,17 +22,6 @@ import nodePath from 'path';
 // recomputed every call (cheap) so a just-finished download clears the flag.
 const TTL_MS = 30 * 60 * 1000;
 const treeCache = new Map<string, {files: string[]; fetchedAt: number}>();
-
-const baseName = (p: string) => p.split('/').pop() ?? p;
-// Pure docs / repo metadata a complete, runnable model doesn't depend on — a
-// missing README isn't an incomplete download, but a missing index.json or
-// config is, so those are kept.
-const CLUTTER_EXT = /\.(md|txt|png|jpe?g|gif|webp|svg|pdf)$/i;
-const CLUTTER_NAME = /^(\.gitattributes|\.gitignore|license.*|readme.*)$/i;
-const isClutter = (p: string) => {
-  const n = baseName(p);
-  return CLUTTER_EXT.test(n) || CLUTTER_NAME.test(n);
-};
 
 // The files a complete download of `repoId` would contain — what the downloader
 // pulls (repoDownloadFiles), minus pure docs/metadata. Cached per repo.
@@ -45,7 +39,7 @@ async function expectedFiles(repoId: string): Promise<string[]> {
   const entries = (await res.json()) as Array<{type: string; path: string}>;
   const files = repoDownloadFiles(
     entries.filter((e) => e.type === 'file').map((e) => e.path),
-  ).filter((p) => !isClutter(p));
+  ).filter((p) => !isClutterFile(p));
   treeCache.set(repoId, {files, fetchedAt: Date.now()});
   return files;
 }
@@ -78,10 +72,12 @@ export async function findIncompleteRepos(
       try {
         const expected = await expectedFiles(m.name);
         if (expected.length === 0) return null;
-        // A pick-one .bin repo (ggml whisper.cpp-style) isn't a whole-repo
-        // download — like GGUF, one file is the model, so the repo's other
-        // variants aren't "missing".
-        if (isPickOneBinRepo(expected)) return null;
+        // A pick-one repo — ggml whisper.cpp-style `.bin` weights, or a
+        // Comfy-Org split_files safetensors bundle — isn't a whole-repo
+        // download: like GGUF, each file is an independent model/component, so
+        // the repo's other variants aren't "missing".
+        if (isPickOneBinRepo(expected) || isPickOneSafetensorsRepo(expected))
+          return null;
         const dir = nodePath.join(base, m.name);
         const incomplete = expected.some(
           (f) => !existsSync(nodePath.join(dir, f)),

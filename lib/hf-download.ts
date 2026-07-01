@@ -42,6 +42,22 @@ export function repoDownloadFiles(paths: string[]): string[] {
 }
 
 /**
+ * Whether a repo is a Comfy-Org "split_files" component bundle — every
+ * safetensors sits under a `split_files/<role>/` directory (e.g.
+ * `Comfy-Org/vae-text-encorder-for-flux-klein-9b`: a VAE plus several
+ * text-encoder quants). Each file is an independent component or quantization
+ * the Lemonade catalog addresses one at a time, not one whole-repo model needing
+ * every file — so they're picked individually like GGUF quants, and an
+ * un-downloaded one isn't "missing". The `split_files/` layout is the signal
+ * both the HF tree and a local copy's paths carry, and it keeps normal/sharded
+ * safetensors models (weights at the repo root) untouched.
+ */
+export function isPickOneSafetensorsRepo(paths: string[]): boolean {
+  const sts = paths.filter((p) => /\.safetensors$/i.test(p));
+  return sts.length > 0 && sts.every((p) => /(^|\/)split_files\//i.test(p));
+}
+
+/**
  * Whether a repo holds independent single-file `.bin` weights you pick one of —
  * ggml whisper.cpp-style (e.g. `ggerganov/whisper.cpp`, ~40 standalone
  * `ggml-*.bin` models), where Lemonade fetches one named `.bin` per catalog

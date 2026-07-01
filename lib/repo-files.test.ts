@@ -62,6 +62,46 @@ test('a checksum-less file with an unknown source size is valid when its size ma
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('clutter like .gitattributes is never reported as a required file', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
+  const repoId = 'rf/with-clutter';
+  mockTree(repoId, [
+    {path: 'model.onnx', size: 100},
+    {path: '.gitattributes', size: 5},
+    {path: 'README.md', size: 10},
+  ]);
+  await writeFileOfSize(path.join(base, repoId, 'model.onnx'), 100);
+  // .gitattributes and README.md are absent locally but must not be flagged.
+  const out = await repoFileStatuses(base, repoId);
+  expect(out.map((f) => f.path)).toEqual(['model.onnx']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('a split_files bundle reports only present files, not un-downloaded variants', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
+  const repoId = 'Comfy-Org/vae-text-encorder-for-flux-klein-9b';
+  mockTree(repoId, [
+    {path: '.gitattributes', size: 5},
+    {path: 'split_files/vae/flux2-vae.safetensors', size: 200},
+    {path: 'split_files/text_encoders/qwen_3_8b.safetensors', size: 800},
+    {
+      path: 'split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors',
+      size: 400,
+    },
+  ]);
+  // Only the VAE is downloaded; the text-encoder quants aren't "missing".
+  await writeFileOfSize(
+    path.join(base, repoId, 'split_files/vae/flux2-vae.safetensors'),
+    200,
+  );
+  const out = await repoFileStatuses(base, repoId);
+  expect(out.map((f) => f.path)).toEqual([
+    'split_files/vae/flux2-vae.safetensors',
+  ]);
+  expect(out[0].state).toBe('present');
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('a checksum-less file whose size differs from HF is invalid', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
   const repoId = 'rf/wrong-size';
@@ -127,13 +167,13 @@ test('a fully-attested sidecar (known matching size) stays present', async () =>
 test('a file with no sidecar entry stays present when its size matches HF', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
   const repoId = 'rf/no-entry';
-  mockTree(repoId, [{path: 'README.md', size: 10}]);
-  await writeFileOfSize(path.join(base, repoId, 'README.md'), 10);
+  mockTree(repoId, [{path: 'tokenizer.json', size: 10}]);
+  await writeFileOfSize(path.join(base, repoId, 'tokenizer.json'), 10);
   // No tjmodel.json at all — the unknown-size rule is scoped to recorded
   // metadata, so an unrecorded file is judged on size alone.
 
   const out = await repoFileStatuses(base, repoId);
-  expect(out.find((f) => f.path === 'README.md')?.state).toBe('present');
+  expect(out.find((f) => f.path === 'tokenizer.json')?.state).toBe('present');
   await fsp.rm(base, {recursive: true, force: true});
 });
 

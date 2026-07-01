@@ -83,6 +83,27 @@ test('does not flag a pick-one ggml .bin repo (whisper.cpp) as incomplete', asyn
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('does not flag a Comfy split_files safetensors bundle as incomplete', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-inc-'));
+  const repoId = 'Comfy-Org/vae-text-encorder-for-flux-klein-9b';
+  // Only the VAE downloaded; the text-encoder quants are independent variants.
+  await writeSized(
+    path.join(base, repoId, 'split_files/vae/flux2-vae.safetensors'),
+    200,
+  );
+  mockTree(repoId, [
+    {path: '.gitattributes', size: 5},
+    {path: 'split_files/vae/flux2-vae.safetensors', size: 200},
+    {path: 'split_files/text_encoders/qwen_3_8b.safetensors', size: 800},
+    {
+      path: 'split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors',
+      size: 400,
+    },
+  ]);
+  expect(await findIncompleteRepos(base)).toEqual([]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('still flags a whole-repo (onnx) model missing a file as incomplete', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-inc-'));
   const repoId = 'ktest/kokoro';

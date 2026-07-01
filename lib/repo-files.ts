@@ -1,5 +1,6 @@
 import {readFileMetaByPath} from '@/lib/model-sidecar';
-import {isPickOneBinRepo} from '@/lib/hf-download';
+import {isPickOneBinRepo, isPickOneSafetensorsRepo} from '@/lib/hf-download';
+import {isClutterFile} from '@/lib/repo-clutter';
 import {existsSync, statSync} from 'fs';
 import nodePath from 'path';
 
@@ -60,12 +61,16 @@ export async function repoFileStatuses(
   repoId: string,
 ): Promise<RepoFile[]> {
   const base = nodePath.resolve(storageBase);
-  const tree = await repoTree(repoId);
+  // Drop repo clutter (`.gitattributes`, docs, images): never a required file,
+  // so never reported as missing.
+  const tree = (await repoTree(repoId)).filter((f) => !isClutterFile(f.path));
   const dir = nodePath.join(base, repoId);
-  // A pick-one .bin repo (ggml whisper.cpp-style) holds many independent models;
-  // like GGUF, an un-downloaded variant isn't "missing" — report only the files
+  const paths = tree.map((f) => f.path);
+  // A pick-one repo — ggml whisper.cpp-style `.bin` weights, or a Comfy-Org
+  // split_files safetensors bundle — holds independent models/components; like
+  // GGUF, an un-downloaded variant isn't "missing", so report only the files
   // present on disk, not the whole repo.
-  const pickOne = isPickOneBinRepo(tree.map((f) => f.path));
+  const pickOne = isPickOneBinRepo(paths) || isPickOneSafetensorsRepo(paths);
   const out: RepoFile[] = [];
   for (const f of tree) {
     const full = nodePath.join(dir, f.path);

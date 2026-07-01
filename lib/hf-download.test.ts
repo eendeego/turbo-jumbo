@@ -1,5 +1,33 @@
 import {test, expect} from 'bun:test';
-import {repoDownloadFiles, defaultDownloadSelection} from '@/lib/hf-download';
+import {
+  repoDownloadFiles,
+  defaultDownloadSelection,
+  isPickOneSafetensorsRepo,
+} from '@/lib/hf-download';
+
+// A Comfy-Org "split_files" component bundle: a VAE plus several text-encoder
+// quants, each an independent pick-one file (Comfy-Org/vae-text-encorder-*).
+const splitFilesBundle = [
+  '.gitattributes',
+  'split_files/text_encoders/qwen_3_8b.safetensors',
+  'split_files/text_encoders/qwen_3_8b_fp4mixed.safetensors',
+  'split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors',
+  'split_files/vae/flux2-vae.safetensors',
+];
+
+test('isPickOneSafetensorsRepo detects a split_files component bundle', () => {
+  expect(isPickOneSafetensorsRepo(splitFilesBundle)).toBe(true);
+});
+
+test('isPickOneSafetensorsRepo rejects a normal (sharded) safetensors model', () => {
+  expect(isPickOneSafetensorsRepo(safetensorsRepo)).toBe(false);
+});
+
+test('isPickOneSafetensorsRepo rejects repos with no safetensors', () => {
+  expect(isPickOneSafetensorsRepo(['ggml-tiny.bin', 'ggml-base.bin'])).toBe(
+    false,
+  );
+});
 
 const safetensorsRepo = [
   'model-00001-of-00002.safetensors',
