@@ -46,22 +46,30 @@ async function recordSources(
   filePaths: string[],
   signal: AbortSignal,
   enqueue: (s: string) => void,
-): Promise<void> {
+): Promise<{failures: string[]}> {
   const localBase = localModelsDir!;
+  // Files that did not end up safely on disk (missing, or present but failing
+  // verification). The caller uses this to refuse the cold-storage transfer.
+  const failures: string[] = [];
   enqueue('\nRecording sources...\n');
   for (const fp of filePaths) {
-    if (signal.aborted) return;
+    if (signal.aborted) return {failures};
     const relPath = path.join(repoId, fp);
     const hf = await resolveHfFileByPath(repoId, branch, fp);
     if (!hf) {
-      // No HF source (a small non-LFS file): can't verify it, but it's now on
-      // disk — clear any `missing` flag a prior audit left so the model isn't
-      // still reported incomplete.
-      let size = 0;
+      // No HF source (a small non-LFS file): can't verify it, but if it's on
+      // disk clear any `missing` flag a prior audit left so the model isn't
+      // still reported incomplete. If it isn't on disk, the download failed.
+      let size = -1;
       try {
         size = (await fsp.stat(path.join(localBase, relPath))).size;
       } catch {
-        /* unreadable: clear with size 0, a later audit re-measures */
+        /* missing: handled below */
+      }
+      if (size < 0) {
+        failures.push(fp);
+        enqueue(`  ${fp}: missing — not written to disk\n`);
+        continue;
       }
       const cleared = await clearMissingFlag(localBase, repoId, fp, size);
       enqueue(
@@ -78,7 +86,13 @@ async function recordSources(
       hf,
     );
     enqueue(`  ${fp}: ${result.status}\n`);
+    // Only a verified-present file (or one we can't verify but is on disk) is
+    // safe to carry onward; anything else means the download didn't land.
+    if (result.status !== 'pass' && result.status !== 'unverifiable') {
+      failures.push(fp);
+    }
   }
+  return {failures};
 }
 
 function fmtBytes(b: number): string {
@@ -246,7 +260,9 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
     start(controller) {
       const enqueue = (s: string) => controller.enqueue(encode(s));
 
-      const proc = spawn('script', ['-q', '-c', cmd, '/dev/null'], {
+      // `-e` makes `script` exit with the wrapped command's status; without it
+      // `script` always exits 0, hiding an `hf download` failure.
+      const proc = spawn('script', ['-e', '-q', '-c', cmd, '/dev/null'], {
         env: HF_HUB_ENABLE_HF_TRANSFER
           ? {...process.env, HF_HUB_ENABLE_HF_TRANSFER: '1'}
           : process.env,
@@ -270,17 +286,31 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
       proc.on('close', async (code) => {
         enqueue(`\nProcess exited with code ${code}\n`);
         try {
-          if (code === 0) {
-            await recordSources(
-              repoId,
-              branch,
-              filePaths as string[],
-              signal,
-              enqueue,
+          if (code !== 0) {
+            enqueue(
+              `\nError: download failed (hf exited with code ${code}).\n`,
             );
-            if (sendToCold && coldStorageDir) {
-              await moveToColdstorage(relPaths, !!deleteAfterTransfer, enqueue);
-            }
+            return;
+          }
+          // Even on a 0 exit, verify the files actually landed and pass audit —
+          // some failures (and the historical exit-code masking) can slip
+          // through. A failed verification must not reach cold storage.
+          const {failures} = await recordSources(
+            repoId,
+            branch,
+            filePaths as string[],
+            signal,
+            enqueue,
+          );
+          if (failures.length > 0) {
+            enqueue(
+              `\nError: download failed — ${failures.length} file(s) did not download correctly: ${failures.join(', ')}.\n` +
+                `Skipping cold storage.\n`,
+            );
+            return;
+          }
+          if (sendToCold && coldStorageDir) {
+            await moveToColdstorage(relPaths, !!deleteAfterTransfer, enqueue);
           }
         } catch (err: unknown) {
           enqueue(`\nError: ${(err as Error).message}\n`);
