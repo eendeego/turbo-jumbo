@@ -1,7 +1,9 @@
 import {test, expect} from 'bun:test';
 import {
   collectionDownloadPlan,
+  collectionDownloadStatus,
   collectionFromManifest,
+  componentDownloadStatus,
   lemonadeDownloadStatus,
   lemonadeGgufModels,
   lemonadeStatusTooltip,
@@ -12,6 +14,7 @@ import {
   planRepoJobs,
   resolveCheckpointFiles,
   type InventoryLocation,
+  type LemonadeComponent,
   type LemonadeModel,
   type OmniCollection,
 } from '@/lib/lemonade';
@@ -815,4 +818,101 @@ test('missingVariantFiles: matches by basename when paths carry subdirs', () => 
   expect(
     missingVariantFiles(['sub/Model-Q4_K_M.gguf'], local, 'org/Repo-GGUF'),
   ).toEqual([]);
+});
+
+// --- collection / component download status -----------------------------
+
+function comp(
+  name: string,
+  recipe: string,
+  checkpoints: Array<{repoId: string; variant: string | null}>,
+  downloadable = false,
+): LemonadeComponent {
+  return {
+    name,
+    recipe,
+    modality: recipe,
+    sizeGb: 1,
+    downloadable,
+    checkpoints,
+  };
+}
+
+function coll(name: string, components: LemonadeComponent[]): OmniCollection {
+  return {name, suggested: false, sizeGb: 0, labels: [], components};
+}
+
+// A vision LLM (weight + mmproj), a whisper .bin, and a kokoro ONNX (whole
+// repo). The ONNX isn't a tracked weight type, so it's the untrackable member.
+const llmComp = comp(
+  'LLM',
+  'llamacpp',
+  [
+    {repoId: 'o/llm', variant: 'Q4_K_M'},
+    {repoId: 'o/llm', variant: 'mmproj-F16.gguf'},
+  ],
+  true,
+);
+const whisperComp = comp('Whisper', 'whispercpp', [
+  {repoId: 'o/whisper', variant: 'ggml-tiny.bin'},
+]);
+const kokoroComp = comp('Kokoro', 'kokoro', [
+  {repoId: 'o/kokoro', variant: null},
+]);
+
+const llmFiles = repoModel('o/llm', [
+  single('llm-Q4_K_M.gguf', 'Q4_K_M'),
+  single('mmproj-F16.gguf', 'F16'),
+]);
+const whisperFiles = repoModel('o/whisper', [
+  single('ggml-tiny.bin', 'unknown'),
+]);
+
+test('collectionDownloadStatus is complete when every trackable member is present', () => {
+  const c = coll('Omni', [llmComp, whisperComp, kokoroComp]);
+  const info = collectionDownloadStatus(c, [
+    loc('local', [llmFiles, whisperFiles]),
+  ]);
+  // The untrackable kokoro member doesn't hold it back.
+  expect(info.status).toBe('complete');
+  expect(info.locations).toEqual([{name: 'local', status: 'complete'}]);
+});
+
+test('collectionDownloadStatus is partial when a trackable member is missing', () => {
+  const c = coll('Omni', [llmComp, whisperComp, kokoroComp]);
+  const info = collectionDownloadStatus(c, [loc('local', [llmFiles])]);
+  expect(info.status).toBe('partial');
+  expect(info.locations).toEqual([{name: 'local', status: 'partial'}]);
+});
+
+test('collectionDownloadStatus is none when nothing trackable is present', () => {
+  // A collection of only the untrackable kokoro member, plus an empty scan.
+  const c = coll('Omni', [kokoroComp]);
+  const info = collectionDownloadStatus(c, [loc('local', [])]);
+  expect(info.status).toBe('none');
+  expect(info.locations).toEqual([]);
+});
+
+test('collectionDownloadStatus is partial, not complete, when members are split across locations', () => {
+  const c = coll('Omni', [llmComp, whisperComp]);
+  const info = collectionDownloadStatus(c, [
+    loc('local', [llmFiles]), // has the LLM, not whisper
+    loc('cold storage', [whisperFiles]), // has whisper, not the LLM
+  ]);
+  // No single location holds the whole bundle.
+  expect(info.status).toBe('partial');
+  expect(info.locations).toEqual([
+    {name: 'local', status: 'partial'},
+    {name: 'cold storage', status: 'partial'},
+  ]);
+});
+
+test('componentDownloadStatus tracks a non-llamacpp member (whisper) by its file', () => {
+  expect(
+    componentDownloadStatus(whisperComp, [loc('local', [whisperFiles])]).status,
+  ).toBe('complete');
+  // The kokoro ONNX can't be seen by the weight scan: no marker.
+  expect(componentDownloadStatus(kokoroComp, [loc('local', [])]).status).toBe(
+    'none',
+  );
 });

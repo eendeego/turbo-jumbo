@@ -22,6 +22,8 @@ import {ModelLabelIcon} from '@/components/lemonade/model-label-icon';
 import {sortLabelsForDisplay} from '@/lib/lemonade-labels';
 import {
   collectionDownloadPlan,
+  collectionDownloadStatus,
+  componentDownloadStatus,
   lemonadeDownloadStatus,
   lemonadeStatusTooltip,
   matchVariantFiles,
@@ -103,15 +105,15 @@ function componentSecondary(component: LemonadeComponent): string {
   return `${repos[0]} +${repos.length - 1}`;
 }
 
-// A collection member's end-of-row content. Known llamacpp members also show
-// a download-status marker; every member shows its modality and size.
+// A collection member's end-of-row content: a download-status marker (when
+// the weight scan can track it), its modality, and its size.
 function componentEndContent(
   component: LemonadeComponent,
-  info: LemonadeDownloadInfo | undefined,
+  info: LemonadeDownloadInfo,
 ) {
   return (
     <HStack gap={1} vAlign="center">
-      {component.downloadable && <StatusMarker info={info} />}
+      <StatusMarker info={info} />
       <Badge label={component.modality} variant="neutral" />
       <Text type="supporting">{formatGb(component.sizeGb)}</Text>
     </HStack>
@@ -129,23 +131,6 @@ function StatusMarker({info}: {info: LemonadeDownloadInfo | undefined}) {
       />
     </HoverCard>
   );
-}
-
-// The aggregate download status of an omni collection's downloadable (GGUF)
-// members, for its header badge. Undefined when none of them have started.
-function collectionAggregateStatus(
-  collection: OmniCollection,
-  statusByName: Map<string, LemonadeDownloadInfo>,
-): LemonadeDownloadInfo | undefined {
-  const statuses = collection.components
-    .filter((c) => c.downloadable)
-    .map((c) => statusByName.get(c.name)?.status ?? 'none');
-  if (statuses.length === 0 || statuses.every((s) => s === 'none'))
-    return undefined;
-  const status = statuses.every((s) => s === 'complete')
-    ? 'complete'
-    : 'partial';
-  return {status, locations: []};
 }
 
 /**
@@ -410,7 +395,10 @@ export function LemonadeBrowser({
             <List hasDividers xstyle={styles.modelList}>
               {visibleCollections.map((c) => {
                 const isExpanded = expanded.has(c.name);
-                const aggregate = collectionAggregateStatus(c, statusByName);
+                const aggregate = collectionDownloadStatus(
+                  c,
+                  inventoryLocations,
+                );
                 const collSelection: Selection = {
                   kind: 'collection',
                   collection: c,
@@ -470,7 +458,7 @@ export function LemonadeBrowser({
                             onClick={() => setSelection(compSelection)}
                             endContent={componentEndContent(
                               comp,
-                              statusByName.get(comp.name),
+                              componentDownloadStatus(comp, inventoryLocations),
                             )}
                           />
                         );

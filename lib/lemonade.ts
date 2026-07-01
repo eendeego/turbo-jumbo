@@ -4,6 +4,7 @@
 // this app stores; other recipes (ONNX, whisper, SD) are multi-file layouts.
 
 import type {Model, ModelFile} from '@/lib/model-types';
+import {isWeightFile} from '@/lib/weight-files';
 
 /** One downloadable GGUF model from the Lemonade catalog. */
 export interface LemonadeModel {
@@ -567,4 +568,110 @@ export function lemonadeStatusTooltip(info: LemonadeDownloadInfo): string {
   if (complete.length) parts.push(`Complete: ${complete.join(', ')}.`);
   if (partial.length) parts.push(`Partial: ${partial.join(', ')}.`);
   return parts.join(' ');
+}
+
+// --- omni collection download status ------------------------------------
+
+// `untracked` means the weight scan can't see this thing at all — a whole-repo
+// (null) checkpoint or a non-weight file like a kokoro `.onnx` — so it's
+// neither confirmable nor counted as missing.
+type Presence = 'untracked' | 'none' | 'partial' | 'complete';
+
+// One checkpoint's presence within a single location's scan.
+function checkpointPresence(cp: Checkpoint, models: Model[]): Presence {
+  const {variant} = cp;
+  if (variant == null) return 'untracked';
+  const isFilename = FILENAME_VARIANT_RE.test(variant);
+  if (isFilename && !isWeightFile(variant)) return 'untracked';
+  const files = models
+    .filter((m) => m.name === cp.repoId)
+    .flatMap((m) => m.files);
+  const matched = isFilename
+    ? files.filter(
+        (f) =>
+          baseName(groupFilename(f)).toLowerCase() ===
+          baseName(variant).toLowerCase(),
+      )
+    : files.filter((f) => fileMatchesVariant(f, variant));
+  if (matched.length === 0) return 'none';
+  return matched.every(groupComplete) ? 'complete' : 'partial';
+}
+
+// Roll several presences up: complete only when every tracked one is complete
+// (and at least one is tracked); untracked when nothing could be tracked.
+function rollUpPresence(values: Presence[]): Presence {
+  let tracked = 0;
+  let anyPresent = false;
+  let allComplete = true;
+  for (const v of values) {
+    if (v === 'untracked') continue;
+    tracked++;
+    if (v !== 'none') anyPresent = true;
+    if (v !== 'complete') allComplete = false;
+  }
+  if (tracked === 0) return 'untracked';
+  if (allComplete) return 'complete';
+  return anyPresent ? 'partial' : 'none';
+}
+
+function componentPresence(
+  component: LemonadeComponent,
+  models: Model[],
+): Presence {
+  return rollUpPresence(
+    component.checkpoints.map((cp) => checkpointPresence(cp, models)),
+  );
+}
+
+// Best presence across locations, as a LemonadeDownloadInfo. `untracked`/`none`
+// in a location contribute no hit, so an all-untrackable thing reads as absent.
+function presenceAcross(
+  presence: (models: Model[]) => Presence,
+  locations: InventoryLocation[],
+): LemonadeDownloadInfo {
+  const hits: Array<{name: string; status: 'partial' | 'complete'}> = [];
+  for (const loc of locations) {
+    const s = presence(loc.models);
+    if (s === 'partial' || s === 'complete')
+      hits.push({name: loc.name, status: s});
+  }
+  const status: DownloadStatus = hits.some((h) => h.status === 'complete')
+    ? 'complete'
+    : hits.length > 0
+      ? 'partial'
+      : 'none';
+  return {status, locations: hits};
+}
+
+/**
+ * An omni component's download status across locations (best wins), judged only
+ * by the files the weight scan tracks. A component whose files aren't trackable
+ * (a kokoro ONNX) reads as `none` rather than holding a collection back.
+ */
+export function componentDownloadStatus(
+  component: LemonadeComponent,
+  locations: InventoryLocation[],
+): LemonadeDownloadInfo {
+  return presenceAcross(
+    (models) => componentPresence(component, models),
+    locations,
+  );
+}
+
+/**
+ * An omni collection's download status: per location, complete only when every
+ * trackable member is complete there — so a bundle whose pieces are split
+ * across locations reads partial — with the best location winning overall.
+ */
+export function collectionDownloadStatus(
+  collection: OmniCollection,
+  locations: InventoryLocation[],
+): LemonadeDownloadInfo {
+  return presenceAcross(
+    (models) =>
+      rollUpPresence(
+        collection.components.map((c) => componentPresence(c, models)),
+      ),
+    locations,
+  );
 }
