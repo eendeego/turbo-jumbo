@@ -318,3 +318,35 @@ test('lemonadeStatusTooltip groups locations by status', () => {
     }),
   ).toBe('Complete: cold storage, local. Partial: my-server.');
 });
+
+test('lemonadeDownloadStatus reports partial when a single file is missing', () => {
+  const local = loc('local', [
+    repoModel('unsloth/Qwen3-0.6B-GGUF', [
+      single('Qwen3-0.6B-Q4_0.gguf', 'Q4_0', true /* missing */),
+    ]),
+  ]);
+  const info = lemonadeDownloadStatus(model(), [local]);
+  expect(info.status).toBe('partial');
+});
+
+test('lemonadeDownloadStatus matches an exact-filename variant against a split group', () => {
+  const split: Model['files'][number] = {
+    isSplit: true,
+    representativeFilename: 'Qwen3-0.6B-Q4_0-00001-of-00002.gguf',
+    files: [
+      {path: 'Qwen3-0.6B-Q4_0-00001-of-00002.gguf', size: 1},
+      {path: 'Qwen3-0.6B-Q4_0-00002-of-00002.gguf', size: 1},
+    ],
+    quant: 'Q4_0',
+    totalShards: 2,
+    presentShards: 2,
+    missingIndices: [],
+    totalSize: 2,
+  };
+  const local = loc('local', [repoModel('unsloth/Qwen3-0.6B-GGUF', [split])]);
+  const info = lemonadeDownloadStatus(
+    model({variant: 'Qwen3-0.6B-Q4_0.gguf'}),
+    [local],
+  );
+  expect(info.status).toBe('complete');
+});

@@ -153,14 +153,13 @@ const groupComplete = (f: ModelFile): boolean =>
 // (which carry a quant label and, for split groups, a representative name).
 function fileMatchesVariant(f: ModelFile, variant: string | null): boolean {
   const base = (groupFilename(f).split('/').pop() ?? '').toLowerCase();
-  const isMmprojFile = base.startsWith('mmproj');
   if (!base.endsWith('.gguf')) return false;
-  if (variant == null) return !isMmprojFile;
+  if (variant == null) return !base.startsWith('mmproj');
   if (variant.toLowerCase().endsWith('.gguf')) {
     const v = variant.toLowerCase();
     return base === v || stripShard(base) === stripShard(v);
   }
-  if (isMmprojFile) return false;
+  if (base.startsWith('mmproj')) return false;
   const token = variant.toLowerCase();
   return f.quant.toLowerCase() === token || base.includes(token);
 }
