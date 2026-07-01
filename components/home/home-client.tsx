@@ -4,10 +4,13 @@ import {useState, useMemo, useCallback, useEffect, useRef} from 'react';
 import {useRouter} from 'next/navigation';
 import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
-import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
-import {Heading, Text} from '@astryxdesign/core/Text';
+import {TopNav, TopNavHeading} from '@astryxdesign/core/TopNav';
+import {NavIcon} from '@astryxdesign/core/NavIcon';
+import {VStack, HStack} from '@astryxdesign/core/Stack';
+import {Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
+import {CubeIcon} from '@heroicons/react/24/outline';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {withPeerPaths} from '@/lib/peer-paths';
@@ -1033,34 +1036,47 @@ export function HomeClient({
   }, [invalidByPeer, activeLocation]);
 
   return (
-    <AppShell contentPadding={5} height="auto">
-      <VStack gap={6}>
-        <HStack vAlign="center">
-          <StackItem size="fill">
-            <Heading level={1}>Turbo Jumbo</Heading>
-          </StackItem>
-          <ThemeToggle />
-        </HStack>
-
+    <AppShell
+      contentPadding={5}
+      topNav={
+        <TopNav
+          label="Main navigation"
+          heading={
+            <TopNavHeading
+              heading="Turbo Jumbo"
+              logo={
+                <NavIcon icon={<CubeIcon style={{width: 16, height: 16}} />} />
+              }
+            />
+          }
+          endContent={
+            <HStack gap={2} vAlign="center">
+              {localModelsPath && canDownloadLocally && (
+                <>
+                  <Button
+                    label="Consolidate with Lemonade…"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setSyncOpen(true)}
+                  />
+                  <AddModelMenu
+                    activeLocation={activeLocation}
+                    peerConfigs={peerConfigs}
+                  />
+                </>
+              )}
+              <ThemeToggle />
+            </HStack>
+          }
+        />
+      }
+    >
+      <VStack gap={4}>
         <LocationTabs
           locations={locations}
           activeLocation={activeLocation}
           onLocationChange={handleLocationChange}
         />
-        {localModelsPath && canDownloadLocally && (
-          <HStack gap={2} hAlign="end">
-            <Button
-              label="Consolidate with Lemonade…"
-              variant="secondary"
-              size="sm"
-              onClick={() => setSyncOpen(true)}
-            />
-            <AddModelMenu
-              activeLocation={activeLocation}
-              peerConfigs={peerConfigs}
-            />
-          </HStack>
-        )}
         {checkingUpdates && (
           <Text type="supporting">Checking Hugging Face for updates…</Text>
         )}
@@ -1113,80 +1129,80 @@ export function HomeClient({
           misplacedCount={misplacedPaths.length}
           fixing={fixing}
         />
-
-        {confirming && (
-          <DeleteModal
-            files={fileInfo}
-            from={deleteFromLabel}
-            requireDoubleConfirm={
-              activeLocation === 'all' ||
-              activeLocation === 'cold-storage' ||
-              anyMissingFromColdStorage(fileInfo, coldModels)
-            }
-            onConfirm={onDelete}
-            onCancel={() => setConfirming(false)}
-          />
-        )}
-        {confirmingCopy && (
-          <CopyModal
-            files={fileInfo}
-            from={activeLocation}
-            onCopy={onCopy}
-            onCancel={() => setConfirmingCopy(false)}
-          />
-        )}
-        {pendingConflicts.length > 0 && (
-          <ConflictsModal
-            conflicts={pendingConflicts}
-            peers={peerConfigs}
-            onConfirm={onConflictsConfirm}
-            onCancel={() => {
-              setPendingConflicts([]);
-              setPendingDestinations(null);
-            }}
-          />
-        )}
-        {sourceTarget && (
-          <SetSourceModal
-            filename={sourceTarget.split('/').pop() ?? sourceTarget}
-            busy={settingSource}
-            error={sourceError}
-            progress={sourceProgress}
-            onSubmit={submitSource}
-            onCancel={() => {
-              setSourceTarget(null);
-              setSourceError(null);
-            }}
-          />
-        )}
-        {revisionsFile && (
-          <RevisionsModal
-            file={revisionsFile}
-            onClose={() => setRevisionsFile(null)}
-          />
-        )}
-        {syncOpen && (
-          <LemonadeSyncModal
-            onClose={() => setSyncOpen(false)}
-            onSynced={() => {
-              void refreshModels();
-              void refreshInvalid();
-              void refreshIncomplete();
-            }}
-          />
-        )}
-        {redownloadOpen && (
-          <DownloadModal
-            title="Redownloading…"
-            term={redownload.term}
-            progress={redownload.progress}
-            running={redownload.running}
-            command={redownload.command ?? undefined}
-            hfTokenSet={hfTokenSet}
-            onClose={closeRedownload}
-          />
-        )}
       </VStack>
+
+      {confirming && (
+        <DeleteModal
+          files={fileInfo}
+          from={deleteFromLabel}
+          requireDoubleConfirm={
+            activeLocation === 'all' ||
+            activeLocation === 'cold-storage' ||
+            anyMissingFromColdStorage(fileInfo, coldModels)
+          }
+          onConfirm={onDelete}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+      {confirmingCopy && (
+        <CopyModal
+          files={fileInfo}
+          from={activeLocation}
+          onCopy={onCopy}
+          onCancel={() => setConfirmingCopy(false)}
+        />
+      )}
+      {pendingConflicts.length > 0 && (
+        <ConflictsModal
+          conflicts={pendingConflicts}
+          peers={peerConfigs}
+          onConfirm={onConflictsConfirm}
+          onCancel={() => {
+            setPendingConflicts([]);
+            setPendingDestinations(null);
+          }}
+        />
+      )}
+      {sourceTarget && (
+        <SetSourceModal
+          filename={sourceTarget.split('/').pop() ?? sourceTarget}
+          busy={settingSource}
+          error={sourceError}
+          progress={sourceProgress}
+          onSubmit={submitSource}
+          onCancel={() => {
+            setSourceTarget(null);
+            setSourceError(null);
+          }}
+        />
+      )}
+      {revisionsFile && (
+        <RevisionsModal
+          file={revisionsFile}
+          onClose={() => setRevisionsFile(null)}
+        />
+      )}
+      {syncOpen && (
+        <LemonadeSyncModal
+          onClose={() => setSyncOpen(false)}
+          onSynced={() => {
+            void refreshModels();
+            void refreshInvalid();
+            void refreshIncomplete();
+          }}
+        />
+      )}
+      {redownloadOpen && (
+        <DownloadModal
+          title="Redownloading…"
+          term={redownload.term}
+          progress={redownload.progress}
+          running={redownload.running}
+          command={redownload.command ?? undefined}
+          hfTokenSet={hfTokenSet}
+          onClose={closeRedownload}
+        />
+      )}
 
       <Log logLevel={logLevel} />
     </AppShell>
