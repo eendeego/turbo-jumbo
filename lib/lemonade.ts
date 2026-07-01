@@ -16,11 +16,17 @@ export interface LemonadeModel {
   sizeGb: number;
 }
 
+/** A repo + variant to fetch: one of a component's role checkpoints. */
+export interface Checkpoint {
+  repoId: string;
+  variant: string | null; // quant token, exact filename, or null = whole repo
+}
+
 /**
- * One member of an omni collection. Only `llamacpp` GGUF members are
- * `downloadable` here (they join a `LemonadeModel` by `name`); image/audio/TTS
- * members (sd-cpp, whispercpp, kokoro, …) are shown for context but this app
- * doesn't store their multi-file layouts, so they carry only display fields.
+ * One member of an omni collection. `downloadable` is true for `llamacpp` GGUF
+ * members that join a `LemonadeModel` by `name`; image/audio/TTS members
+ * (sd-cpp, whispercpp, kokoro, …) carry their display fields too, and every
+ * member lists the `checkpoints` (repos/files) a full download fetches.
  */
 export interface LemonadeComponent {
   name: string;
@@ -28,6 +34,7 @@ export interface LemonadeComponent {
   modality: string; // display label: chat, vision, image, transcription, tts…
   sizeGb: number;
   downloadable: boolean;
+  checkpoints: Checkpoint[]; // every repo/file this member pulls
 }
 
 /**
@@ -141,6 +148,43 @@ function readLabels(v: unknown): string[] {
     : [];
 }
 
+// The checkpoint roles worth downloading. NPU/cache roles (e.g. `npu_cache`)
+// are AMD-device-specific and skipped.
+const CHECKPOINT_ROLES = ['main', 'mmproj', 'text_encoder', 'vae'];
+
+// The repos/files a component pulls. Two catalog shapes: a `checkpoints` map of
+// role -> "repo:thing" (multi-file recipes like sd-cpp), or a single
+// `checkpoint` with an optional sibling `mmproj` filename living in that same
+// repo (the llamacpp vision models).
+function componentCheckpoints(raw: unknown): Checkpoint[] {
+  const e =
+    raw && typeof raw === 'object'
+      ? (raw as {
+          checkpoints?: unknown;
+          checkpoint?: unknown;
+          mmproj?: unknown;
+        })
+      : {};
+  const out: Checkpoint[] = [];
+  if (e.checkpoints && typeof e.checkpoints === 'object') {
+    const map = e.checkpoints as Record<string, unknown>;
+    for (const role of CHECKPOINT_ROLES) {
+      const v = map[role];
+      if (typeof v !== 'string') continue;
+      const parsed = parseCheckpoint(v);
+      if (parsed) out.push(parsed);
+    }
+  } else if (typeof e.checkpoint === 'string') {
+    const parsed = parseCheckpoint(e.checkpoint);
+    if (parsed) {
+      out.push(parsed);
+      if (typeof e.mmproj === 'string')
+        out.push({repoId: parsed.repoId, variant: e.mmproj});
+    }
+  }
+  return out;
+}
+
 // A collection's total size: its declared size when the catalog gives one,
 // else the sum of its components (the inline collections carry no size).
 function collectionSize(
@@ -172,6 +216,7 @@ function toComponent(
     modality: componentModality(recipe, labels),
     sizeGb: typeof e.size === 'number' ? e.size : 0,
     downloadable: recipe === 'llamacpp' && downloadableNames.has(name),
+    checkpoints: componentCheckpoints(raw),
   };
 }
 
@@ -261,6 +306,27 @@ export function collectionFromManifest(
   };
 }
 
+/**
+ * The full set of repo checkpoints to fetch for an omni collection: every
+ * component's checkpoints, in component order, de-duped so a repo+variant shared
+ * by two components is fetched once.
+ */
+export function collectionDownloadPlan(
+  collection: OmniCollection,
+): Checkpoint[] {
+  const seen = new Set<string>();
+  const plan: Checkpoint[] = [];
+  for (const component of collection.components) {
+    for (const cp of component.checkpoints) {
+      const key = `${cp.repoId}::${cp.variant ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      plan.push(cp);
+    }
+  }
+  return plan;
+}
+
 const isMmproj = (name: string) => name.toLowerCase().startsWith('mmproj');
 
 /**
@@ -305,6 +371,44 @@ export function matchVariantFiles(
     if (extra && !picked.includes(extra.path)) picked.push(extra.path);
   }
   return picked;
+}
+
+// A variant naming an exact file ends in an extension; a quant token doesn't.
+const FILENAME_VARIANT_RE = /\.[A-Za-z0-9]+$/;
+const baseName = (p: string) => p.split('/').pop() ?? p;
+
+/**
+ * The repo file paths one checkpoint resolves to — the generalization of
+ * `matchVariantFiles` for omni components, which span more than GGUF:
+ *  - a quant token picks the `.gguf` files carrying it (mmproj excluded);
+ *  - an exact filename picks that file of ANY extension, matched by full path
+ *    or basename so a subdir-qualified name (e.g. `split_files/vae/x.safetensors`)
+ *    resolves whether or not the catalog included the subdir;
+ *  - a null variant takes the whole repo (a kokoro ONNX checkpoint, say).
+ */
+export function resolveCheckpointFiles(
+  files: Array<{path: string; size: number}>,
+  variant: string | null,
+): string[] {
+  if (variant == null) return files.map((f) => f.path);
+  if (FILENAME_VARIANT_RE.test(variant)) {
+    const wantPath = variant.toLowerCase();
+    const wantBase = baseName(variant).toLowerCase();
+    return files
+      .filter(
+        (f) =>
+          f.path.toLowerCase() === wantPath ||
+          baseName(f.path).toLowerCase() === wantBase,
+      )
+      .map((f) => f.path);
+  }
+  const needle = variant.toLowerCase();
+  return files
+    .filter((f) => {
+      const name = baseName(f.path).toLowerCase();
+      return name.endsWith('.gguf') && !isMmproj(name) && name.includes(needle);
+    })
+    .map((f) => f.path);
 }
 
 /**

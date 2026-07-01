@@ -1,5 +1,6 @@
 import {test, expect} from 'bun:test';
 import {
+  collectionDownloadPlan,
   collectionFromManifest,
   lemonadeDownloadStatus,
   lemonadeGgufModels,
@@ -8,8 +9,10 @@ import {
   missingVariantFiles,
   parseCheckpoint,
   parseLemonade,
+  resolveCheckpointFiles,
   type InventoryLocation,
   type LemonadeModel,
+  type OmniCollection,
 } from '@/lib/lemonade';
 import type {Model} from '@/lib/model-types';
 
@@ -147,6 +150,7 @@ test('parseLemonade resolves inline omni collections and defers manifest ones', 
       modality: 'vision',
       sizeGb: 4,
       downloadable: true,
+      checkpoints: [{repoId: 'unsloth/Qwen-LLM-GGUF', variant: 'Q4_K_M'}],
     },
     {
       name: 'SD-Turbo',
@@ -154,6 +158,9 @@ test('parseLemonade resolves inline omni collections and defers manifest ones', 
       modality: 'image',
       sizeGb: 5.21,
       downloadable: false,
+      checkpoints: [
+        {repoId: 'stabilityai/sd-turbo', variant: 'sd_turbo.safetensors'},
+      ],
     },
     {
       name: 'Whisper-Tiny',
@@ -161,6 +168,9 @@ test('parseLemonade resolves inline omni collections and defers manifest ones', 
       modality: 'transcription',
       sizeGb: 0.075,
       downloadable: false,
+      checkpoints: [
+        {repoId: 'ggerganov/whisper.cpp', variant: 'ggml-tiny.bin'},
+      ],
     },
   ]);
 
@@ -203,6 +213,7 @@ test('parseLemonade marks a component downloadable only when it is a known gguf 
     modality: 'unknown',
     sizeGb: 0,
     downloadable: false,
+    checkpoints: [],
   });
 });
 
@@ -263,6 +274,7 @@ test('collectionFromManifest builds components from a fetched manifest', () => {
         modality: 'vision',
         sizeGb: 4,
         downloadable: true,
+        checkpoints: [{repoId: 'unsloth/Qwen-LLM-GGUF', variant: 'Q4_K_M'}],
       },
       {
         name: 'SD-Turbo',
@@ -270,6 +282,9 @@ test('collectionFromManifest builds components from a fetched manifest', () => {
         modality: 'image',
         sizeGb: 5.21,
         downloadable: false,
+        checkpoints: [
+          {repoId: 'stabilityai/sd-turbo', variant: 'sd_turbo.safetensors'},
+        ],
       },
     ],
   });
@@ -282,6 +297,150 @@ test('collectionFromManifest tolerates a missing or malformed models array', () 
   expect(
     collectionFromManifest(ref, {models: [42, {}, null]}, new Set()).components,
   ).toEqual([]);
+});
+
+test('parseLemonade attaches each component its download checkpoints', () => {
+  const {collections} = parseLemonade({
+    'Qwen-LLM-GGUF': {
+      checkpoint: 'unsloth/Qwen-LLM-GGUF:Q4_K_M',
+      recipe: 'llamacpp',
+      mmproj: 'mmproj-F16.gguf',
+      labels: ['vision'],
+      size: 4,
+    },
+    'Whisper-Tiny': {
+      checkpoints: {
+        main: 'ggerganov/whisper.cpp:ggml-tiny.bin',
+        npu_cache: 'amd/whisper-tiny-onnx-npu:ggml-tiny-encoder-vitisai.rai',
+      },
+      recipe: 'whispercpp',
+      size: 0.075,
+    },
+    'kokoro-v1': {
+      checkpoint: 'mikkoph/kokoro-onnx',
+      recipe: 'kokoro',
+      size: 0.354,
+    },
+    Combo: {
+      checkpoint: '',
+      recipe: 'collection.omni',
+      components: ['Qwen-LLM-GGUF', 'Whisper-Tiny', 'kokoro-v1'],
+    },
+  });
+  const byName = Object.fromEntries(
+    collections[0].components.map((c) => [c.name, c.checkpoints]),
+  );
+  // llamacpp: the main quant plus the sibling mmproj filename in the same repo.
+  expect(byName['Qwen-LLM-GGUF']).toEqual([
+    {repoId: 'unsloth/Qwen-LLM-GGUF', variant: 'Q4_K_M'},
+    {repoId: 'unsloth/Qwen-LLM-GGUF', variant: 'mmproj-F16.gguf'},
+  ]);
+  // A plural checkpoints map, with the npu_cache role skipped.
+  expect(byName['Whisper-Tiny']).toEqual([
+    {repoId: 'ggerganov/whisper.cpp', variant: 'ggml-tiny.bin'},
+  ]);
+  // A whole-repo checkpoint carries a null variant.
+  expect(byName['kokoro-v1']).toEqual([
+    {repoId: 'mikkoph/kokoro-onnx', variant: null},
+  ]);
+});
+
+test('parseLemonade reads multi-role checkpoints (main, text_encoder, vae)', () => {
+  const {collections} = parseLemonade({
+    Flux: {
+      checkpoints: {
+        main: 'unsloth/FLUX-GGUF:flux-Q8_0.gguf',
+        text_encoder: 'unsloth/Qwen3-8B-GGUF:Qwen3-8B-Q8_0.gguf',
+        vae: 'Comfy-Org/vae:split_files/vae/flux2-vae.safetensors',
+      },
+      recipe: 'sd-cpp',
+      size: 19,
+    },
+    Combo: {checkpoint: '', recipe: 'collection.omni', components: ['Flux']},
+  });
+  expect(collections[0].components[0].checkpoints).toEqual([
+    {repoId: 'unsloth/FLUX-GGUF', variant: 'flux-Q8_0.gguf'},
+    {repoId: 'unsloth/Qwen3-8B-GGUF', variant: 'Qwen3-8B-Q8_0.gguf'},
+    {repoId: 'Comfy-Org/vae', variant: 'split_files/vae/flux2-vae.safetensors'},
+  ]);
+});
+
+const repoFiles = [
+  {path: 'model-Q4_K_M.gguf', size: 1},
+  {path: 'model-Q8_0.gguf', size: 2},
+  {path: 'mmproj-F16.gguf', size: 3},
+  {path: 'split_files/vae/flux2-vae.safetensors', size: 4},
+  {path: 'config.json', size: 5},
+];
+
+test('resolveCheckpointFiles picks gguf carrying a quant token, excluding mmproj', () => {
+  expect(resolveCheckpointFiles(repoFiles, 'Q4_K_M')).toEqual([
+    'model-Q4_K_M.gguf',
+  ]);
+});
+
+test('resolveCheckpointFiles matches an exact filename of any extension, in subdirs', () => {
+  expect(
+    resolveCheckpointFiles(repoFiles, 'split_files/vae/flux2-vae.safetensors'),
+  ).toEqual(['split_files/vae/flux2-vae.safetensors']);
+  expect(resolveCheckpointFiles(repoFiles, 'mmproj-F16.gguf')).toEqual([
+    'mmproj-F16.gguf',
+  ]);
+});
+
+test('resolveCheckpointFiles matches an exact filename given without its subdir', () => {
+  expect(resolveCheckpointFiles(repoFiles, 'flux2-vae.safetensors')).toEqual([
+    'split_files/vae/flux2-vae.safetensors',
+  ]);
+});
+
+test('resolveCheckpointFiles takes the whole repo when the variant is null', () => {
+  expect(resolveCheckpointFiles(repoFiles, null)).toEqual(
+    repoFiles.map((f) => f.path),
+  );
+});
+
+test('collectionDownloadPlan flattens and de-dupes component checkpoints in order', () => {
+  const collection: OmniCollection = {
+    name: 'C',
+    suggested: false,
+    sizeGb: 0,
+    labels: [],
+    components: [
+      {
+        name: 'A',
+        recipe: 'llamacpp',
+        modality: 'vision',
+        sizeGb: 1,
+        downloadable: true,
+        checkpoints: [
+          {repoId: 'o/a', variant: 'Q4_K_M'},
+          {repoId: 'o/a', variant: 'mmproj-F16.gguf'},
+        ],
+      },
+      {
+        name: 'B',
+        recipe: 'kokoro',
+        modality: 'tts',
+        sizeGb: 0.3,
+        downloadable: false,
+        checkpoints: [{repoId: 'o/k', variant: null}],
+      },
+      {
+        name: 'A2',
+        recipe: 'llamacpp',
+        modality: 'chat',
+        sizeGb: 1,
+        downloadable: true,
+        checkpoints: [{repoId: 'o/a', variant: 'Q4_K_M'}], // a duplicate of A's main
+      },
+    ],
+  };
+  expect(collectionDownloadPlan(collection)).toEqual([
+    {repoId: 'o/a', variant: 'Q4_K_M'},
+    {repoId: 'o/a', variant: 'mmproj-F16.gguf'},
+    {repoId: 'o/k', variant: null},
+  ]);
 });
 
 const files = [
