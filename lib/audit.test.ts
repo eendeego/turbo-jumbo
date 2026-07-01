@@ -223,6 +223,14 @@ test('cachedResultFromMeta: incomplete when the recorded on-disk size differs fr
   expect(r.message).toBe('size 50 != expected 100');
 });
 
+test('cachedResultFromMeta: a correctly-placed cache file is not misplaced', () => {
+  const r = cachedResultFromMeta(
+    'models--o--r/snapshots/abc123/sub/M.Q4.gguf',
+    cachedMeta,
+  );
+  expect(r.status).toBe('pass');
+});
+
 test('cachedResultFromMeta: skips the size check for a legacy sidecar without computedSize', () => {
   // @ts-expect-error — legacy sidecars predate computedSize
   const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', {

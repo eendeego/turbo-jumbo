@@ -282,7 +282,7 @@ export function cachedResultFromMeta(
     message = 'not hashed';
   } else if (meta.computedSha256 !== meta.sourceSha256) {
     status = 'checksum-mismatch';
-  } else if (hf && relPath !== hf.expectedPath) {
+  } else if (hf && !isPlacedCorrectly(relPath, repoId, repoPath)) {
     status = 'misplaced';
     message = `expected path ${hf.expectedPath}`;
   } else {
