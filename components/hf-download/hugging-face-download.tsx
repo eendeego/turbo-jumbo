@@ -2,7 +2,6 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import * as stylex from '@stylexjs/stylex';
-import {Section} from '@astryxdesign/core/Section';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
@@ -16,8 +15,6 @@ import {
   copyToClipboard,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
-import {LemonadeBrowser} from '@/components/lemonade/lemonade-browser';
-import type {InventoryLocation} from '@/lib/lemonade';
 import {defaultDownloadSelection} from '@/lib/hf-download';
 import {parseHfUrl} from '@/lib/hf-url';
 
@@ -45,14 +42,12 @@ const styles = stylex.create({
 export function HuggingFaceDownload({
   localModelsPath,
   hfTokenSet,
-  inventoryLocations,
 }: {
   localModelsPath: string;
   hfTokenSet: boolean;
-  inventoryLocations: InventoryLocation[];
 }) {
   const [url, setUrl] = useState('');
-  const [showLemonade, setShowLemonade] = useState(false);
+  const [open, setOpen] = useState(false);
   const [sendToCold, setSendToCold] = useState(false);
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
@@ -195,6 +190,7 @@ export function HuggingFaceDownload({
     reset();
   };
   const closePicker = () => {
+    setOpen(false);
     setUrl('');
     setDebouncedUrl('');
   };
@@ -202,41 +198,12 @@ export function HuggingFaceDownload({
   const hasFiles = files !== null && files.length > 0;
 
   return (
-    <Section>
-      <VStack gap={3}>
-        <Heading level={2}>Download model</Heading>
-        <HStack gap={2} vAlign="end">
-          <StackItem size="fill">
-            <TextInput
-              label="Hugging Face URL"
-              value={url}
-              onChange={setUrl}
-              placeholder="https://huggingface.co/org/repo/blob/main/quant-folder/file.gguf"
-              status={
-                isInvalid
-                  ? {
-                      type: 'error',
-                      message: 'Not a valid Hugging Face file URL.',
-                    }
-                  : undefined
-              }
-            />
-          </StackItem>
-          <Button
-            label="Browse Lemonade models…"
-            variant="secondary"
-            onClick={() => setShowLemonade(true)}
-          />
-        </HStack>
-      </VStack>
-
-      {showLemonade && (
-        <LemonadeBrowser
-          hfTokenSet={hfTokenSet}
-          inventoryLocations={inventoryLocations}
-          onClose={() => setShowLemonade(false)}
-        />
-      )}
+    <>
+      <Button
+        label="Add from Hugging Face…"
+        variant="secondary"
+        onClick={() => setOpen(true)}
+      />
 
       {showTerminal ? (
         <DownloadModal
@@ -247,18 +214,37 @@ export function HuggingFaceDownload({
           onClose={closeTerminal}
         />
       ) : (
-        parsed && (
+        open && (
           <Dialog
             isOpen
-            onOpenChange={(open) => {
-              if (!open) closePicker();
+            onOpenChange={(isOpen) => {
+              if (!isOpen) closePicker();
             }}
             width={600}
             purpose="form"
           >
             <VStack gap={4}>
-              <Heading level={3}>Download from {parsed.repoId}</Heading>
+              <Heading level={3}>
+                {parsed
+                  ? `Download from ${parsed.repoId}`
+                  : 'Add from Hugging Face'}
+              </Heading>
               <VStack gap={3} xstyle={styles.pickerBody}>
+                <TextInput
+                  label="Hugging Face URL"
+                  isLabelHidden
+                  value={url}
+                  onChange={setUrl}
+                  placeholder="org/repo  or  https://huggingface.co/org/repo/blob/main/folder/file.gguf"
+                  status={
+                    isInvalid
+                      ? {
+                          type: 'error',
+                          message: 'Not a valid Hugging Face file URL.',
+                        }
+                      : undefined
+                  }
+                />
                 {filesLoading && (
                   <Text type="supporting">Fetching file list…</Text>
                 )}
@@ -352,6 +338,6 @@ export function HuggingFaceDownload({
           </Dialog>
         )
       )}
-    </Section>
+    </>
   );
 }

@@ -41,6 +41,11 @@ import {
 import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
+import {
+  ModelKindTabs,
+  type ModelKind,
+} from '@/components/models/model-kind-tabs';
+import {LemonadeBrowser} from '@/components/lemonade/lemonade-browser';
 import {SetSourceModal} from '@/components/models/set-source-modal';
 import {RevisionsModal} from '@/components/models/revisions-modal';
 import {
@@ -143,6 +148,7 @@ export function HomeClient({
   const {peerModels} = usePeerModels();
   const [models, setModels] = useState(modelsTableData);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [modelKind, setModelKind] = useState<ModelKind>('turbo-jumbo');
   const [auditResults, setAuditResults] = useState<Map<string, AuditResult>>(
     new Map(),
   );
@@ -218,6 +224,7 @@ export function HomeClient({
     setPrevModels(modelsTableData);
     setModels(modelsTableData);
     setSelected(new Set());
+    setModelKind('turbo-jumbo');
     resetAudit();
   }
 
@@ -914,6 +921,14 @@ export function HomeClient({
     [augmentedModels, selected],
   );
 
+  // Downloads run only on the local machine, so the Add/Download surfaces are
+  // gated to the local peer (and the All tab). Peer/local pages get the
+  // Turbo Jumbo / Lemonade sub-tabs; All and Cold Storage stay single views.
+  const isLocal = activeLocation === localPeerAddress;
+  const isPeerPage =
+    activeLocation !== 'all' && activeLocation !== 'cold-storage';
+  const showHfAdd = activeLocation === 'all' || isLocal;
+
   return (
     <AppShell contentPadding={5} height="auto">
       <VStack gap={6}>
@@ -929,44 +944,59 @@ export function HomeClient({
           activeLocation={activeLocation}
           onLocationChange={handleLocationChange}
         />
-        {localModelsPath && activeLocation !== 'cold-storage' && (
-          <HuggingFaceDownload
-            localModelsPath={localModelsPath}
+        {isPeerPage && (
+          <ModelKindTabs value={modelKind} onChange={setModelKind} />
+        )}
+
+        {isPeerPage && modelKind === 'lemonade' ? (
+          <LemonadeBrowser
             hfTokenSet={hfTokenSet}
             inventoryLocations={inventoryLocations}
+            canDownload={isLocal}
           />
+        ) : (
+          <>
+            {localModelsPath && showHfAdd && (
+              <HuggingFaceDownload
+                localModelsPath={localModelsPath}
+                hfTokenSet={hfTokenSet}
+              />
+            )}
+            {checkingUpdates && (
+              <Text type="supporting">Checking Hugging Face for updates…</Text>
+            )}
+            <ModelsTableClient
+              models={tableModels}
+              peers={peerConfigs}
+              peerModels={seededPeerModels}
+              selected={selected}
+              onToggleSelected={onToggleSelected}
+              locations={locations}
+              activeLocation={activeLocation}
+              auditResults={auditResults}
+              auditedPaths={auditedPaths}
+              auditing={auditing}
+              auditProgress={auditProgress}
+              auditStarted={auditStarted}
+              updateResults={updateResults}
+              onClearAudit={resetAudit}
+              onFixMisplaced={onFix}
+              fixing={fixing}
+              onSetSource={onSetSource}
+              onRedownload={
+                auditLocation === 'local' ? onRedownload : undefined
+              }
+              onShowRevisions={setRevisionsFile}
+              redownloading={redownload.running}
+              onFixColdIncomplete={
+                localPeerAddress ? onFixColdIncomplete : undefined
+              }
+              coldFixing={copying}
+              onFixDuplicate={onFixDuplicate}
+              fixingDuplicate={fixingDuplicate}
+            />
+          </>
         )}
-        {checkingUpdates && (
-          <Text type="supporting">Checking Hugging Face for updates…</Text>
-        )}
-        <ModelsTableClient
-          models={tableModels}
-          peers={peerConfigs}
-          peerModels={seededPeerModels}
-          selected={selected}
-          onToggleSelected={onToggleSelected}
-          locations={locations}
-          activeLocation={activeLocation}
-          auditResults={auditResults}
-          auditedPaths={auditedPaths}
-          auditing={auditing}
-          auditProgress={auditProgress}
-          auditStarted={auditStarted}
-          updateResults={updateResults}
-          onClearAudit={resetAudit}
-          onFixMisplaced={onFix}
-          fixing={fixing}
-          onSetSource={onSetSource}
-          onRedownload={auditLocation === 'local' ? onRedownload : undefined}
-          onShowRevisions={setRevisionsFile}
-          redownloading={redownload.running}
-          onFixColdIncomplete={
-            localPeerAddress ? onFixColdIncomplete : undefined
-          }
-          coldFixing={copying}
-          onFixDuplicate={onFixDuplicate}
-          fixingDuplicate={fixingDuplicate}
-        />
         {error && <Banner status="error" title={`Error: ${error}`} />}
         <ActionBar
           selected={selected}

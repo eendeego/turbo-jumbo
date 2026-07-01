@@ -2,9 +2,8 @@
 
 import {Fragment, useEffect, useMemo, useState} from 'react';
 import * as stylex from '@stylexjs/stylex';
-import {Dialog} from '@astryxdesign/core/Dialog';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
-import {Heading, Text} from '@astryxdesign/core/Text';
+import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Button} from '@astryxdesign/core/Button';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
@@ -134,19 +133,20 @@ function StatusMarker({info}: {info: LemonadeDownloadInfo | undefined}) {
 }
 
 /**
- * Catalog browser for the Lemonade SDK's models. Pick a single GGUF model, or
- * an omni collection / one of its components, and the selection's files —
- * across every repo it spans — download through the regular HF runner into
- * local storage (sequentially, one repo at a time).
+ * Catalog browser for the Lemonade SDK's models, inlined as a sub-tab's body.
+ * Pick a single GGUF model, or an omni collection / one of its components,
+ * and the selection's files — across every repo it spans — download through
+ * the regular HF runner into local storage (sequentially, one repo at a
+ * time). Download is only enabled when `canDownload` (the local peer's tab).
  */
 export function LemonadeBrowser({
   hfTokenSet,
   inventoryLocations,
-  onClose,
+  canDownload,
 }: {
   hfTokenSet: boolean;
   inventoryLocations: InventoryLocation[];
-  onClose: () => void;
+  canDownload: boolean;
 }) {
   const [models, setModels] = useState<LemonadeModel[] | null>(null);
   const [collections, setCollections] = useState<OmniCollection[]>([]);
@@ -355,178 +355,165 @@ export function LemonadeBrowser({
   }
 
   return (
-    <Dialog
-      isOpen
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-      width={800}
-      purpose="form"
-    >
-      <VStack gap={4}>
-        <Heading level={3}>Lemonade models</Heading>
-        <VStack gap={3} xstyle={styles.pickerBody}>
-          {models == null && loadError == null && (
-            <Text type="supporting">Fetching the catalog…</Text>
-          )}
-          {loadError && (
-            <Text type="supporting" color="accent">
-              Error: {loadError}
+    <VStack gap={4}>
+      <VStack gap={3} xstyle={styles.pickerBody}>
+        {models == null && loadError == null && (
+          <Text type="supporting">Fetching the catalog…</Text>
+        )}
+        {loadError && (
+          <Text type="supporting" color="accent">
+            Error: {loadError}
+          </Text>
+        )}
+
+        {models != null && (
+          <HStack gap={3} vAlign="center">
+            <StackItem size="fill">
+              <TextInput
+                label="Filter models"
+                isLabelHidden
+                value={filter}
+                onChange={setFilter}
+                placeholder="Filter by name, repo or label…"
+              />
+            </StackItem>
+            <Text type="supporting">
+              {visible.length} / {models.length} models
+            </Text>
+          </HStack>
+        )}
+        {models != null && (
+          <List hasDividers xstyle={styles.modelList}>
+            {visibleCollections.map((c) => {
+              const isExpanded = expanded.has(c.name);
+              const aggregate = collectionDownloadStatus(c, inventoryLocations);
+              const collSelection: Selection = {
+                kind: 'collection',
+                collection: c,
+              };
+              return (
+                <Fragment key={c.name}>
+                  <ListItem
+                    label={c.name}
+                    description={`${c.components.length} components`}
+                    isSelected={selectedKey === selectionKey(collSelection)}
+                    onClick={() => setSelection(collSelection)}
+                    startContent={
+                      <IconButton
+                        label={isExpanded ? 'Collapse' : 'Expand'}
+                        variant="ghost"
+                        size="sm"
+                        icon={
+                          <Icon
+                            icon={isExpanded ? 'chevronDown' : 'chevronRight'}
+                          />
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleCollection(c.name);
+                        }}
+                      />
+                    }
+                    endContent={
+                      <HStack gap={1} vAlign="center">
+                        <Badge label="omni" variant="purple" />
+                        <StatusMarker info={aggregate} />
+                        {c.suggested && (
+                          <Badge label="suggested" variant="green" />
+                        )}
+                        <Text type="supporting">{formatGb(c.sizeGb)}</Text>
+                      </HStack>
+                    }
+                  />
+                  {isExpanded &&
+                    c.components.map((comp) => {
+                      const compSelection: Selection = {
+                        kind: 'component',
+                        collectionName: c.name,
+                        component: comp,
+                      };
+                      return (
+                        <ListItem
+                          key={comp.name}
+                          label={comp.name}
+                          description={componentSecondary(comp)}
+                          startContent={
+                            <span {...stylex.props(styles.indent)} />
+                          }
+                          isSelected={
+                            selectedKey === selectionKey(compSelection)
+                          }
+                          onClick={() => setSelection(compSelection)}
+                          endContent={componentEndContent(
+                            comp,
+                            componentDownloadStatus(comp, inventoryLocations),
+                          )}
+                        />
+                      );
+                    })}
+                </Fragment>
+              );
+            })}
+            {visible.map((m) => (
+              <ListItem
+                key={m.name}
+                label={m.name}
+                description={`${m.repoId}${m.variant ? `:${m.variant}` : ''}`}
+                isSelected={selectedKey === `model:${m.name}`}
+                onClick={() => setSelection({kind: 'model', model: m})}
+                endContent={modelEndContent(m, statusByName.get(m.name))}
+              />
+            ))}
+            {visible.length === 0 && visibleCollections.length === 0 && (
+              <ListItem label="No models match the filter." />
+            )}
+          </List>
+        )}
+
+        {models != null && (
+          <VStack gap={2}>
+            <CheckboxInput
+              label="Copy to cold storage when done"
+              value={sendToCold}
+              onChange={setSendToCold}
+            />
+            {sendToCold && (
+              <CheckboxInput
+                label="Delete from local storage after transfer"
+                value={deleteAfterTransfer}
+                onChange={setDeleteAfterTransfer}
+              />
+            )}
+            {resolveError && (
+              <Text type="supporting" color="accent">
+                {resolveError}
+              </Text>
+            )}
+          </VStack>
+        )}
+      </VStack>
+      <HStack gap={2} hAlign="between" vAlign="center">
+        <Text type="supporting">
+          {selLabel
+            ? `${selLabel.title} · ${formatGb(selLabel.sizeGb)}`
+            : 'Nothing selected'}
+        </Text>
+        <HStack gap={2} vAlign="center">
+          {!canDownload && (
+            <Text type="supporting">
+              Downloads run on the local machine — open the local tab, then
+              copy.
             </Text>
           )}
-
-          {models != null && (
-            <HStack gap={3} vAlign="center">
-              <StackItem size="fill">
-                <TextInput
-                  label="Filter models"
-                  isLabelHidden
-                  value={filter}
-                  onChange={setFilter}
-                  placeholder="Filter by name, repo or label…"
-                />
-              </StackItem>
-              <Text type="supporting">
-                {visible.length} / {models.length} models
-              </Text>
-            </HStack>
-          )}
-          {models != null && (
-            <List hasDividers xstyle={styles.modelList}>
-              {visibleCollections.map((c) => {
-                const isExpanded = expanded.has(c.name);
-                const aggregate = collectionDownloadStatus(
-                  c,
-                  inventoryLocations,
-                );
-                const collSelection: Selection = {
-                  kind: 'collection',
-                  collection: c,
-                };
-                return (
-                  <Fragment key={c.name}>
-                    <ListItem
-                      label={c.name}
-                      description={`${c.components.length} components`}
-                      isSelected={selectedKey === selectionKey(collSelection)}
-                      onClick={() => setSelection(collSelection)}
-                      startContent={
-                        <IconButton
-                          label={isExpanded ? 'Collapse' : 'Expand'}
-                          variant="ghost"
-                          size="sm"
-                          icon={
-                            <Icon
-                              icon={isExpanded ? 'chevronDown' : 'chevronRight'}
-                            />
-                          }
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleCollection(c.name);
-                          }}
-                        />
-                      }
-                      endContent={
-                        <HStack gap={1} vAlign="center">
-                          <Badge label="omni" variant="purple" />
-                          <StatusMarker info={aggregate} />
-                          {c.suggested && (
-                            <Badge label="suggested" variant="green" />
-                          )}
-                          <Text type="supporting">{formatGb(c.sizeGb)}</Text>
-                        </HStack>
-                      }
-                    />
-                    {isExpanded &&
-                      c.components.map((comp) => {
-                        const compSelection: Selection = {
-                          kind: 'component',
-                          collectionName: c.name,
-                          component: comp,
-                        };
-                        return (
-                          <ListItem
-                            key={comp.name}
-                            label={comp.name}
-                            description={componentSecondary(comp)}
-                            startContent={
-                              <span {...stylex.props(styles.indent)} />
-                            }
-                            isSelected={
-                              selectedKey === selectionKey(compSelection)
-                            }
-                            onClick={() => setSelection(compSelection)}
-                            endContent={componentEndContent(
-                              comp,
-                              componentDownloadStatus(comp, inventoryLocations),
-                            )}
-                          />
-                        );
-                      })}
-                  </Fragment>
-                );
-              })}
-              {visible.map((m) => (
-                <ListItem
-                  key={m.name}
-                  label={m.name}
-                  description={`${m.repoId}${m.variant ? `:${m.variant}` : ''}`}
-                  isSelected={selectedKey === `model:${m.name}`}
-                  onClick={() => setSelection({kind: 'model', model: m})}
-                  endContent={modelEndContent(m, statusByName.get(m.name))}
-                />
-              ))}
-              {visible.length === 0 && visibleCollections.length === 0 && (
-                <ListItem label="No models match the filter." />
-              )}
-            </List>
-          )}
-
-          {models != null && (
-            <VStack gap={2}>
-              <CheckboxInput
-                label="Copy to cold storage when done"
-                value={sendToCold}
-                onChange={setSendToCold}
-              />
-              {sendToCold && (
-                <CheckboxInput
-                  label="Delete from local storage after transfer"
-                  value={deleteAfterTransfer}
-                  onChange={setDeleteAfterTransfer}
-                />
-              )}
-              {resolveError && (
-                <Text type="supporting" color="accent">
-                  {resolveError}
-                </Text>
-              )}
-            </VStack>
-          )}
-        </VStack>
-        <HStack gap={2} hAlign="between" vAlign="center">
-          <Text type="supporting">
-            {selLabel
-              ? `${selLabel.title} · ${formatGb(selLabel.sizeGb)}`
-              : 'Nothing selected'}
-          </Text>
-          <HStack gap={2} hAlign="end">
-            <Button
-              label="Cancel"
-              variant="secondary"
-              size="sm"
-              onClick={onClose}
-            />
-            <Button
-              label={resolving ? 'Resolving…' : 'Download'}
-              variant="primary"
-              size="sm"
-              onClick={onDownload}
-              isDisabled={selection == null || resolving}
-            />
-          </HStack>
+          <Button
+            label={resolving ? 'Resolving…' : 'Download'}
+            variant="primary"
+            size="sm"
+            onClick={onDownload}
+            isDisabled={!canDownload || selection == null || resolving}
+          />
         </HStack>
-      </VStack>
-    </Dialog>
+      </HStack>
+    </VStack>
   );
 }
