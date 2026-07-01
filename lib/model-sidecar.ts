@@ -1,3 +1,5 @@
+import {promises as fsp} from 'fs';
+import path from 'path';
 import {parseHubCachePath} from '@/lib/hf-cache';
 
 export const MODEL_SIDECAR_NAME = 'tjmodel.json';
@@ -76,4 +78,30 @@ export function mergeFileMeta(
     sourceSha256: source.sourceSha256,
     computedSha256,
   };
+}
+
+function sidecarPath(basePath: string, dir: string): string {
+  return path.join(basePath, dir, MODEL_SIDECAR_NAME);
+}
+
+export async function readModelSidecar(
+  basePath: string,
+  dir: string,
+): Promise<TjModel | null> {
+  try {
+    const raw = await fsp.readFile(sidecarPath(basePath, dir), 'utf8');
+    return JSON.parse(raw) as TjModel;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeModelSidecar(
+  basePath: string,
+  dir: string,
+  model: TjModel,
+): Promise<void> {
+  const full = sidecarPath(basePath, dir);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, JSON.stringify(model, null, 2));
 }

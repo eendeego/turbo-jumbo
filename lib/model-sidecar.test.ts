@@ -1,7 +1,13 @@
 import {test, expect} from 'bun:test';
+import {promises as fsp} from 'fs';
+import os from 'os';
+import path from 'path';
 import {
   mergeFileMeta,
   modelDirForRepo,
+  readModelSidecar,
+  writeModelSidecar,
+  type TjModel,
   type TjModelFile,
 } from '@/lib/model-sidecar';
 
@@ -56,4 +62,22 @@ test('mergeFileMeta takes the source block from next only when next resolved one
   const prev = entry({sourceSha256: 'old', sourceCommit: 'c1'});
   const next = entry({sourceSha256: '', sourceCommit: undefined});
   expect(mergeFileMeta(prev, next).sourceCommit).toBe('c1');
+});
+
+test('writeModelSidecar then readModelSidecar round-trips', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  const model: TjModel = {
+    modelUrl: 'https://huggingface.co/org/repo',
+    repoId: 'org/repo',
+    files: [entry({path: 'a.gguf', computedSize: 10})],
+  };
+  await writeModelSidecar(base, 'org/repo', model);
+  expect(await readModelSidecar(base, 'org/repo')).toEqual(model);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('readModelSidecar returns null when absent', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  expect(await readModelSidecar(base, 'org/repo')).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
 });
