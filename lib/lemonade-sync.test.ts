@@ -5,6 +5,7 @@ import path from 'path';
 import {
   syncLemonadeToTurboJumbo,
   findLemonadeOnlyRepos,
+  previewLemonadeSync,
 } from '@/lib/lemonade-sync';
 import {readModelSidecar} from '@/lib/model-sidecar';
 
@@ -135,6 +136,26 @@ test('deduplicates a model in both stores: deletes the Lemonade copy, symlinks t
 
   // Idempotent: a second run has nothing left to do.
   expect(await syncLemonadeToTurboJumbo(tj, lem)).toEqual([]);
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('preview splits actionable files into move vs deduplicate, omitting no-ops', async () => {
+  const {root, tj, lem} = await mkdirs();
+  // Lemonade-only → move (two files).
+  await lemonadeRepo(lem, 'org', 'only', 'r1', {'a.bin': 'AA', 'b.bin': 'BBB'});
+  // Identical copy already in TJ → deduplicate.
+  await write(tj, 'org/dup/c.bin', 'SAME');
+  await lemonadeRepo(lem, 'org', 'dup', 'r2', {'c.bin': 'SAME'});
+  // A different (size) TJ copy → no action, omitted from the preview.
+  await write(tj, 'org/diff/d.bin', 'TJVERSION'); // 9 bytes
+  await lemonadeRepo(lem, 'org', 'diff', 'r3', {'d.bin': 'LEMONADE-DIFFERENT'});
+
+  const byId = new Map(
+    (await previewLemonadeSync(tj, lem)).map((p) => [p.repoId, p]),
+  );
+  expect(byId.get('org/only')).toMatchObject({moveCount: 2, dedupCount: 0});
+  expect(byId.get('org/dup')).toMatchObject({moveCount: 0, dedupCount: 1});
+  expect(byId.has('org/diff')).toBe(false);
   await fsp.rm(root, {recursive: true, force: true});
 });
 

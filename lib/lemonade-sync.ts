@@ -162,12 +162,13 @@ export async function findLemonadeOnlyRepos(
 export interface LemonadeSyncPreview {
   repoId: string;
   rev: string;
-  fileCount: number; // files that would move or deduplicate
+  moveCount: number; // Lemonade-only files that would move into Turbo Jumbo
+  dedupCount: number; // files Turbo Jumbo already holds — Lemonade copy deleted
 }
 
-/** The models a sync would change, each with its count of files to move or
- *  deduplicate. Read-only — touches no files; uses the same per-file plan as
- *  the executor, so the preview and the run agree. */
+/** The models a sync would change, each split into files to move vs deduplicate.
+ *  Read-only — touches no files; uses the same per-file plan as the executor, so
+ *  the preview and the run agree. Models with no actionable files are omitted. */
 export async function previewLemonadeSync(
   tjBase: string,
   lemonadeBase: string,
@@ -179,13 +180,15 @@ export async function previewLemonadeSync(
     const entries = await walkSnapshot(
       nodePath.join(repo.dir, 'snapshots', repo.rev),
     );
-    let fileCount = 0;
+    let moveCount = 0;
+    let dedupCount = 0;
     for (const entry of entries) {
       const {action} = await planFile(tj, repo.repoId, entry);
-      if (action === 'move' || action === 'dedup') fileCount++;
+      if (action === 'move') moveCount++;
+      else if (action === 'dedup') dedupCount++;
     }
-    if (fileCount > 0)
-      out.push({repoId: repo.repoId, rev: repo.rev, fileCount});
+    if (moveCount + dedupCount > 0)
+      out.push({repoId: repo.repoId, rev: repo.rev, moveCount, dedupCount});
   }
   return out;
 }

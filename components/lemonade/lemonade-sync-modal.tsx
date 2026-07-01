@@ -13,7 +13,8 @@ import {List, ListItem} from '@astryxdesign/core/List';
 interface Preview {
   repoId: string;
   rev: string;
-  fileCount: number;
+  moveCount: number;
+  dedupCount: number;
 }
 interface FileResult {
   repoPath: string;
@@ -79,7 +80,11 @@ export function LemonadeSyncModal({
     }
   }
 
-  const totalFiles = preview.reduce((n, p) => n + p.fileCount, 0);
+  const totalFiles = preview.reduce(
+    (n, p) => n + p.moveCount + p.dedupCount,
+    0,
+  );
+  const totalDedup = preview.reduce((n, p) => n + p.dedupCount, 0);
   const counts = results
     .flatMap((r) => r.files)
     .reduce<Record<string, number>>((acc, f) => {
@@ -108,7 +113,7 @@ export function LemonadeSyncModal({
         </Text>
 
         {phase === 'loading' && (
-          <Text type="body">Finding Lemonade-only models…</Text>
+          <Text type="body">Finding models to sync…</Text>
         )}
 
         {phase === 'error' && <Text type="body">{error}</Text>}
@@ -116,19 +121,35 @@ export function LemonadeSyncModal({
         {phase === 'preview' &&
           (preview.length === 0 ? (
             <Text type="body">
-              Nothing to sync — every Lemonade model already exists in Turbo
+              Nothing to sync — Lemonade is already consolidated into Turbo
               Jumbo.
             </Text>
           ) : (
-            <List hasDividers>
-              {preview.map((p) => (
-                <ListItem
-                  key={p.repoId}
-                  label={p.repoId}
-                  description={`${p.fileCount} file${p.fileCount === 1 ? '' : 's'} · ${p.rev.slice(0, 12)}`}
-                />
-              ))}
-            </List>
+            <VStack gap={2}>
+              <Text type="supporting">
+                {totalFiles} file{totalFiles === 1 ? '' : 's'} across{' '}
+                {preview.length} model{preview.length === 1 ? '' : 's'}
+                {totalDedup > 0
+                  ? ` — ${totalDedup} already in Turbo Jumbo, to deduplicate`
+                  : ''}
+                .
+              </Text>
+              <List hasDividers>
+                {preview.map((p) => {
+                  const parts = [
+                    p.moveCount > 0 ? `${p.moveCount} to move` : null,
+                    p.dedupCount > 0 ? `${p.dedupCount} to deduplicate` : null,
+                  ].filter(Boolean);
+                  return (
+                    <ListItem
+                      key={p.repoId}
+                      label={p.repoId}
+                      description={`${parts.join(' · ')} · ${p.rev.slice(0, 12)}`}
+                    />
+                  );
+                })}
+              </List>
+            </VStack>
           ))}
 
         {phase === 'running' && (
