@@ -19,10 +19,15 @@ import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
-import type {AuditProgressEvent, AuditResult, AuditStatus} from '@/lib/audit';
+import type {
+  AuditProgressEvent,
+  AuditResult,
+  AuditStatus,
+  UpdateResult,
+} from '@/lib/audit';
 import {modelDisplayName} from '@/lib/model-name';
 import {fileBasename, peerFileBasenames} from '@/lib/peer-paths';
-import {rowAudit, type RowAudit} from '@/lib/row-audit';
+import {rowAudit, rowUpdates, type RowAudit} from '@/lib/row-audit';
 
 export interface ShardInfo {
   filename: string;
@@ -273,6 +278,45 @@ function AuditFailureContent({
         );
       })}
     </VStack>
+  );
+}
+
+// Shown in the Audit column when a row has at least one file whose repo head
+// commit is newer than the file's recorded source commit. The hovercard lists
+// each behind file with a link to the newer commit.
+function UpdateBadge({updates}: {updates: UpdateResult[]}) {
+  return (
+    <HoverCard
+      placement="above"
+      content={
+        <VStack gap={1}>
+          <Text type="supporting">Newer version on Hugging Face</Text>
+          {updates.map((u) => {
+            const name = u.file.split('/').pop() ?? u.file;
+            return (
+              <Text key={u.file} type="body">
+                {name}
+                {u.latestCommitUrl && (
+                  <>
+                    {' '}
+                    <Link href={u.latestCommitUrl} isExternalLink>
+                      {(u.latestCommit ?? '').slice(0, 12)}
+                    </Link>
+                  </>
+                )}
+                {u.latestCommitDate && ` (${u.latestCommitDate.slice(0, 10)})`}
+              </Text>
+            );
+          })}
+        </VStack>
+      }
+    >
+      <Badge
+        label="Update"
+        variant="info"
+        icon={<Icon icon="info" size="sm" />}
+      />
+    </HoverCard>
   );
 }
 
@@ -641,6 +685,7 @@ export function ModelsTableClient({
   auditing = false,
   auditProgress,
   auditStarted,
+  updateResults,
   onClearAudit,
   onFixMisplaced,
   fixing = false,
@@ -665,6 +710,7 @@ export function ModelsTableClient({
   auditing?: boolean;
   auditProgress?: Map<string, AuditProgressEvent>;
   auditStarted?: Set<string>;
+  updateResults?: Map<string, UpdateResult>;
   onClearAudit?: () => void;
   onFixMisplaced?: (paths: string[]) => void;
   fixing?: boolean;
@@ -1133,34 +1179,38 @@ export function ModelsTableClient({
                 .filter(
                   (r): r is AuditResult => r != null && r.status !== 'pass',
                 );
+              const updates = rowUpdates(item.paths, updateResults);
               return (
-                <AuditCell
-                  audit={rowAudit(
-                    item.paths,
-                    auditedPaths,
-                    results,
-                    auditing,
-                    auditProgress,
-                    auditStarted,
-                  )}
-                  failures={failures}
-                  onFix={
-                    onFixMisplaced
-                      ? (path) => onFixMisplaced([path])
-                      : undefined
-                  }
-                  fixing={fixing}
-                  onSetSource={onSetSource}
-                  onRedownload={onRedownload}
-                  redownloading={redownloading}
-                  onShowRevisions={onShowRevisions}
-                  onFixDuplicate={
-                    onFixDuplicate
-                      ? (path) => onFixDuplicate([path])
-                      : undefined
-                  }
-                  fixingDuplicate={fixingDuplicate}
-                />
+                <HStack gap={1} vAlign="center" hAlign="center" wrap="nowrap">
+                  <AuditCell
+                    audit={rowAudit(
+                      item.paths,
+                      auditedPaths,
+                      results,
+                      auditing,
+                      auditProgress,
+                      auditStarted,
+                    )}
+                    failures={failures}
+                    onFix={
+                      onFixMisplaced
+                        ? (path) => onFixMisplaced([path])
+                        : undefined
+                    }
+                    fixing={fixing}
+                    onSetSource={onSetSource}
+                    onRedownload={onRedownload}
+                    redownloading={redownloading}
+                    onShowRevisions={onShowRevisions}
+                    onFixDuplicate={
+                      onFixDuplicate
+                        ? (path) => onFixDuplicate([path])
+                        : undefined
+                    }
+                    fixingDuplicate={fixingDuplicate}
+                  />
+                  {updates.length > 0 && <UpdateBadge updates={updates} />}
+                </HStack>
               );
             },
           } satisfies TableColumn<DisplayRow>,
