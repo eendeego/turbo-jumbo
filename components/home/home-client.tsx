@@ -35,6 +35,7 @@ import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-downloa
 import {SetSourceModal} from '@/components/models/set-source-modal';
 import {
   DownloadModal,
+  buildHfCommand,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
 import type {AuditResult, FixResult, HfSummary} from '@/lib/audit';
@@ -306,6 +307,9 @@ export function HomeClient({
   // (never deleted, never sent to cold storage here).
   const redownload = useDownloadRunner();
   const [redownloadOpen, setRedownloadOpen] = useState(false);
+  const [redownloadCommand, setRedownloadCommand] = useState<string | null>(
+    null,
+  );
   const redownloadPath = useRef<string | null>(null);
 
   const onRedownload = useCallback(
@@ -317,15 +321,19 @@ export function HomeClient({
         return;
       }
       redownloadPath.current = file.hf.expectedPath; // where the file lands
-      setError(null);
-      setRedownloadOpen(true);
-      redownload.start({
+      const req = {
         repoId: ref.repoId,
         branch: ref.branch,
         filePaths: [ref.repoPath],
-      });
+      };
+      setError(null);
+      setRedownloadCommand(
+        localModelsPath ? buildHfCommand(req, localModelsPath) : null,
+      );
+      setRedownloadOpen(true);
+      redownload.start(req);
     },
-    [redownload],
+    [redownload, localModelsPath],
   );
 
   const closeRedownload = useCallback(() => {
@@ -697,6 +705,7 @@ export function HomeClient({
             term={redownload.term}
             progress={redownload.progress}
             running={redownload.running}
+            command={redownloadCommand ?? undefined}
             onClose={closeRedownload}
           />
         )}

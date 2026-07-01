@@ -13,6 +13,8 @@ import {Spinner} from '@astryxdesign/core/Spinner';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {
   DownloadModal,
+  buildHfCommand,
+  copyToClipboard,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
 
@@ -197,11 +199,14 @@ export function HuggingFaceDownload({
 
   const command = useMemo(() => {
     if (!parsed || !files || selectedFiles.length === 0) return null;
-    const includes = selectedFiles
-      .map((f) => `--include "${f.path}"`)
-      .join(' ');
-    const rev = parsed.branch !== 'main' ? ` --revision ${parsed.branch}` : '';
-    return `HF_HUB_ENABLE_HF_TRANSFER=1 hf download ${parsed.repoId} ${includes} --local-dir ${localModelsPath}${rev}`;
+    return buildHfCommand(
+      {
+        repoId: parsed.repoId,
+        branch: parsed.branch,
+        filePaths: selectedFiles.map((f) => f.path),
+      },
+      localModelsPath,
+    );
   }, [parsed, files, selectedFiles, localModelsPath]);
 
   const toggleFile = (path: string, checked: boolean) => {
@@ -216,9 +221,10 @@ export function HuggingFaceDownload({
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     if (!command) return;
-    navigator.clipboard.writeText(command);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    copyToClipboard(command).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
   };
 
   const startDownload = () => {

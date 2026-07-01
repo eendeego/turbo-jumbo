@@ -46,6 +46,37 @@ function parseSize(s: string): number {
   return parseFloat(m[1]) * (SIZE_UNITS[m[2].toUpperCase()] ?? 1);
 }
 
+/**
+ * The `hf` command line the server runs for a download request, mirroring the
+ * `/api/v1/hf-download` route (HF_XET_HIGH_PERFORMANCE, `--local-dir`, an
+ * explicit `--revision`). Shown so a user can copy and reproduce a run.
+ */
+export function buildHfCommand(req: DownloadRequest, localDir: string): string {
+  const includes = req.filePaths.map((fp) => `--include "${fp}"`).join(' ');
+  return `HF_XET_HIGH_PERFORMANCE=1 hf download ${req.repoId} ${includes} --local-dir ${localDir} --revision ${req.branch}`;
+}
+
+/** Copy text to the clipboard, falling back to a hidden textarea on browsers
+ *  without the async clipboard API. */
+export function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard) {
+    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  }
+  fallbackCopy(text);
+  return Promise.resolve();
+}
+
+function fallbackCopy(text: string) {
+  const el = document.createElement('textarea');
+  el.value = text;
+  el.style.cssText = 'position:fixed;opacity:0';
+  document.body.appendChild(el);
+  el.focus();
+  el.select();
+  document.execCommand('copy');
+  document.body.removeChild(el);
+}
+
 // Apply a raw output chunk to the terminal buffer, honouring \r (carriage
 // return) so progress lines redraw in place rather than stacking.
 function applyChunk(state: TermState, chunk: string): TermState {
@@ -179,20 +210,25 @@ export function useDownloadRunner() {
   return {term, progress, running, start, cancel, reset};
 }
 
-/** Streaming progress + terminal output dialog for a download run. */
+/** Streaming progress + terminal output dialog for a download run. When a
+ *  `command` is supplied, an expandable section reveals the `hf` command line. */
 export function DownloadModal({
   title = 'Downloading…',
   term,
   progress,
   running,
+  command,
   onClose,
 }: {
   title?: string;
   term: TermState | null;
   progress: DownloadProgress | null;
   running: boolean;
+  command?: string;
   onClose: () => void;
 }) {
+  const [showCommand, setShowCommand] = useState(false);
+
   return (
     <Dialog isOpen onOpenChange={(open) => !open && onClose()} purpose="form">
       <VStack gap={4}>
@@ -230,6 +266,24 @@ export function DownloadModal({
           width="100%"
           maxHeight={384}
         />
+        {command && (
+          <VStack gap={2}>
+            <Button
+              label={showCommand ? 'Hide command ▴' : 'Show command ▾'}
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowCommand((v) => !v)}
+            />
+            {showCommand && (
+              <CodeBlock
+                code={command}
+                language="bash"
+                isWrapped
+                width="100%"
+              />
+            )}
+          </VStack>
+        )}
         <HStack gap={2} hAlign="end">
           <Button
             label={running ? 'Cancel' : 'Close'}
