@@ -1,6 +1,6 @@
 import path from 'path';
-import {localModelsDir, coldStorageDir} from '@/lib/config';
 import {auditFile} from '@/lib/audit';
+import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
 import {parseHfFileUrl, resolveHfFileByPath} from '@/lib/hf-infer';
 
 /**
@@ -11,23 +11,26 @@ import {parseHfFileUrl, resolveHfFileByPath} from '@/lib/hf-infer';
  * existing Fix action can then relocate.
  */
 export async function POST(req: Request) {
-  const {location, file, url} = (await req.json()) as {
+  const body = (await req.json()) as {
     location?: string;
     file?: string;
     url?: string;
   };
+  const {file, url} = body;
 
-  let basePath: string | undefined;
-  if (location === 'cold-storage') {
-    basePath = coldStorageDir;
-  } else if (location === 'local') {
-    basePath = localModelsDir;
-  } else {
+  const target = resolveAuditLocation(body.location);
+  if (!target) {
     return new Response('Unsupported audit location', {status: 400});
   }
-  if (!basePath) {
-    return new Response('Location not configured', {status: 400});
+  if (target.kind === 'peer') {
+    return proxyAuditRequest(
+      target.peer,
+      '/api/v1/audit/set-source',
+      body,
+      req.signal,
+    );
   }
+  const basePath = target.basePath;
 
   if (!file || typeof file !== 'string') {
     return new Response('Missing file', {status: 400});

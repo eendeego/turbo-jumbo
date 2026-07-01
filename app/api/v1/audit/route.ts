@@ -1,7 +1,7 @@
 import path from 'path';
-import {localModelsDir, coldStorageDir} from '@/lib/config';
 import {duplicateBasenames, scanModels} from '@/lib/models';
 import {auditFile, duplicateResult, type AuditResult} from '@/lib/audit';
+import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
 import {clearHfCache} from '@/lib/hf-infer';
 
 // How many files to audit at once. Each job reads an entire (multi-GB) file to
@@ -10,23 +10,20 @@ import {clearHfCache} from '@/lib/hf-infer';
 const CONCURRENCY = Number(process.env.AUDIT_CONCURRENCY) || 4;
 
 export async function POST(req: Request) {
-  const {location, files} = (await req.json()) as {
+  const body = (await req.json()) as {
     location?: string;
     files?: string[];
   };
+  const {files} = body;
 
-  let basePath: string | undefined;
-  if (location === 'cold-storage') {
-    basePath = coldStorageDir;
-  } else if (location === 'local') {
-    basePath = localModelsDir;
-  } else {
+  const target = resolveAuditLocation(body.location);
+  if (!target) {
     return new Response('Unsupported audit location', {status: 400});
   }
-  if (!basePath) {
-    return new Response('Location not configured', {status: 400});
+  if (target.kind === 'peer') {
+    return proxyAuditRequest(target.peer, '/api/v1/audit', body, req.signal);
   }
-  const root = basePath;
+  const root = target.basePath;
 
   // Audit only the explicitly selected files (relative paths from the storage
   // root, the same identifiers copy/delete use).

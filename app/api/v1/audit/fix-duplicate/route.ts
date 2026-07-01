@@ -1,7 +1,7 @@
 import path from 'path';
-import {localModelsDir, coldStorageDir} from '@/lib/config';
 import {duplicateBasenames, scanModels} from '@/lib/models';
 import {fixDuplicateGroup, type DuplicateFixResult} from '@/lib/fix-duplicates';
+import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
 import {clearHfCache} from '@/lib/hf-infer';
 
 /**
@@ -13,23 +13,25 @@ import {clearHfCache} from '@/lib/hf-infer';
  * unselected twins.
  */
 export async function POST(req: Request) {
-  const {location, files} = (await req.json()) as {
+  const body = (await req.json()) as {
     location?: string;
     files?: string[];
   };
+  const {files} = body;
 
-  let basePath: string | undefined;
-  if (location === 'cold-storage') {
-    basePath = coldStorageDir;
-  } else if (location === 'local') {
-    basePath = localModelsDir;
-  } else {
+  const target = resolveAuditLocation(body.location);
+  if (!target) {
     return new Response('Unsupported audit location', {status: 400});
   }
-  if (!basePath) {
-    return new Response('Location not configured', {status: 400});
+  if (target.kind === 'peer') {
+    return proxyAuditRequest(
+      target.peer,
+      '/api/v1/audit/fix-duplicate',
+      body,
+      req.signal,
+    );
   }
-  const root = basePath;
+  const root = target.basePath;
 
   const selected = new Set(files ?? []);
   clearHfCache();

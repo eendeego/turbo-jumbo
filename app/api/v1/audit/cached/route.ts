@@ -1,5 +1,4 @@
 import path from 'path';
-import {localModelsDir, coldStorageDir} from '@/lib/config';
 import {duplicateBasenames, scanModels} from '@/lib/models';
 import {
   cachedResultFromMeta,
@@ -7,6 +6,7 @@ import {
   readMeta,
   type AuditResult,
 } from '@/lib/audit';
+import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
 
 /**
  * Return the last-known audit verdicts for a location, derived purely from the
@@ -14,20 +14,21 @@ import {
  * pre-fill the Audit column (toned down) before a fresh run.
  */
 export async function POST(req: Request) {
-  const {location} = (await req.json()) as {location?: string};
+  const body = (await req.json()) as {location?: string};
 
-  let basePath: string | undefined;
-  if (location === 'cold-storage') {
-    basePath = coldStorageDir;
-  } else if (location === 'local') {
-    basePath = localModelsDir;
-  } else {
+  const target = resolveAuditLocation(body.location);
+  if (!target) {
     return new Response('Unsupported audit location', {status: 400});
   }
-  if (!basePath) {
-    return new Response('Location not configured', {status: 400});
+  if (target.kind === 'peer') {
+    return proxyAuditRequest(
+      target.peer,
+      '/api/v1/audit/cached',
+      body,
+      req.signal,
+    );
   }
-  const root = basePath;
+  const root = target.basePath;
 
   const results: AuditResult[] = [];
   const models = scanModels(root);

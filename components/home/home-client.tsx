@@ -170,12 +170,15 @@ export function HomeClient({
     resetAudit();
   }
 
-  const auditLocation: 'local' | 'cold-storage' | null =
-    activeLocation === 'cold-storage'
-      ? 'cold-storage'
+  // Where audit requests go: this host's storage ('local'/'cold-storage') or
+  // a remote peer's address, which the server proxies to that peer. Only the
+  // aggregate view can't be audited.
+  const auditLocation: string | null =
+    activeLocation === 'all'
+      ? null
       : activeLocation === localPeerAddress
         ? 'local'
-        : null;
+        : activeLocation;
 
   const runAudit = useCallback(
     async (paths: string[]) => {

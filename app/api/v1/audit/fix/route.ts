@@ -1,5 +1,4 @@
 import path from 'path';
-import {localModelsDir, coldStorageDir} from '@/lib/config';
 import {scanModels} from '@/lib/models';
 import {
   expectedRelPath,
@@ -8,6 +7,7 @@ import {
   resolveSource,
   type FixResult,
 } from '@/lib/audit';
+import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
 import {clearHfCache} from '@/lib/hf-infer';
 
 /**
@@ -17,23 +17,25 @@ import {clearHfCache} from '@/lib/hf-infer';
  * selected files to where the audit would say they belong.
  */
 export async function POST(req: Request) {
-  const {location, files} = (await req.json()) as {
+  const body = (await req.json()) as {
     location?: string;
     files?: string[];
   };
+  const {files} = body;
 
-  let basePath: string | undefined;
-  if (location === 'cold-storage') {
-    basePath = coldStorageDir;
-  } else if (location === 'local') {
-    basePath = localModelsDir;
-  } else {
+  const auditTarget = resolveAuditLocation(body.location);
+  if (!auditTarget) {
     return new Response('Unsupported audit location', {status: 400});
   }
-  if (!basePath) {
-    return new Response('Location not configured', {status: 400});
+  if (auditTarget.kind === 'peer') {
+    return proxyAuditRequest(
+      auditTarget.peer,
+      '/api/v1/audit/fix',
+      body,
+      req.signal,
+    );
   }
-  const root = basePath;
+  const root = auditTarget.basePath;
 
   const selected = new Set(files ?? []);
   clearHfCache();
