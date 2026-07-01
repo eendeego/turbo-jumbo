@@ -198,6 +198,29 @@ export function scanModels(storagePath: string | undefined): Model[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Basenames carried by more than one file in a scan: basename → every relative
+ * path bearing it, keeping only names with 2+ paths. Split groups contribute
+ * each shard's own filename. The audit flags these as duplicates — same-named
+ * files in different directories within one storage location.
+ */
+export function duplicateBasenames(models: Model[]): Map<string, string[]> {
+  const byName = new Map<string, string[]>();
+  const add = (relPath: string) => {
+    const name = path.basename(relPath);
+    const paths = byName.get(name);
+    if (paths) paths.push(relPath);
+    else byName.set(name, [relPath]);
+  };
+  for (const model of models) {
+    for (const file of model.files) {
+      if (file.isSplit) for (const shard of file.files) add(shard.path);
+      else add(file.path);
+    }
+  }
+  return new Map([...byName].filter(([, paths]) => paths.length > 1));
+}
+
 // Flag each file that has no matching copy in cold storage, so the UI can warn
 // that it isn't backed up. A split group counts as present if any shard is.
 export function annotateColdStorage(

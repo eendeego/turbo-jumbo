@@ -2,7 +2,12 @@ import {test, expect} from 'bun:test';
 import {promises as fsp} from 'fs';
 import os from 'os';
 import path from 'path';
-import {extractModelName, extractQuant, scanModels} from '@/lib/models';
+import {
+  duplicateBasenames,
+  extractModelName,
+  extractQuant,
+  scanModels,
+} from '@/lib/models';
 import {writeMeta} from '@/lib/audit';
 
 async function writeFile(base: string, rel: string, content = 'data') {
@@ -99,6 +104,62 @@ test('scanModels splits same-filename variants by their sidecar repos', async ()
   expect(names).toEqual([
     'unsloth/Qwen3.6-35B-A3B-GGUF',
     'unsloth/Qwen3.6-35B-A3B-MTP-GGUF',
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('duplicateBasenames flags a root copy and a nested copy of the same file', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
+  const fname = 'gemma-4-26B-A4B-it-UD-IQ2_M.gguf';
+  await writeFile(base, fname);
+  await writeFile(base, `unsloth/gemma-4-26B-A4B-it-GGUF/${fname}`);
+  await writeFile(base, 'unsloth/other-GGUF/other-Q8_0.gguf');
+
+  const dups = duplicateBasenames(scanModels(base));
+  expect([...dups.keys()]).toEqual([fname]);
+  expect(dups.get(fname)!.sort()).toEqual([
+    fname,
+    `unsloth/gemma-4-26B-A4B-it-GGUF/${fname}`,
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('duplicateBasenames lists all three copies of a thrice-duplicated file', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
+  const fname = 'My-Model-Q4_K_M.gguf';
+  await writeFile(base, fname);
+  await writeFile(base, `a/${fname}`);
+  await writeFile(base, `b/c/${fname}`);
+
+  const dups = duplicateBasenames(scanModels(base));
+  expect(dups.get(fname)!.sort()).toEqual([
+    fname,
+    `a/${fname}`,
+    `b/c/${fname}`,
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('duplicateBasenames is empty when every filename is unique', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
+  await writeFile(base, 'A-Q4_K_M.gguf');
+  await writeFile(base, 'sub/B-Q4_K_M.gguf');
+
+  expect(duplicateBasenames(scanModels(base)).size).toBe(0);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('duplicateBasenames detects colliding split shards but not a lone split group', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
+  await writeFile(base, 'M-Q4_K_M-00001-of-00002.gguf');
+  await writeFile(base, 'M-Q4_K_M-00002-of-00002.gguf');
+  await writeFile(base, 'sub/M-Q4_K_M-00001-of-00002.gguf');
+
+  const dups = duplicateBasenames(scanModels(base));
+  expect([...dups.keys()]).toEqual(['M-Q4_K_M-00001-of-00002.gguf']);
+  expect(dups.get('M-Q4_K_M-00001-of-00002.gguf')!.sort()).toEqual([
+    'M-Q4_K_M-00001-of-00002.gguf',
+    'sub/M-Q4_K_M-00001-of-00002.gguf',
   ]);
   await fsp.rm(base, {recursive: true, force: true});
 });
