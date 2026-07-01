@@ -11,14 +11,21 @@ import {hfHref, lemonadeHref} from '@/lib/locations';
 export function AddModelMenu({
   activeLocation,
   peerConfigs,
+  isDisabled,
 }: {
   activeLocation: string;
   peerConfigs: PeerConfig[];
+  isDisabled?: boolean;
 }) {
   const router = useRouter();
   return (
     <DropdownMenu
-      button={{label: 'Add model', variant: 'secondary', size: 'sm'}}
+      button={{
+        label: 'Add model',
+        variant: 'secondary',
+        size: 'sm',
+        isDisabled,
+      }}
       hasChevron
       items={[
         {

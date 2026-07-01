@@ -61,6 +61,10 @@ export function AppChrome({
   const [syncOpen, setSyncOpen] = useState(false);
 
   const downPeers = usePeerStatus();
+  // A download/consolidate runs on the active peer, so its actions are disabled
+  // while that peer is unreachable. The All tab targets the local machine (never
+  // in the down set), so it stays enabled.
+  const activePeerDown = downPeers.has(activeLocation);
   const locations: LocationTab[] = useMemo(
     () =>
       peers.map((p) => ({
@@ -110,6 +114,7 @@ export function AppChrome({
                     label="Consolidate with Lemonade…"
                     variant="secondary"
                     size="sm"
+                    isDisabled={activePeerDown}
                     onClick={() => setSyncOpen(true)}
                   />
                 )}
@@ -117,6 +122,7 @@ export function AppChrome({
                   <AddModelMenu
                     activeLocation={activeLocation}
                     peerConfigs={peers}
+                    isDisabled={activePeerDown}
                   />
                 )}
                 <ThemeToggle />
