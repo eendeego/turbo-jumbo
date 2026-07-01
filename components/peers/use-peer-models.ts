@@ -98,8 +98,8 @@ export function usePeerModels() {
         }
       };
 
-      socket.onclose = () => {
-        clientLog('info', '[ws] disconnected, reconnecting in 3s');
+      socket.onclose = (e: CloseEvent) => {
+        clientLog('info', `[ws] closed: code=${e.code} reason="${e.reason}"`);
         if (!cancelled) setTimeout(connect, 3000);
       };
       socket.onerror = () => {

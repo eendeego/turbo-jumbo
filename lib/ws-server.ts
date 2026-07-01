@@ -14,6 +14,10 @@ let wss: WebSocketServer | null = null;
 export function initWsServer(): void {
   wss = new WebSocketServer({noServer: true});
 
+  wss.on('error', (err: Error) => {
+    logger.error(`[ws] server error: ${err.message}`);
+  });
+
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const addr = req.socket.remoteAddress ?? 'unknown';
     logger.info(`[ws] peer connected: ${addr}`);
@@ -34,7 +38,13 @@ export function handleWsUpgrade(
   socket: Duplex,
   head: Buffer,
 ): void {
+  logger.trace(
+    `[ws] upgrade ${WS_PATH} from ${req.socket.remoteAddress ?? 'unknown'} (upgrade=${req.headers.upgrade ?? '?'}, connection=${req.headers.connection ?? '?'})`,
+  );
   if (!wss) return;
+  socket.on('error', (err: Error) => {
+    logger.error(`[ws] socket error: ${err.message}`);
+  });
   wss.handleUpgrade(req, socket, head, (ws) =>
     wss!.emit('connection', ws, req),
   );
