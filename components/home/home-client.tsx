@@ -7,7 +7,7 @@ import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
-import {Button} from '@astryxdesign/core/Button';
+import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {withPeerPaths} from '@/lib/peer-paths';
@@ -957,10 +957,20 @@ export function HomeClient({
         )}
 
         {localModelsPath && canDownloadLocally && (
-          <Button
-            label="Add from Hugging Face"
-            variant="secondary"
-            onClick={() => router.push(hfHref(activeLocation, peerConfigs))}
+          <DropdownMenu
+            button={{label: 'Add model', variant: 'secondary'}}
+            hasChevron
+            items={[
+              {
+                label: 'From Hugging Face',
+                onClick: () => router.push(hfHref(activeLocation, peerConfigs)),
+              },
+              {
+                label: 'From Lemonade',
+                onClick: () =>
+                  router.push(lemonadeHref(activeLocation, peerConfigs)),
+              },
+            ]}
           />
         )}
         {checkingUpdates && (
