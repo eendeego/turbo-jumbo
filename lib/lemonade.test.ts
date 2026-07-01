@@ -3,8 +3,11 @@ import {
   collectionDownloadPlan,
   collectionDownloadStatus,
   collectionFromManifest,
+  collectionInLemonadeCache,
   componentDownloadStatus,
+  componentInLemonadeCache,
   lemonadeDownloadStatus,
+  modelInLemonadeCache,
   lemonadeGgufModels,
   lemonadeStatusTooltip,
   matchVariantFiles,
@@ -905,6 +908,42 @@ test('collectionDownloadStatus is partial, not complete, when members are split 
     {name: 'local', status: 'partial'},
     {name: 'cold storage', status: 'partial'},
   ]);
+});
+
+test('componentInLemonadeCache flags a null-variant (.onnx) member by repo-id presence', () => {
+  // kokoroComp's only checkpoint is a whole-repo (null variant) `o/kokoro`,
+  // which the weight scan can't match file-by-file. Its repo dir being in the
+  // cache (here a stray `.bin`) is enough to flag it.
+  const cache = [repoModel('o/kokoro', [single('voices.bin', 'unknown')])];
+  expect(componentInLemonadeCache(kokoroComp, cache)).toBe(true);
+  // componentDownloadStatus, which needs a matchable file, still reads none.
+  expect(
+    componentDownloadStatus(kokoroComp, [loc('cache', cache)]).status,
+  ).toBe('none');
+  // Absent from the cache: no flag.
+  expect(componentInLemonadeCache(kokoroComp, [])).toBe(false);
+});
+
+test('collectionInLemonadeCache flags a collection when any member is cached', () => {
+  const c = coll('Omni', [llmComp, kokoroComp]);
+  const cache = [repoModel('o/kokoro', [single('voices.bin', 'unknown')])];
+  expect(collectionInLemonadeCache(c, cache)).toBe(true);
+  expect(collectionInLemonadeCache(c, [])).toBe(false);
+});
+
+test('modelInLemonadeCache matches a GGUF variant precisely, not its repo siblings', () => {
+  const withVariant = [
+    repoModel('unsloth/Qwen3-0.6B-GGUF', [
+      single('Qwen3-0.6B-Q4_0.gguf', 'Q4_0'),
+    ]),
+  ];
+  expect(modelInLemonadeCache(model({variant: 'Q4_0'}), withVariant)).toBe(
+    true,
+  );
+  // A different variant of the same repo must not be flagged off the repo alone.
+  expect(modelInLemonadeCache(model({variant: 'Q8_0'}), withVariant)).toBe(
+    false,
+  );
 });
 
 test('componentDownloadStatus tracks a non-llamacpp member (whisper) by its file', () => {

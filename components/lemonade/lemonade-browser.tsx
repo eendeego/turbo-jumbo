@@ -19,12 +19,15 @@ import {
 } from '@/components/hf-download/download-runner';
 import {ModelLabelIcon} from '@/components/lemonade/model-label-icon';
 import {sortLabelsForDisplay} from '@/lib/lemonade-labels';
+import type {Model} from '@/lib/models';
 import {
   collectionDownloadPlan,
   collectionDownloadStatus,
   componentDownloadStatus,
+  componentInLemonadeCache,
   lemonadeDownloadStatus,
   lemonadeStatusTooltip,
+  modelInLemonadeCache,
   matchVariantFiles,
   missingVariantFiles,
   planRepoJobs,
@@ -73,16 +76,46 @@ const styles = stylex.create({
   indent: {width: 20, display: 'inline-block'},
 });
 
+// Flags an entry that lives in Lemonade's own cache directory — separate from
+// the managed storage the download-status marker reports on. Shown alongside
+// it, so an entry can carry both, one, or neither. `muted` dims the badge for a
+// collection only partially present in the cache.
+function LemonadeCacheMarker({
+  present,
+  muted = false,
+}: {
+  present: boolean;
+  muted?: boolean;
+}) {
+  if (!present) return null;
+  return (
+    <HoverCard
+      placement="above"
+      content={
+        muted
+          ? "Partially in Lemonade's local cache"
+          : "In Lemonade's local cache"
+      }
+    >
+      <span style={muted ? {opacity: 0.45} : undefined}>
+        <Badge label="lemonade" variant="yellow" />
+      </span>
+    </HoverCard>
+  );
+}
+
 // The end-of-row content shared by a flat model and a collection's
 // downloadable member: download status, suggested badge, capability icons,
 // and size.
 function modelEndContent(
   model: LemonadeModel,
   info: LemonadeDownloadInfo | undefined,
+  inCache: boolean,
 ) {
   return (
     <HStack gap={1} vAlign="center">
       <StatusMarker info={info} />
+      <LemonadeCacheMarker present={inCache} />
       {model.suggested && <Badge label="suggested" variant="green" />}
       {model.labels.length > 0 && (
         <HStack gap={1} vAlign="center">
@@ -109,10 +142,12 @@ function componentSecondary(component: LemonadeComponent): string {
 function componentEndContent(
   component: LemonadeComponent,
   info: LemonadeDownloadInfo,
+  inCache: boolean,
 ) {
   return (
     <HStack gap={1} vAlign="center">
       <StatusMarker info={info} />
+      <LemonadeCacheMarker present={inCache} />
       <Badge label={component.modality} variant="neutral" />
       <Text type="supporting">{formatGb(component.sizeGb)}</Text>
     </HStack>
@@ -143,12 +178,16 @@ export function LemonadeBrowser({
   hfTokenSet,
   localModelsPath,
   inventoryLocations,
+  lemonadeCacheModels,
   canDownload,
   onDownloaded,
 }: {
   hfTokenSet: boolean;
   localModelsPath: string;
   inventoryLocations: InventoryLocation[];
+  // Models found in Lemonade's own cache directory, surfaced with a distinct
+  // token alongside the regular download-status marker.
+  lemonadeCacheModels: Model[];
   canDownload: boolean;
   // Called after a download session ends so the parent can refresh local
   // models; the status markers then recompute from the new inventory.
@@ -234,6 +273,16 @@ export function LemonadeBrowser({
     }
     return map;
   }, [models, inventoryLocations]);
+
+  // Which standalone catalog models are present in Lemonade's own cache.
+  const inCacheByName = useMemo(() => {
+    const map = new Map<string, boolean>();
+    if (!models) return map;
+    for (const m of models) {
+      map.set(m.name, modelInLemonadeCache(m, lemonadeCacheModels));
+    }
+    return map;
+  }, [models, lemonadeCacheModels]);
 
   const selectedKey = selection ? selectionKey(selection) : null;
   const selLabel = selection ? selectionLabel(selection) : null;
@@ -397,6 +446,21 @@ export function LemonadeBrowser({
             {visibleCollections.map((c) => {
               const isExpanded = expanded.has(c.name);
               const aggregate = collectionDownloadStatus(c, inventoryLocations);
+              // Presence in the Lemonade cache per member, driving the cache
+              // marker next to the download-status marker. The header token
+              // dims when the collection is only partially cached.
+              const componentInCache = new Map(
+                c.components.map((comp) => [
+                  comp.name,
+                  componentInLemonadeCache(comp, lemonadeCacheModels),
+                ]),
+              );
+              const cachePresentCount = [...componentInCache.values()].filter(
+                Boolean,
+              ).length;
+              const collInCache = cachePresentCount > 0;
+              const cachePartial =
+                collInCache && cachePresentCount < c.components.length;
               const collSelection: Selection = {
                 kind: 'collection',
                 collection: c,
@@ -428,6 +492,10 @@ export function LemonadeBrowser({
                       <HStack gap={1} vAlign="center">
                         <Badge label="omni" variant="purple" />
                         <StatusMarker info={aggregate} />
+                        <LemonadeCacheMarker
+                          present={collInCache}
+                          muted={cachePartial}
+                        />
                         {c.suggested && (
                           <Badge label="suggested" variant="green" />
                         )}
@@ -457,6 +525,7 @@ export function LemonadeBrowser({
                           endContent={componentEndContent(
                             comp,
                             componentDownloadStatus(comp, inventoryLocations),
+                            componentInCache.get(comp.name) ?? false,
                           )}
                         />
                       );
@@ -471,7 +540,11 @@ export function LemonadeBrowser({
                 description={`${m.repoId}${m.variant ? `:${m.variant}` : ''}`}
                 isSelected={selectedKey === `model:${m.name}`}
                 onClick={() => setSelection({kind: 'model', model: m})}
-                endContent={modelEndContent(m, statusByName.get(m.name))}
+                endContent={modelEndContent(
+                  m,
+                  statusByName.get(m.name),
+                  inCacheByName.get(m.name) ?? false,
+                )}
               />
             ))}
             {visible.length === 0 && visibleCollections.length === 0 && (

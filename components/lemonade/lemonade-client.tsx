@@ -1,6 +1,6 @@
 'use client';
 
-import {useCallback, useMemo} from 'react';
+import {useCallback, useMemo, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {
   locationHref,
@@ -31,6 +31,7 @@ export function LemonadeClient({
   peerConfigs,
   localPeerAddress,
   localPeerModels,
+  lemonadeCacheModels: lemonadeCacheModelsProp,
 }: {
   activeLocation: string;
   coldModels: Model[];
@@ -40,6 +41,7 @@ export function LemonadeClient({
   peerConfigs: PeerConfig[];
   localPeerAddress: string | null;
   localPeerModels: Model[];
+  lemonadeCacheModels: Model[];
 }) {
   const router = useRouter();
   const {handleModelsRefreshed, inventoryLocations} = useInventoryLocations({
@@ -88,6 +90,31 @@ export function LemonadeClient({
     }
   }, [peerConfigs, handleModelsRefreshed]);
 
+  // Models in Lemonade's own cache directory, seeded from the server scan and
+  // re-fetched after a download so the browser's cache token stays current.
+  const [lemonadeCacheModels, setLemonadeCacheModels] = useState(
+    lemonadeCacheModelsProp,
+  );
+  const [prevCacheProp, setPrevCacheProp] = useState(lemonadeCacheModelsProp);
+  if (prevCacheProp !== lemonadeCacheModelsProp) {
+    setPrevCacheProp(lemonadeCacheModelsProp);
+    setLemonadeCacheModels(lemonadeCacheModelsProp);
+  }
+  const refreshLemonadeCache = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/lemonade-cache');
+      if (!res.ok) return;
+      setLemonadeCacheModels((await res.json()) as Model[]);
+    } catch {
+      /* best-effort: the next page render reseeds from the server scan */
+    }
+  }, []);
+  // A download can land in managed storage or the Lemonade cache, so refresh
+  // both when one finishes.
+  const onDownloaded = useCallback(async () => {
+    await Promise.all([refreshLocalModels(), refreshLemonadeCache()]);
+  }, [refreshLocalModels, refreshLemonadeCache]);
+
   const backToTable = useCallback(() => {
     router.push(locationHref(activeLocation, peerConfigs));
   }, [router, activeLocation, peerConfigs]);
@@ -129,8 +156,9 @@ export function LemonadeClient({
           hfTokenSet={hfTokenSet}
           localModelsPath={localModelsPath}
           inventoryLocations={inventoryLocations}
+          lemonadeCacheModels={lemonadeCacheModels}
           canDownload={canDownload}
-          onDownloaded={refreshLocalModels}
+          onDownloaded={onDownloaded}
         />
       </VStack>
 

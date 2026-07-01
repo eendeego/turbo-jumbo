@@ -675,3 +675,45 @@ export function collectionDownloadStatus(
     locations,
   );
 }
+
+// --- presence in Lemonade's own cache directory -------------------------
+
+// Whether a single checkpoint is in the cache scan. Looser than
+// checkpointPresence: the Lemonade cache is hub-cache-keyed by repo id and
+// holds files the weight scan can't classify (a kokoro `.onnx`, a whole-repo
+// null-variant checkpoint), so when the variant can't be matched file-by-file
+// the repo id simply being present counts as cached. Trackable GGUF variants
+// still match precisely, so one variant in the cache doesn't flag its siblings.
+function checkpointInCache(cp: Checkpoint, cacheModels: Model[]): boolean {
+  const presence = checkpointPresence(cp, cacheModels);
+  if (presence === 'complete' || presence === 'partial') return true;
+  if (presence === 'untracked')
+    return cacheModels.some((m) => m.name === cp.repoId);
+  return false; // 'none': the variant is trackable but genuinely absent.
+}
+
+/** Whether a Lemonade catalog model is present in the Lemonade cache scan. */
+export function modelInLemonadeCache(
+  model: LemonadeModel,
+  cacheModels: Model[],
+): boolean {
+  return locationStatus(model, cacheModels) !== 'none';
+}
+
+/** Whether any of an omni component's checkpoints is in the Lemonade cache. */
+export function componentInLemonadeCache(
+  component: LemonadeComponent,
+  cacheModels: Model[],
+): boolean {
+  return component.checkpoints.some((cp) => checkpointInCache(cp, cacheModels));
+}
+
+/** Whether any member of an omni collection is in the Lemonade cache. */
+export function collectionInLemonadeCache(
+  collection: OmniCollection,
+  cacheModels: Model[],
+): boolean {
+  return collection.components.some((c) =>
+    componentInLemonadeCache(c, cacheModels),
+  );
+}

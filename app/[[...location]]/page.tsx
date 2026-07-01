@@ -52,6 +52,9 @@ export default async function Home({
   }
 
   if (view === 'lemonade') {
+    // Lemonade's own model cache lives outside the managed storage; scan it so
+    // the Lemonade browser can flag catalog entries already present there.
+    const lemonadeCacheModels = lemonadeDir ? scanModels(lemonadeDir) : [];
     return (
       <LemonadeClient
         activeLocation={activeLocation}
@@ -62,6 +65,7 @@ export default async function Home({
         peerConfigs={peerConfigs}
         localPeerAddress={localPeer?.address ?? null}
         localPeerModels={localModels}
+        lemonadeCacheModels={lemonadeCacheModels}
       />
     );
   }
