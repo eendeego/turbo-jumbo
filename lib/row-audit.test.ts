@@ -61,6 +61,80 @@ test('percent spans all in-flight paths of the row (multi-shard)', () => {
   ).toEqual({kind: 'pending', percent: 37});
 });
 
+test('pending is queued while none of the row files has started', () => {
+  expect(
+    rowAudit(
+      ['a.gguf'],
+      new Set(['a.gguf']),
+      new Map(),
+      true,
+      undefined,
+      new Set(), // a started-set was provided, but a.gguf is not in it
+    ),
+  ).toEqual({kind: 'pending', queued: true});
+});
+
+test('a started file is pending without the queued marker', () => {
+  expect(
+    rowAudit(
+      ['a.gguf'],
+      new Set(['a.gguf']),
+      new Map(),
+      true,
+      undefined,
+      new Set(['a.gguf']),
+    ),
+  ).toEqual({kind: 'pending'});
+});
+
+test('hashing progress wins over the queued marker', () => {
+  const progress = new Map<string, AuditProgressEvent>([
+    ['a.gguf', {file: 'a.gguf', hashedBytes: 42, totalBytes: 100}],
+  ]);
+  expect(
+    rowAudit(
+      ['a.gguf'],
+      new Set(['a.gguf']),
+      new Map(),
+      true,
+      progress,
+      new Set(),
+    ),
+  ).toEqual({kind: 'pending', percent: 42});
+});
+
+test('a multi-shard row leaves queued once any shard starts', () => {
+  expect(
+    rowAudit(
+      ['s1.gguf', 's2.gguf'],
+      new Set(['s1.gguf', 's2.gguf']),
+      new Map(),
+      true,
+      undefined,
+      new Set(['s1.gguf']),
+    ),
+  ).toEqual({kind: 'pending'});
+});
+
+test('queued never shows after the run has ended (aborted run)', () => {
+  expect(
+    rowAudit(
+      ['a.gguf'],
+      new Set(['a.gguf']),
+      new Map(),
+      false, // not auditing — the run ended without this file's verdict
+      undefined,
+      new Set(),
+    ),
+  ).toEqual({kind: 'pending'});
+});
+
+test('without a started-set the queued marker never appears', () => {
+  expect(rowAudit(['a.gguf'], new Set(['a.gguf']), new Map(), true)).toEqual({
+    kind: 'pending',
+  });
+});
+
 test('ignores progress of paths that do not belong to the row', () => {
   const progress = new Map<string, AuditProgressEvent>([
     ['other.gguf', {file: 'other.gguf', hashedBytes: 99, totalBytes: 100}],

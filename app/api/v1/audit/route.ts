@@ -5,6 +5,7 @@ import {
   duplicateResult,
   type AuditProgressEvent,
   type AuditResult,
+  type AuditStartEvent,
 } from '@/lib/audit';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
 import {hashProgressEmitter} from '@/lib/audit-progress';
@@ -57,8 +58,15 @@ export async function POST(req: Request) {
   const {readable, writable} = new TransformStream();
   const writer = writable.getWriter();
 
+  // Cold storage is typically one slow disk or NAS share: parallel multi-GB
+  // hashes thrash it, so audits there run strictly one file at a time — the
+  // AUDIT_CONCURRENCY override applies only to local storage.
+  const concurrency = body.location === 'cold-storage' ? 1 : CONCURRENCY;
+
   (async () => {
-    const emit = async (event: AuditResult | AuditProgressEvent) => {
+    const emit = async (
+      event: AuditResult | AuditProgressEvent | AuditStartEvent,
+    ) => {
       try {
         await writer.ready;
         await writer.write(enc.encode(JSON.stringify(event) + '\n'));
@@ -74,7 +82,7 @@ export async function POST(req: Request) {
     // Collect one job per selected file. A job yields that file's verdict, so
     // they can be run concurrently and emitted in completion order — results are
     // keyed by path, so order doesn't matter to the client.
-    const jobs: Array<() => Promise<AuditResult>> = [];
+    const jobs: Array<{file: string; run: () => Promise<AuditResult>}> = [];
     for (const model of models) {
       for (const file of model.files) {
         if (file.isSplit) {
@@ -86,26 +94,28 @@ export async function POST(req: Request) {
             const dupPaths = dups.get(path.basename(shard.path));
             if (dupPaths) {
               const result = duplicateResult(shard.path, dupPaths);
-              jobs.push(() => Promise.resolve(result));
+              jobs.push({file: shard.path, run: () => Promise.resolve(result)});
             } else if (incomplete) {
               const result: AuditResult = {
                 file: shard.path,
                 status: 'incomplete',
                 message: `missing shards: ${file.missingIndices.join(', ')}`,
               };
-              jobs.push(() => Promise.resolve(result));
+              jobs.push({file: shard.path, run: () => Promise.resolve(result)});
             } else {
-              jobs.push(() =>
-                auditFile(
-                  root,
-                  shard.path,
-                  model.name,
-                  path.basename(shard.path),
-                  signal,
-                  undefined,
-                  hashProgress(shard.path),
-                ),
-              );
+              jobs.push({
+                file: shard.path,
+                run: () =>
+                  auditFile(
+                    root,
+                    shard.path,
+                    model.name,
+                    path.basename(shard.path),
+                    signal,
+                    undefined,
+                    hashProgress(shard.path),
+                  ),
+              });
             }
           }
         } else {
@@ -113,38 +123,42 @@ export async function POST(req: Request) {
           const dupPaths = dups.get(file.filename);
           if (dupPaths) {
             const result = duplicateResult(file.path, dupPaths);
-            jobs.push(() => Promise.resolve(result));
+            jobs.push({file: file.path, run: () => Promise.resolve(result)});
           } else {
-            jobs.push(() =>
-              auditFile(
-                root,
-                file.path,
-                model.name,
-                file.filename,
-                signal,
-                undefined,
-                hashProgress(file.path),
-              ),
-            );
+            jobs.push({
+              file: file.path,
+              run: () =>
+                auditFile(
+                  root,
+                  file.path,
+                  model.name,
+                  file.filename,
+                  signal,
+                  undefined,
+                  hashProgress(file.path),
+                ),
+            });
           }
         }
       }
     }
 
     // Bounded worker pool: each worker pulls the next job until they run out or
-    // the client disconnects, emitting verdicts as they complete.
+    // the client disconnects, announcing each pickup (so queued files can be
+    // told apart from in-flight ones) and emitting verdicts as they complete.
     let next = 0;
     const worker = async () => {
       while (!signal.aborted) {
         const i = next++;
         if (i >= jobs.length) return;
-        const result = await jobs[i]();
+        await emit({file: jobs[i].file, started: true});
+        const result = await jobs[i].run();
         if (signal.aborted) return;
         await emit(result);
       }
     };
     await Promise.all(
-      Array.from({length: Math.min(CONCURRENCY, jobs.length)}, worker),
+      Array.from({length: Math.min(concurrency, jobs.length)}, worker),
     );
 
     try {

@@ -285,6 +285,11 @@ function AuditCell({
 }) {
   if (audit == null) return null;
   if (audit.kind === 'pending') {
+    // Waiting for a worker (audits serialize on cold storage): a muted marker
+    // until the file's start event arrives.
+    if (audit.queued) {
+      return <Badge label="Queued" variant="neutral" xstyle={styles.dimmed} />;
+    }
     return (
       <HStack gap={2} vAlign="center" wrap="nowrap">
         <Badge label="Auditing…" variant="neutral" />
@@ -494,6 +499,7 @@ export function ModelsTableClient({
   auditedPaths,
   auditing = false,
   auditProgress,
+  auditStarted,
   onFixMisplaced,
   fixing = false,
   onSetSource,
@@ -516,6 +522,7 @@ export function ModelsTableClient({
   auditedPaths?: Set<string>;
   auditing?: boolean;
   auditProgress?: Map<string, AuditProgressEvent>;
+  auditStarted?: Set<string>;
   onFixMisplaced?: (paths: string[]) => void;
   fixing?: boolean;
   onSetSource?: (path: string) => void;
@@ -783,6 +790,7 @@ export function ModelsTableClient({
                     results,
                     auditing,
                     auditProgress,
+                    auditStarted,
                   )}
                   failures={failures}
                   onFix={

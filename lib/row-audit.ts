@@ -12,7 +12,7 @@ const AUDIT_SEVERITY: Record<AuditStatus, number> = {
 };
 
 export type RowAudit =
-  | {kind: 'pending'; percent?: number}
+  | {kind: 'pending'; percent?: number; queued?: boolean}
   | {kind: 'result'; status: AuditStatus; message?: string; cached: boolean}
   | null;
 
@@ -21,6 +21,9 @@ export type RowAudit =
  * audited, the worst verdict when all results are in, otherwise pending — with
  * the row's SHA256 hashing percent when any of its files reported progress
  * (summed across in-flight paths, so multi-shard rows show one number).
+ * While the run serializes files (cold storage audits one at a time), a row
+ * none of whose files has started is `queued` — only known when the caller
+ * supplies the started-set the server streams.
  */
 export function rowAudit(
   paths: string[],
@@ -28,6 +31,7 @@ export function rowAudit(
   auditResults: Map<string, AuditResult>,
   auditing: boolean,
   auditProgress?: Map<string, AuditProgressEvent>,
+  auditStarted?: Set<string>,
 ): RowAudit {
   const relevant = paths.filter((p) => auditedPaths.has(p));
   if (relevant.length === 0) return null;
@@ -44,9 +48,17 @@ export function rowAudit(
         total += prog.totalBytes;
       }
     }
-    return total > 0
-      ? {kind: 'pending', percent: Math.floor((hashed / total) * 100)}
-      : {kind: 'pending'};
+    if (total > 0) {
+      return {kind: 'pending', percent: Math.floor((hashed / total) * 100)};
+    }
+    // Queued only makes sense while the run is live; a run that ended without
+    // this row's verdict (e.g. aborted) falls back to plain pending.
+    const queued =
+      auditing &&
+      auditStarted != null &&
+      results.length === 0 &&
+      relevant.every((p) => !auditStarted.has(p));
+    return queued ? {kind: 'pending', queued: true} : {kind: 'pending'};
   }
   const worst = results.reduce((a, b) =>
     AUDIT_SEVERITY[b.status] > AUDIT_SEVERITY[a.status] ? b : a,

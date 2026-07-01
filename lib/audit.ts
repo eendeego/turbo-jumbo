@@ -72,6 +72,17 @@ export interface AuditProgressEvent {
   totalBytes: number;
 }
 
+/**
+ * Streamed when a file's audit job is picked up by a worker. Files selected
+ * but not yet started are queued — the UI marks them so while a run
+ * serializes (cold storage audits one file at a time). Distinguished from the
+ * other NDJSON lines by carrying `started`.
+ */
+export interface AuditStartEvent {
+  file: string; // path relative to the storage root
+  started: true;
+}
+
 export interface TjMeta {
   modelUrl: string; // HF model/repo URL, e.g. https://huggingface.co/unsloth/GLM-4.7-GGUF
   originUrl: string; // HF file URL within the repo

@@ -43,6 +43,7 @@ import {
 import type {
   AuditProgressEvent,
   AuditResult,
+  AuditStartEvent,
   FixResult,
   HfSummary,
 } from '@/lib/audit';
@@ -130,6 +131,9 @@ export function HomeClient({
   const [auditProgress, setAuditProgress] = useState<
     Map<string, AuditProgressEvent>
   >(new Map());
+  // Files whose audit job has been picked up this run. In-flight paths absent
+  // from this set are still queued (audits serialize on cold storage).
+  const [auditStarted, setAuditStarted] = useState<Set<string>>(new Set());
   const [fixing, setFixing] = useState(false);
   const [fixingDuplicate, setFixingDuplicate] = useState(false);
   // The file whose HF source is being set (relative path), plus the request
@@ -209,6 +213,8 @@ export function HomeClient({
         for (const p of paths) next.delete(p);
         return next;
       });
+      // Everything submitted starts out queued, until its start event arrives.
+      setAuditStarted(new Set());
       try {
         const res = await fetch('/api/v1/audit', {
           method: 'POST',
@@ -218,29 +224,35 @@ export function HomeClient({
         if (!res.ok || !res.body) {
           throw new Error(`${res.status} ${res.statusText}`);
         }
-        await readNdjson<AuditResult | AuditProgressEvent>(res, (event) => {
-          if ('status' in event) {
-            setAuditResults((prev) => {
-              const next = new Map(prev);
-              next.set(event.file, event);
-              return next;
-            });
-            // The verdict supersedes any hashing progress for the file.
-            setAuditProgress((prev) => {
-              if (!prev.has(event.file)) return prev;
-              const next = new Map(prev);
-              next.delete(event.file);
-              return next;
-            });
-          } else if ('hashedBytes' in event) {
-            setAuditProgress((prev) => new Map(prev).set(event.file, event));
-          }
-        });
+        await readNdjson<AuditResult | AuditProgressEvent | AuditStartEvent>(
+          res,
+          (event) => {
+            if ('status' in event) {
+              setAuditResults((prev) => {
+                const next = new Map(prev);
+                next.set(event.file, event);
+                return next;
+              });
+              // The verdict supersedes any hashing progress for the file.
+              setAuditProgress((prev) => {
+                if (!prev.has(event.file)) return prev;
+                const next = new Map(prev);
+                next.delete(event.file);
+                return next;
+              });
+            } else if ('hashedBytes' in event) {
+              setAuditProgress((prev) => new Map(prev).set(event.file, event));
+            } else if ('started' in event) {
+              setAuditStarted((prev) => new Set(prev).add(event.file));
+            }
+          },
+        );
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setAuditing(false);
         setAuditProgress(new Map());
+        setAuditStarted(new Set());
       }
     },
     [auditLocation],
@@ -772,6 +784,7 @@ export function HomeClient({
           auditedPaths={auditedPaths}
           auditing={auditing}
           auditProgress={auditProgress}
+          auditStarted={auditStarted}
           onFixMisplaced={onFix}
           fixing={fixing}
           onSetSource={onSetSource}
