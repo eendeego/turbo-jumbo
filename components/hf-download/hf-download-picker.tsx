@@ -15,6 +15,7 @@ import {
 } from '@/components/hf-download/download-runner';
 import {copyToClipboard} from '@/lib/clipboard';
 import type {DownloadTarget} from '@/lib/download-target';
+import type {DownloadDiskUsage} from '@/lib/disk-usage';
 import {defaultDownloadSelection} from '@/lib/hf-download';
 import {parseHfUrl} from '@/lib/hf-url';
 
@@ -45,9 +46,10 @@ export function HfDownloadPicker({
   const [sendToCold, setSendToCold] = useState(false);
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
-  // Free bytes at the download target, fetched once, to warn before a transfer
-  // that wouldn't fit. Null while unknown (loading or unreadable) — no warning.
-  const [freeBytes, setFreeBytes] = useState<number | null>(null);
+  // Free space at the download target (models dir + cold storage), fetched once,
+  // to warn before a transfer that wouldn't fit. Null while unknown (loading or
+  // unreadable) — no warning.
+  const [disk, setDisk] = useState<DownloadDiskUsage | null>(null);
   const {
     term,
     progress,
@@ -74,9 +76,9 @@ export function HfDownloadPicker({
   useEffect(() => {
     let cancelled = false;
     fetch(target.diskUsageUrl)
-      .then((r) => (r.ok ? (r.json() as Promise<{free: number}>) : null))
+      .then((r) => (r.ok ? (r.json() as Promise<DownloadDiskUsage>) : null))
       .then((d) => {
-        if (!cancelled && d) setFreeBytes(d.free);
+        if (!cancelled && d) setDisk(d);
       })
       .catch(() => {
         /* unreadable disk: no space warning */
@@ -148,8 +150,33 @@ export function HfDownloadPicker({
     [files, selectedPaths],
   );
   const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0);
-  const notEnoughSpace =
-    freeBytes != null && selectedFiles.length > 0 && totalSize > freeBytes;
+  // Per-filesystem shortfalls for the planned transfer. The download always
+  // writes the files into the models dir; "Copy to cold storage" adds a copy on
+  // the cold filesystem (and "delete after transfer" removes the local copy
+  // afterwards). When both live on one filesystem their free space is shared, so
+  // a kept copy needs room for two and a moved copy for one.
+  const spaceWarnings = useMemo<string[]>(() => {
+    if (!disk || selectedFiles.length === 0) return [];
+    const fmt = formatBytes;
+    if (disk.sameDevice) {
+      const need =
+        sendToCold && !deleteAfterTransfer ? totalSize * 2 : totalSize;
+      return need > disk.models.free
+        ? [`needs ${fmt(need)} but only ${fmt(disk.models.free)} is free`]
+        : [];
+    }
+    const out: string[] = [];
+    if (totalSize > disk.models.free)
+      out.push(
+        `local storage needs ${fmt(totalSize)} but only ${fmt(disk.models.free)} is free`,
+      );
+    if (sendToCold && totalSize > disk.cold.free)
+      out.push(
+        `cold storage needs ${fmt(totalSize)} but only ${fmt(disk.cold.free)} is free`,
+      );
+    return out;
+  }, [disk, selectedFiles.length, totalSize, sendToCold, deleteAfterTransfer]);
+  const notEnoughSpace = spaceWarnings.length > 0;
 
   // The picker shows the rows matching the filter; selection is by path, so
   // files selected and then filtered out of view stay selected (the footer
@@ -319,7 +346,7 @@ export function HfDownloadPicker({
       {hasFiles && notEnoughSpace && (
         <Banner
           status="error"
-          title={`Not enough disk space: ${formatBytes(totalSize)} selected but only ${formatBytes(freeBytes!)} free at ${target.displayPath}.`}
+          title={`Not enough disk space — ${spaceWarnings.join('; ')}.`}
         />
       )}
       {hasFiles && (
