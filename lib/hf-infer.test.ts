@@ -185,6 +185,79 @@ test('the repo search asks for a deep result window', async () => {
   expect(searchUrl).toContain('limit=500');
 });
 
+test('follows tree pagination to find files past the first page', async () => {
+  // The tree endpoint pages at ~50 entries; repos with more files keep the
+  // rest behind Link headers (e.g. unsloth/Qwen3-Coder-Next-GGUF, 78 files).
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models/big/repo/tree/main')) {
+      if (!u.includes('cursor=')) {
+        return new Response(
+          JSON.stringify([
+            {
+              type: 'file',
+              path: 'page1.gguf',
+              size: 1,
+              lfs: {oid: 'sha256:aa', size: 1},
+            },
+          ]),
+          {
+            status: 200,
+            headers: {
+              link: '<https://huggingface.co/api/models/big/repo/tree/main?recursive=true&expand=true&cursor=abc>; rel="next"',
+            },
+          },
+        );
+      }
+      // Last page: no link header.
+      return jsonResponse([
+        {
+          type: 'file',
+          path: 'wanted.gguf',
+          size: 9,
+          lfs: {oid: 'sha256:bb', size: 9},
+        },
+      ]);
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  const info = await resolveHfFileByPath('big/repo', 'main', 'wanted.gguf');
+  expect(info?.sha256).toBe('bb');
+});
+
+test('a tree page failure mid-walk keeps the pages already gathered', async () => {
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models/flaky/repo/tree/main')) {
+      if (!u.includes('cursor=')) {
+        return new Response(
+          JSON.stringify([
+            {
+              type: 'file',
+              path: 'first.gguf',
+              size: 1,
+              lfs: {oid: 'sha256:cc', size: 1},
+            },
+          ]),
+          {
+            status: 200,
+            headers: {
+              link: '<https://huggingface.co/api/models/flaky/repo/tree/main?cursor=xyz>; rel="next"',
+            },
+          },
+        );
+      }
+      return new Response('boom', {status: 500});
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  // A truncated tree still resolves the files it did list.
+  const info = await resolveHfFileByPath('flaky/repo', 'main', 'first.gguf');
+  expect(info?.sha256).toBe('cc');
+});
+
 test('fetches a repo tree once per repo+branch within a run', async () => {
   let treeFetches = 0;
   globalThis.fetch = (async (url: string | URL) => {

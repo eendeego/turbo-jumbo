@@ -81,10 +81,18 @@ function treeEntryToInfo(
   };
 }
 
+// Hard ceiling on tree-listing pagination (~50 entries per page), so a
+// pathological repo can't turn one resolution into hundreds of requests.
+const MAX_TREE_PAGES = 40;
+
 // Fetch a repo's file tree, cached per repo+branch for the run — auditing many
-// files of one model resolves against the same tree. repoId/branch are
-// interpolated into the URL raw, so callers must validate them (search
-// results, parseHfFileUrl and pathImpliedRepo all do).
+// files of one model resolves against the same tree. The endpoint paginates
+// (~50 entries per page); follow the Link headers through the whole listing,
+// or a repo's 51st-and-later files are invisible and audit as unverifiable. A
+// page failure mid-walk keeps the entries gathered so far — a truncated tree
+// still resolves the files it lists. repoId/branch are interpolated into the
+// URL raw, so callers must validate them (search results, parseHfFileUrl and
+// pathImpliedRepo all do).
 async function fetchTree(
   repoId: string,
   branch: string,
@@ -93,14 +101,18 @@ async function fetchTree(
   const cached = treeCache.get(key);
   if (cached !== undefined) return cached;
   let result: HfTreeEntry[] | null = null;
-  try {
-    const res = await fetch(
-      `https://huggingface.co/api/models/${repoId}/tree/${branch}?recursive=true&expand=true`,
-      {headers: HEADERS},
-    );
-    if (res.ok) result = (await res.json()) as HfTreeEntry[];
-  } catch {
-    result = null;
+  let url: string | null =
+    `https://huggingface.co/api/models/${repoId}/tree/${branch}?recursive=true&expand=true`;
+  for (let page = 0; url && page < MAX_TREE_PAGES; page++) {
+    try {
+      const res = await fetch(url, {headers: HEADERS});
+      if (!res.ok) break;
+      const entries = (await res.json()) as HfTreeEntry[];
+      result = result ? result.concat(entries) : entries;
+      url = nextPageUrl(res.headers.get('link'));
+    } catch {
+      break;
+    }
   }
   treeCache.set(key, result);
   return result;
