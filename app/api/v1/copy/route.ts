@@ -388,6 +388,95 @@ export async function POST(req: Request) {
             continue;
           }
 
+          // Cold dest, remote source → have the source peer copy its own local
+          // files into the shared cold-storage mount. The bytes never transit
+          // this host: the peer reads from its local disk and writes to cold
+          // storage directly (a local copy), instead of us proxying a multi-GB
+          // stream that can outrun a slower cold-storage mount and exhaust
+          // memory. (Assumes cold storage is shared/mounted across peers, like
+          // the cold→local path above.)
+          if (destIsCold && srcIsRemote) {
+            const totalBytes = groupFiles.reduce((s, f) => s + f.size, 0);
+            fileTotal = totalBytes;
+            fileDone = 0;
+            resetFilePhase();
+            emit();
+
+            logger.info(
+              `[copy] local→cold on ${source}: ${groupFiles.length} file(s)`,
+            );
+            let res: Response;
+            try {
+              res = await fetch(
+                `http://${source}/api/v1/cold-storage/from-local`,
+                {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({files: groupFiles.map((f) => f.path)}),
+                  signal,
+                },
+              );
+            } catch (err) {
+              if (signal.aborted) throw err;
+              fail(
+                `local→cold on ${source}`,
+                err instanceof Error ? err.message : String(err),
+              );
+              continue;
+            }
+            if (!res.ok || !res.body) {
+              fail(`local→cold on ${source}`, `HTTP ${res.status}`);
+              continue;
+            }
+
+            const reader = res.body.getReader();
+            const dec = new TextDecoder();
+            let buf = '';
+            const baseBytesDone = bytesDone;
+            const baseFilesDone = filesDone;
+            let succeeded: string[] = [];
+            let peerErrors: string[] = [];
+            try {
+              for (;;) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, {stream: true});
+                const lines = buf.split('\n');
+                buf = lines.pop() ?? '';
+                for (const line of lines) {
+                  if (!line.trim()) continue;
+                  const p = JSON.parse(line) as {
+                    bytesDone: number;
+                    filesDone: number;
+                    succeeded?: string[];
+                    errors?: string[];
+                  };
+                  fileDone = p.bytesDone;
+                  bytesDone = baseBytesDone + p.bytesDone;
+                  filesDone = baseFilesDone + p.filesDone;
+                  if (p.succeeded) succeeded = p.succeeded;
+                  if (p.errors) peerErrors = p.errors;
+                  emit();
+                }
+              }
+            } catch (err) {
+              if (signal.aborted) throw err;
+              fail(
+                `local→cold on ${source}`,
+                err instanceof Error ? err.message : String(err),
+              );
+              continue;
+            }
+            // Only the files the peer confirmed reaching cold storage are safe
+            // for a delete-after-copy to remove.
+            for (const f of succeeded) coldDone.add(f);
+            for (const e of peerErrors) {
+              errors.push(`${source} → cold-storage: ${e}`);
+            }
+            if (peerErrors.length > 0) emit();
+            continue;
+          }
+
           // Remaining cases write to this machine (cold storage or local peer).
           const destBase = destIsCold ? coldBase : localBase;
           for (const f of groupFiles) {
