@@ -1,16 +1,25 @@
 'use client';
 
 import {useRef, useEffect} from 'react';
+import * as stylex from '@stylexjs/stylex';
 import {Card} from '@astryxdesign/core/Card';
 import {HStack, VStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
+import {IconButton} from '@astryxdesign/core/IconButton';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
+import {CommandLineIcon} from '@heroicons/react/24/outline';
 import type {CopyProgress} from '@/lib/copy-progress';
 import {formatBytes, formatSpeed} from '@/components/models/model-list';
 
 const formatBytePair = (v: number, m: number) =>
   `${formatBytes(v)} of ${formatBytes(m)}`;
+
+// Sits above the fixed-overlay Log console (z-index 40) so its Console toggle
+// stays clickable when the console is open.
+const styles = stylex.create({
+  root: {position: 'relative', zIndex: 50},
+});
 
 interface ActionBarProps {
   selected: Set<string>;
@@ -26,6 +35,8 @@ interface ActionBarProps {
   onFixMisplaced?: () => void;
   misplacedCount?: number;
   fixing?: boolean;
+  consoleOpen?: boolean;
+  onToggleConsole?: () => void;
 }
 
 export function ActionBar({
@@ -42,6 +53,8 @@ export function ActionBar({
   onFixMisplaced,
   misplacedCount = 0,
   fixing = false,
+  consoleOpen = false,
+  onToggleConsole,
 }: ActionBarProps) {
   // Derive a live transfer speed from successive byte-progress samples. The
   // result lives in a ref (no setState in the effect) and is read during the
@@ -73,7 +86,7 @@ export function ActionBar({
     copying && copyProgress != null && copyProgress.filesTotal > 0;
 
   return (
-    <Card padding={2}>
+    <Card padding={2} xstyle={styles.root}>
       <VStack gap={2}>
         <HStack gap={3} hAlign="between" vAlign="center">
           <Text type="supporting">
@@ -132,6 +145,16 @@ export function ActionBar({
                   fixing || copying || deleting || auditing || checking
                 }
                 onClick={onFixMisplaced}
+              />
+            )}
+            {onToggleConsole && (
+              <IconButton
+                label="Console"
+                tooltip="Console"
+                variant={consoleOpen ? 'secondary' : 'ghost'}
+                size="sm"
+                icon={<CommandLineIcon style={{width: 16, height: 16}} />}
+                onClick={onToggleConsole}
               />
             )}
           </HStack>

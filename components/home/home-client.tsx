@@ -263,6 +263,10 @@ export function HomeClient({
   // The "Consolidate with Lemonade" modal (dedupe/move/link models so one copy
   // on disk is shared between Turbo Jumbo and Lemonade).
   const [syncOpen, setSyncOpen] = useState(false);
+  // The bottom console panel (logs); toggled from the action bar's Console
+  // button or the ~ key.
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  const toggleConsole = useCallback(() => setConsoleOpen((o) => !o), []);
 
   const locations: LocationTab[] = useMemo(
     () =>
@@ -1152,6 +1156,8 @@ export function HomeClient({
                 onFixMisplaced={() => onFix(misplacedPaths)}
                 misplacedCount={misplacedPaths.length}
                 fixing={fixing}
+                consoleOpen={consoleOpen}
+                onToggleConsole={toggleConsole}
               />
             </VStack>
           </LayoutFooter>
@@ -1231,7 +1237,7 @@ export function HomeClient({
         />
       )}
 
-      <Log logLevel={logLevel} />
+      <Log logLevel={logLevel} open={consoleOpen} onToggle={toggleConsole} />
     </AppShell>
   );
 }
