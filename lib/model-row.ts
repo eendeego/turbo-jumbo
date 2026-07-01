@@ -12,11 +12,14 @@ import {ggmlModelVariant} from '@/lib/weight-files';
 import {isPickOneSafetensorsRepo} from '@/lib/hf-download';
 import {isDiffusersRepo} from '@/lib/diffusers';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
-import type {SidecarSummary} from '@/lib/sidecar-types';
+import type {FileProvenance, SidecarSummary} from '@/lib/sidecar-types';
 
 export interface ShardInfo {
   filename: string;
   size: number;
+  // This shard's sidecar provenance, for its row's hovercard. Absent when the
+  // model has no sidecar record for the shard.
+  provenance?: FileProvenance;
 }
 
 export interface QuantInfo {
@@ -39,6 +42,12 @@ export interface QuantInfo {
   // The precisions present for a diffusers component (fp16 / fp32), shown as a
   // badge; undefined for non-diffusers quants.
   precisions?: string[];
+  // A single-file quant's (or projector's) sidecar provenance, for its row's
+  // hovercard. Absent without a sidecar record.
+  provenance?: FileProvenance;
+  // A split quant's provenance aggregated across its shards (shared revision,
+  // shard count, total source size). Absent without sidecar records.
+  provenanceAggregate?: SidecarSummary;
 }
 
 export interface ModelRow extends Record<string, unknown> {

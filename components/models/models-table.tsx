@@ -4,7 +4,12 @@ import {normalizeModelNames} from '@/lib/models';
 import {isDiffusersRepo, diffusersComponentKey} from '@/lib/diffusers';
 import {fileJoinKey} from '@/lib/peer-paths';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
-import type {SidecarSummary} from '@/lib/sidecar-types';
+import {
+  modelDirForRepo,
+  fileProvenance,
+  summarizeFiles,
+} from '@/lib/model-sidecar';
+import type {SidecarSummary, TjModelFile} from '@/lib/sidecar-types';
 import type {ModelRow, QuantInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",
@@ -40,6 +45,34 @@ export function buildModelRows(
     if (m.sidecar) sidecarByName.set(m.name, m.sidecar);
   for (const m of localModels)
     if (m.sidecar) sidecarByName.set(m.name, m.sidecar);
+
+  // Manifest-key → sidecar record per model, cold first then local so the
+  // local copy's record wins. Keyed by the file's model-dir-relative path.
+  const recordsByName = new Map<string, Map<string, TjModelFile>>();
+  const addRecords = (models: Model[]) => {
+    for (const m of models) {
+      if (!m.sidecarFiles) continue;
+      let map = recordsByName.get(m.name);
+      if (!map) {
+        map = new Map();
+        recordsByName.set(m.name, map);
+      }
+      for (const f of m.sidecarFiles) map.set(f.path, f);
+    }
+  };
+  addRecords(coldModels);
+  addRecords(localModels);
+
+  // The sidecar record for a model's storage-relative file path, or undefined.
+  const recordFor = (
+    modelName: string,
+    relPath: string,
+  ): TjModelFile | undefined => {
+    const map = recordsByName.get(modelName);
+    if (!map) return undefined;
+    const key = modelDirForRepo(relPath, modelName)?.key;
+    return key ? map.get(key) : undefined;
+  };
 
   // Models laid out as diffusers pipelines (component folders at two
   // precisions): presented as present-only, precision-collapsed component
@@ -184,10 +217,14 @@ export function buildModelRows(
           shards: f.isSplit
             ? [...f.files]
                 .sort((a, b) => a.path.localeCompare(b.path))
-                .map((s) => ({
-                  filename: s.path.split('/').pop() ?? s.path,
-                  size: s.size,
-                }))
+                .map((s) => {
+                  const rec = recordFor(m.name, s.path);
+                  return {
+                    filename: s.path.split('/').pop() ?? s.path,
+                    size: s.size,
+                    ...(rec ? {provenance: fileProvenance(rec)} : {}),
+                  };
+                })
             : [],
           totalShards: f.isSplit ? f.totalShards : 0,
           presentShards: f.isSplit ? f.presentShards : 0,
@@ -208,6 +245,26 @@ export function buildModelRows(
                 ],
               }
             : {}),
+          // The file's recorded provenance: a single record for a single-file
+          // quant, an across-shards aggregate for a split quant.
+          ...(() => {
+            if (f.isSplit) {
+              const recs = f.files
+                .map((s) => recordFor(m.name, s.path))
+                .filter((r): r is TjModelFile => r != null);
+              return recs.length > 0
+                ? {
+                    provenanceAggregate: summarizeFiles(
+                      `https://huggingface.co/${m.name}`,
+                      m.name,
+                      recs,
+                    ),
+                  }
+                : {};
+            }
+            const rec = recordFor(m.name, f.path);
+            return rec ? {provenance: fileProvenance(rec)} : {};
+          })(),
         });
       }
     }

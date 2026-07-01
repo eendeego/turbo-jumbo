@@ -1,7 +1,7 @@
 import {test, expect} from 'bun:test';
 import {buildModelRows} from '@/components/models/models-table';
 import type {Model} from '@/lib/models';
-import type {SidecarSummary} from '@/lib/model-sidecar';
+import type {SidecarSummary, TjModelFile} from '@/lib/model-sidecar';
 
 function single(
   filename: string,
@@ -487,4 +487,85 @@ test('buildModelRows leaves sidecar undefined when neither copy has one', () => 
     [],
   );
   expect(rows.find((r) => r.name === 'org/repo')!.sidecar).toBeUndefined();
+});
+
+function fileRec(p: Partial<TjModelFile> & {path: string}): TjModelFile {
+  return {
+    originUrl: `https://huggingface.co/org/repo/blob/main/${p.path}`,
+    sourceSize: 100,
+    computedSize: 100,
+    sourceSha256: 'aa',
+    computedSha256: 'aa',
+    ...p,
+  };
+}
+
+test('buildModelRows attaches single-file quant provenance (local over cold)', () => {
+  const local: Model[] = [
+    {
+      name: 'org/repo',
+      files: [
+        {
+          isSplit: false,
+          filename: 'model.gguf',
+          path: 'org/repo/model.gguf',
+          quant: 'Q4_K_M',
+          size: 100,
+          missing: false,
+        },
+      ],
+      sidecarFiles: [fileRec({path: 'model.gguf', sourceCommit: 'local1'})],
+    },
+  ];
+  const rows = buildModelRows(local, []);
+  const q = rows[0].quants[0];
+  expect(q.provenance!.sourceCommit).toBe('local1');
+});
+
+test('buildModelRows attaches split-quant aggregate and per-shard provenance', () => {
+  const split: Model['files'][number] = {
+    isSplit: true,
+    representativeFilename: 'model-00001-of-00002.gguf',
+    files: [
+      {path: 'org/repo/model-00001-of-00002.gguf', size: 100},
+      {path: 'org/repo/model-00002-of-00002.gguf', size: 100},
+    ],
+    quant: 'Q4_K_M',
+    totalShards: 2,
+    presentShards: 2,
+    missingIndices: [],
+    totalSize: 200,
+  };
+  const local: Model[] = [
+    {
+      name: 'org/repo',
+      files: [split],
+      sidecarFiles: [
+        fileRec({
+          path: 'model-00001-of-00002.gguf',
+          sourceCommit: 'c1',
+          sourceSize: 100,
+        }),
+        fileRec({
+          path: 'model-00002-of-00002.gguf',
+          sourceCommit: 'c1',
+          sourceSize: 100,
+        }),
+      ],
+    },
+  ];
+  const rows = buildModelRows(local, []);
+  const q = rows[0].quants[0];
+  expect(q.provenanceAggregate!.sourceCommit).toBe('c1');
+  expect(q.provenanceAggregate!.fileCount).toBe(2);
+  expect(q.provenanceAggregate!.totalSourceSize).toBe(200);
+  expect(q.shards.map((s) => s.provenance?.sourceCommit)).toEqual(['c1', 'c1']);
+});
+
+test('buildModelRows leaves provenance undefined without a sidecar', () => {
+  const rows = buildModelRows(
+    [{name: 'org/repo', files: [single('model.gguf', 'Q4_K_M')]}],
+    [],
+  );
+  expect(rows[0].quants[0].provenance).toBeUndefined();
 });
