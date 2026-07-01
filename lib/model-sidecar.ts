@@ -134,6 +134,47 @@ function entryToMeta(modelUrl: string, e: TjModelFile): TjMeta {
   };
 }
 
+/** A `TjMeta` as a manifest entry: drop the (hoisted) modelUrl, key by `path`. */
+export function metaToEntry(key: string, meta: TjMeta): TjModelFile {
+  return {
+    path: key,
+    originUrl: meta.originUrl,
+    ...(meta.sourceCommit ? {sourceCommit: meta.sourceCommit} : {}),
+    ...(meta.sourceCommitDate ? {sourceCommitDate: meta.sourceCommitDate} : {}),
+    sourceSize: meta.sourceSize,
+    computedSize: meta.computedSize,
+    sourceSha256: meta.sourceSha256,
+    computedSha256: meta.computedSha256,
+  };
+}
+
+/**
+ * A file's `TjMeta` from its model sidecar, located without a known repoId: a
+ * hub-cache path resolves directly to its `models--…` dir and in-repo key; a
+ * flat path walks up from the file's directory to the nearest ancestor that
+ * holds a `tjmodel.json`. Returns null when no model sidecar owns the file.
+ */
+export async function readFileMetaByPath(
+  basePath: string,
+  relPath: string,
+): Promise<TjMeta | null> {
+  const cache = parseHubCachePath(relPath);
+  if (cache) {
+    return readFileMeta(basePath, relPath.split('/')[0], cache.repoPath);
+  }
+  let dir = path.dirname(relPath);
+  while (dir && dir !== '.') {
+    const model = await readModelSidecar(basePath, dir);
+    if (model) {
+      const key = path.relative(dir, relPath);
+      const e = model.files.find((f) => f.path === key);
+      return e ? entryToMeta(model.modelUrl, e) : null;
+    }
+    dir = path.dirname(dir);
+  }
+  return null;
+}
+
 /** A file's `TjMeta` view (modelUrl re-attached) from its model sidecar, or null. */
 export async function readFileMeta(
   basePath: string,

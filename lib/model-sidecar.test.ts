@@ -4,8 +4,10 @@ import os from 'os';
 import path from 'path';
 import {
   mergeFileMeta,
+  metaToEntry,
   modelDirForRepo,
   readFileMeta,
+  readFileMetaByPath,
   readModelSidecar,
   upsertFileMeta,
   writeModelSidecar,
@@ -134,5 +136,59 @@ test('readFileMeta returns the entry as a TjMeta with modelUrl, or null', async 
   expect(meta?.modelUrl).toBe('https://huggingface.co/org/repo');
   expect(meta?.sourceCommit).toBe('c');
   expect(await readFileMeta(base, 'org/repo', 'missing.gguf')).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('metaToEntry drops modelUrl and sets the path key', () => {
+  const e = metaToEntry('a.gguf', {
+    modelUrl: 'https://huggingface.co/org/repo',
+    originUrl: 'https://huggingface.co/org/repo/blob/main/a.gguf',
+    sourceCommit: 'c',
+    sourceSize: 5,
+    computedSize: 5,
+    sourceSha256: 's',
+    computedSha256: 's',
+  });
+  expect(e).toEqual({
+    path: 'a.gguf',
+    originUrl: 'https://huggingface.co/org/repo/blob/main/a.gguf',
+    sourceCommit: 'c',
+    sourceSize: 5,
+    computedSize: 5,
+    sourceSha256: 's',
+    computedSha256: 's',
+  });
+});
+
+test('readFileMetaByPath finds a flat file via its model dir, walking up', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  await upsertFileMeta(
+    base,
+    'org/repo',
+    'org/repo',
+    entry({path: 'sub/a.gguf', sourceCommit: 'c'}),
+  );
+  const meta = await readFileMetaByPath(base, 'org/repo/sub/a.gguf');
+  expect(meta?.sourceCommit).toBe('c');
+  expect(meta?.modelUrl).toBe('https://huggingface.co/org/repo');
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('readFileMetaByPath finds a hub-cache file by its in-repo key', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  await upsertFileMeta(
+    base,
+    'models--org--repo',
+    'org/repo',
+    entry({path: 'a.gguf', sourceCommit: 'r'}),
+  );
+  const rel = 'models--org--repo/snapshots/abc/a.gguf';
+  expect((await readFileMetaByPath(base, rel))?.sourceCommit).toBe('r');
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('readFileMetaByPath returns null when no model sidecar is found', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  expect(await readFileMetaByPath(base, 'org/repo/a.gguf')).toBeNull();
   await fsp.rm(base, {recursive: true, force: true});
 });
