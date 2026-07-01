@@ -141,10 +141,12 @@ function StatusMarker({info}: {info: LemonadeDownloadInfo | undefined}) {
  */
 export function LemonadeBrowser({
   hfTokenSet,
+  localModelsPath,
   inventoryLocations,
   canDownload,
 }: {
   hfTokenSet: boolean;
+  localModelsPath: string;
   inventoryLocations: InventoryLocation[];
   canDownload: boolean;
 }) {
@@ -160,8 +162,8 @@ export function LemonadeBrowser({
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [showTerminal, setShowTerminal] = useState(false);
   const [downloadTitle, setDownloadTitle] = useState('');
-  const {term, progress, running, start, startMany, cancel, reset} =
-    useDownloadRunner();
+  const {term, progress, running, command, start, startMany, cancel, reset} =
+    useDownloadRunner(localModelsPath);
 
   useEffect(() => {
     let cancelled = false;
@@ -348,6 +350,7 @@ export function LemonadeBrowser({
         term={term}
         progress={progress}
         running={running}
+        command={command ?? undefined}
         hfTokenSet={hfTokenSet}
         onClose={closeTerminal}
       />

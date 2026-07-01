@@ -50,7 +50,6 @@ import {SetSourceModal} from '@/components/models/set-source-modal';
 import {RevisionsModal} from '@/components/models/revisions-modal';
 import {
   DownloadModal,
-  buildHfCommand,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
 import type {
@@ -526,11 +525,8 @@ export function HomeClient({
   // Redownload an incomplete file: re-fetch from HF into local storage. The
   // existing partial file is left in place so the HF downloader recovers it
   // (never deleted, never sent to cold storage here).
-  const redownload = useDownloadRunner();
+  const redownload = useDownloadRunner(localModelsPath ?? '');
   const [redownloadOpen, setRedownloadOpen] = useState(false);
-  const [redownloadCommand, setRedownloadCommand] = useState<string | null>(
-    null,
-  );
   const redownloadPath = useRef<string | null>(null);
 
   const onRedownload = useCallback(
@@ -548,13 +544,10 @@ export function HomeClient({
         filePaths: [ref.repoPath],
       };
       setError(null);
-      setRedownloadCommand(
-        localModelsPath ? buildHfCommand(req, localModelsPath) : null,
-      );
       setRedownloadOpen(true);
       redownload.start(req);
     },
-    [redownload, localModelsPath],
+    [redownload],
   );
 
   const closeRedownload = useCallback(() => {
@@ -951,6 +944,7 @@ export function HomeClient({
         {showKindTabs && modelKind === 'lemonade' ? (
           <LemonadeBrowser
             hfTokenSet={hfTokenSet}
+            localModelsPath={localModelsPath ?? ''}
             inventoryLocations={inventoryLocations}
             canDownload={canDownloadLocally}
           />
@@ -1071,7 +1065,7 @@ export function HomeClient({
             term={redownload.term}
             progress={redownload.progress}
             running={redownload.running}
-            command={redownloadCommand ?? undefined}
+            command={redownload.command ?? undefined}
             hfTokenSet={hfTokenSet}
             onClose={closeRedownload}
           />

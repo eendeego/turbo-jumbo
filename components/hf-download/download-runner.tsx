@@ -95,11 +95,16 @@ function applyChunk(state: TermState, chunk: string): TermState {
  * Drives a streaming `/api/v1/hf-download` run: posts the request, parses the
  * terminal output into a redrawing buffer and structured progress, and exposes
  * cancel/reset. Reused by the HF download box and the audit "Redownload" action.
+ * `localModelsPath` is the `--local-dir` the runs use; it's surfaced back as the
+ * `command` string so every caller's modal can disclose the `hf` command line.
  */
-export function useDownloadRunner() {
+export function useDownloadRunner(localModelsPath: string) {
   const [term, setTerm] = useState<TermState | null>(null);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [running, setRunning] = useState(false);
+  // The `hf` command line(s) for the active run — one per repo, joined by a
+  // blank line for a multi-repo plan. Cleared on reset.
+  const [command, setCommand] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // Stream one request onto `initial`, redrawing the terminal and progress as
@@ -144,6 +149,7 @@ export function useDownloadRunner() {
     setRunning(true);
     setTerm({lines: [''], col: 0});
     setProgress(null);
+    setCommand(buildHfCommand(req, localModelsPath));
 
     try {
       await runOne(req, abort, {lines: [''], col: 0});
@@ -171,6 +177,9 @@ export function useDownloadRunner() {
     let state: TermState = {lines: [''], col: 0};
     setTerm(state);
     setProgress(null);
+    setCommand(
+      reqs.map((r) => buildHfCommand(r, localModelsPath)).join('\n\n'),
+    );
 
     try {
       for (let i = 0; i < reqs.length; i++) {
@@ -199,9 +208,10 @@ export function useDownloadRunner() {
   const reset = () => {
     setTerm(null);
     setProgress(null);
+    setCommand(null);
   };
 
-  return {term, progress, running, start, startMany, cancel, reset};
+  return {term, progress, running, command, start, startMany, cancel, reset};
 }
 
 /** Streaming progress + terminal output dialog for a download run. When a

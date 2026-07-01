@@ -51,7 +51,15 @@ export function HuggingFaceDownload({
   const [sendToCold, setSendToCold] = useState(false);
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
-  const {term, progress, running, start, cancel, reset} = useDownloadRunner();
+  const {
+    term,
+    progress,
+    running,
+    command: runCommand,
+    start,
+    cancel,
+    reset,
+  } = useDownloadRunner(localModelsPath);
   const [files, setFiles] = useState<HfFile[] | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
@@ -210,6 +218,7 @@ export function HuggingFaceDownload({
           term={term}
           progress={progress}
           running={running}
+          command={runCommand ?? undefined}
           hfTokenSet={hfTokenSet}
           onClose={closeTerminal}
         />
