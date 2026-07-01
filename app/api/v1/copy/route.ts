@@ -1,5 +1,5 @@
 import {resumeOffset} from '@/lib/audit';
-import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
+import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {logger} from '@/lib/logger';
 import {promises as fsp} from 'fs';
 import {createReadStream, createWriteStream} from 'fs';
@@ -72,6 +72,21 @@ export async function POST(req: Request) {
 
   const coldBase = coldStorageDir ? nodePath.resolve(coldStorageDir) : '';
   const localBase = localModelsDir ? nodePath.resolve(localModelsDir) : '';
+
+  // Every host we'll talk to comes from the request body (`toPeers`, and each
+  // file's `from`), and we fetch `http://<host>/...` against it — so confine
+  // them to configured peers. Otherwise a caller could aim the server at an
+  // arbitrary host, and the local-source branch would stream local files there.
+  const knownPeers = new Set(config.peers.map((p) => p.address));
+  if (
+    !Array.isArray(toPeers) ||
+    toPeers.some((p) => typeof p !== 'string' || !knownPeers.has(p))
+  ) {
+    return new Response('Unknown peer', {status: 400});
+  }
+  if (files.some((f) => f.from !== 'cold-storage' && !knownPeers.has(f.from))) {
+    return new Response('Unknown source', {status: 400});
+  }
 
   // Validate local-source paths up-front.
   for (const f of files) {
