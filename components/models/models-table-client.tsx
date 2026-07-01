@@ -17,6 +17,7 @@ import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
+import {copyToClipboard} from '@/lib/clipboard';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
 import type {
@@ -524,6 +525,32 @@ function FileStateMarker({state}: {state: RepoFileState}) {
   return <Badge label={label} variant={variant} />;
 }
 
+/**
+ * A small clipboard icon that copies a model's name. Flips to a check mark for a
+ * moment after a successful copy so the click registers visibly.
+ */
+function CopyNameButton({name}: {name: string}) {
+  const [copied, setCopied] = useState(false);
+  const copy = (e: {stopPropagation: () => void}) => {
+    // Sits next to the row's toggle button; don't expand/collapse on copy.
+    e.stopPropagation();
+    copyToClipboard(name).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <IconButton
+      label={`Copy model name ${name}`}
+      icon={<Icon icon={copied ? 'check' : 'copy'} size="sm" />}
+      variant="ghost"
+      size="sm"
+      tooltip={copied ? 'Copied' : 'Copy name'}
+      onClick={copy}
+    />
+  );
+}
+
 function NameCell({
   row,
   isExpanded,
@@ -626,6 +653,7 @@ function NameCell({
           <Badge variant="error" label="invalid" />
         </HoverCard>
       )}
+      <CopyNameButton name={row.label} />
     </HStack>
   );
 }

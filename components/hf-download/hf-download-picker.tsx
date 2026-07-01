@@ -10,9 +10,9 @@ import {List, ListItem} from '@astryxdesign/core/List';
 import {
   DownloadModal,
   buildHfCommand,
-  copyToClipboard,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
+import {copyToClipboard} from '@/lib/clipboard';
 import {defaultDownloadSelection} from '@/lib/hf-download';
 import {parseHfUrl} from '@/lib/hf-url';
 
