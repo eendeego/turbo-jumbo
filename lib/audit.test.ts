@@ -1929,3 +1929,27 @@ test('resolveSource pins a hub-cache file to its snapshot revision', async () =>
     await fsp.rm(base, {recursive: true, force: true});
   }
 });
+
+test('readMetaResolved migrates a legacy per-file sidecar into the model sidecar', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-mig-'));
+  const rel = 'org/repo/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, 'data');
+  const meta = {
+    modelUrl: 'https://huggingface.co/org/repo',
+    originUrl: 'https://huggingface.co/org/repo/blob/main/m.gguf',
+    sourceCommit: 'c1',
+    sourceSize: 4,
+    computedSize: 4,
+    sourceSha256: 's',
+    computedSha256: 'cc',
+  };
+  await writeMeta(full, meta); // legacy per-file sidecar
+
+  expect(await readMetaResolved(base, rel)).toEqual(meta);
+  // The legacy sidecar is folded into the model sidecar and removed.
+  expect(await readMeta(full)).toBeNull();
+  expect(await readMetaResolved(base, rel)).toEqual(meta);
+  await fsp.rm(base, {recursive: true, force: true});
+});

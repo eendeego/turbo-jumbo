@@ -428,10 +428,25 @@ export async function readMetaResolved(
   basePath: string,
   relPath: string,
 ): Promise<TjMeta | null> {
-  return (
-    (await readFileMetaByPath(basePath, relPath)) ??
-    (await readMeta(path.join(basePath, relPath)))
-  );
+  const fromModel = await readFileMetaByPath(basePath, relPath);
+  if (fromModel) return fromModel;
+  const legacy = await readMeta(path.join(basePath, relPath));
+  if (legacy) {
+    // Lazily migrate a legacy per-file sidecar into the model sidecar (when the
+    // file sits in a model dir), then drop the legacy file.
+    const repoId = repoIdFromModelUrl(legacy.modelUrl);
+    const loc = repoId ? modelDirForRepo(relPath, repoId) : null;
+    if (repoId && loc) {
+      await upsertFileMeta(
+        basePath,
+        loc.dir,
+        repoId,
+        metaToEntry(loc.key, legacy),
+      );
+      await fsp.rm(metaPath(path.join(basePath, relPath)), {force: true});
+    }
+  }
+  return legacy;
 }
 
 /**
