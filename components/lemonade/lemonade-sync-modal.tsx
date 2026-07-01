@@ -84,7 +84,20 @@ export function LemonadeSyncModal({
     (n, p) => n + p.moveCount + p.dedupCount,
     0,
   );
-  const totalDedup = preview.reduce((n, p) => n + p.dedupCount, 0);
+  // Group the preview by action so deduplicated models are listed like imported
+  // ones, each its own row, rather than folded into a count.
+  const sections = [
+    {
+      title: 'Importing into Turbo Jumbo',
+      items: preview.filter((p) => p.moveCount > 0),
+      count: (p: Preview) => p.moveCount,
+    },
+    {
+      title: 'Deduplicating (already in Turbo Jumbo)',
+      items: preview.filter((p) => p.dedupCount > 0),
+      count: (p: Preview) => p.dedupCount,
+    },
+  ].filter((s) => s.items.length > 0);
   const counts = results
     .flatMap((r) => r.files)
     .reduce<Record<string, number>>((acc, f) => {
@@ -125,30 +138,21 @@ export function LemonadeSyncModal({
               Jumbo.
             </Text>
           ) : (
-            <VStack gap={2}>
-              <Text type="supporting">
-                {totalFiles} file{totalFiles === 1 ? '' : 's'} across{' '}
-                {preview.length} model{preview.length === 1 ? '' : 's'}
-                {totalDedup > 0
-                  ? ` — ${totalDedup} already in Turbo Jumbo, to deduplicate`
-                  : ''}
-                .
-              </Text>
-              <List hasDividers>
-                {preview.map((p) => {
-                  const parts = [
-                    p.moveCount > 0 ? `${p.moveCount} to move` : null,
-                    p.dedupCount > 0 ? `${p.dedupCount} to deduplicate` : null,
-                  ].filter(Boolean);
-                  return (
-                    <ListItem
-                      key={p.repoId}
-                      label={p.repoId}
-                      description={`${parts.join(' · ')} · ${p.rev.slice(0, 12)}`}
-                    />
-                  );
-                })}
-              </List>
+            <VStack gap={3}>
+              {sections.map((s) => (
+                <VStack key={s.title} gap={1}>
+                  <Text type="supporting">{s.title}</Text>
+                  <List hasDividers>
+                    {s.items.map((p) => (
+                      <ListItem
+                        key={p.repoId}
+                        label={p.repoId}
+                        description={`${s.count(p)} file${s.count(p) === 1 ? '' : 's'} · ${p.rev.slice(0, 12)}`}
+                      />
+                    ))}
+                  </List>
+                </VStack>
+              ))}
             </VStack>
           ))}
 
