@@ -17,6 +17,7 @@ import {
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
 import {LemonadeBrowser} from '@/components/lemonade/lemonade-browser';
+import {defaultDownloadSelection} from '@/lib/hf-download';
 
 type ParsedUrl = {
   repoId: string;
@@ -81,30 +82,6 @@ function parseHfUrl(url: string): ParsedUrl | null {
 // - Shard file (e.g. model-00001-of-00004.gguf) → all sibling shards
 // - Single file → just that file
 // - No match → everything
-function computeDefaultSelection(
-  files: HfFile[],
-  filename: string | null,
-): Set<string> {
-  if (!filename) return new Set();
-
-  const shardMatch = filename.match(
-    /^(.+)-(\d{5})-of-(\d{5})(\.(?:gguf|safetensors|bin))$/i,
-  );
-  if (shardMatch) {
-    const [, base, , total, ext] = shardMatch;
-    const shards = files.filter((f) => {
-      const name = f.path.split('/').pop() ?? '';
-      return name.startsWith(`${base}-`) && name.endsWith(`-of-${total}${ext}`);
-    });
-    if (shards.length > 0) return new Set(shards.map((f) => f.path));
-  }
-
-  const exact = files.find((f) => f.path.split('/').pop() === filename);
-  if (exact) return new Set([exact.path]);
-
-  return new Set(files.map((f) => f.path));
-}
-
 function formatBytes(bytes: number): string {
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
@@ -187,7 +164,7 @@ export function HuggingFaceDownload({
       .then((data) => {
         if (!cancelled) {
           setFiles(data);
-          setSelectedPaths(computeDefaultSelection(data, parsed.filename));
+          setSelectedPaths(defaultDownloadSelection(data, parsed.filename));
           setFilesLoading(false);
         }
       })
