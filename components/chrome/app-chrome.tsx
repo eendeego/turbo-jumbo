@@ -14,6 +14,7 @@ import {
   LocationTabs,
   type LocationTab,
 } from '@/components/models/location-tabs';
+import {usePeerStatus} from '@/components/models/use-peer-status';
 import {AddModelMenu} from '@/components/models/add-model-menu';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
 import {Log} from '@/components/log/log';
@@ -61,14 +62,16 @@ export function AppChrome({
 
   const [syncOpen, setSyncOpen] = useState(false);
 
+  const downPeers = usePeerStatus();
   const locations: LocationTab[] = useMemo(
     () =>
       peers.map((p) => ({
         id: p.address,
         label: p.name,
         isLocal: p.isLocal ?? false,
+        down: downPeers.has(p.address),
       })),
-    [peers],
+    [peers, downPeers],
   );
 
   const handleLocationChange = useCallback(
