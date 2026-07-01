@@ -75,6 +75,25 @@ test('repoDownloadFiles takes a non-gguf/non-safetensors bin repo whole', () => 
   expect(kept).toEqual(['pytorch_model.bin', 'config.json', 'README.md']);
 });
 
+test('repoDownloadFiles picks weights individually for a ggml .bin repo (whisper.cpp)', () => {
+  // Many standalone ggml-*.bin models, no onnx/safetensors/gguf, no config:
+  // pick-one like GGUF — list the weights, not the whole repo (which would
+  // wrongly expect every variant, unlike Lemonade's one-file-per-model pull).
+  const whisper = [
+    '.gitattributes',
+    'README.md',
+    'ggml-tiny.bin',
+    'ggml-base.bin',
+    'ggml-large-v3-turbo.bin',
+    'ggml-base-encoder.mlmodelc.zip',
+  ];
+  expect(repoDownloadFiles(whisper)).toEqual([
+    'ggml-tiny.bin',
+    'ggml-base.bin',
+    'ggml-large-v3-turbo.bin',
+  ]);
+});
+
 const asFiles = (paths: string[]) => paths.map((path) => ({path}));
 
 test('defaultDownloadSelection takes the whole safetensors model', () => {

@@ -34,7 +34,32 @@ export function repoDownloadFiles(paths: string[]): string[] {
   if (paths.some((p) => /\.safetensors$/i.test(p)))
     return paths.filter((p) => !isNonEssential(p));
   if (paths.some((p) => /\.gguf$/i.test(p))) return paths.filter(isWeightFile);
+  // A repo of standalone .bin weights (ggml whisper.cpp-style) is pick-one like
+  // GGUF — each .bin is a complete model, addressed one at a time. List the
+  // weights individually rather than the whole repo. See isPickOneBinRepo.
+  if (isPickOneBinRepo(paths)) return paths.filter(isWeightFile);
   return paths;
+}
+
+/**
+ * Whether a repo holds independent single-file `.bin` weights you pick one of —
+ * ggml whisper.cpp-style (e.g. `ggerganov/whisper.cpp`, ~40 standalone
+ * `ggml-*.bin` models), where Lemonade fetches one named `.bin` per catalog
+ * entry, not the whole repo. Used to keep such repos out of whole-repo
+ * downloads and completeness checks.
+ *
+ * Conservatively gated so whole-repo `.bin` models aren't misread: requires
+ * *several* `.bin` weights (a lone `.bin` is a single model, taken whole), no
+ * `.onnx`/`.safetensors`/`.gguf` (Kokoro/ONNX/safetensors are whole-repo), and
+ * no `config.json` (a transformers/pytorch model whose weights need it — even
+ * when sharded into multiple `.bin`).
+ */
+export function isPickOneBinRepo(paths: string[]): boolean {
+  const bins = paths.filter((p) => /\.bin$/i.test(p));
+  if (bins.length < 2) return false;
+  if (paths.some((p) => /\.(onnx|safetensors|gguf)$/i.test(p))) return false;
+  if (paths.some((p) => /(^|\/)config\.json$/i.test(p))) return false;
+  return true;
 }
 
 /**

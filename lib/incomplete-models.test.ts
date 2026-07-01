@@ -2,7 +2,10 @@ import {test, expect, afterEach} from 'bun:test';
 import {promises as fsp} from 'fs';
 import os from 'os';
 import path from 'path';
-import {findReposWithInvalidFiles} from '@/lib/incomplete-models';
+import {
+  findIncompleteRepos,
+  findReposWithInvalidFiles,
+} from '@/lib/incomplete-models';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -61,5 +64,34 @@ test('skips a self-contained GGUF repo even if a file looks off', async () => {
   await writeSized(path.join(base, repoId, 'model-Q4_K_M.gguf'), 10);
 
   expect(await findReposWithInvalidFiles(base)).toEqual([]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('does not flag a pick-one ggml .bin repo (whisper.cpp) as incomplete', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-inc-'));
+  const repoId = 'ggtest/whisper.cpp';
+  // One variant downloaded; the repo offers many independent ggml-*.bin models.
+  await writeSized(path.join(base, repoId, 'ggml-tiny.bin'), 10);
+  mockTree(repoId, [
+    {path: 'ggml-tiny.bin', size: 10},
+    {path: 'ggml-base.bin', size: 20},
+    {path: 'ggml-large-v3.bin', size: 30},
+    {path: 'README.md', size: 1},
+  ]);
+  // Like GGUF, the other variants aren't "missing" — it's not incomplete.
+  expect(await findIncompleteRepos(base)).toEqual([]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('still flags a whole-repo (onnx) model missing a file as incomplete', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-inc-'));
+  const repoId = 'ktest/kokoro';
+  await writeSized(path.join(base, repoId, 'voices-v1.0.bin'), 10); // have the .bin
+  mockTree(repoId, [
+    {path: 'voices-v1.0.bin', size: 10},
+    {path: 'kokoro-v1.0.onnx', size: 99}, // missing locally
+    {path: 'index.json', size: 5}, // missing locally
+  ]);
+  expect(await findIncompleteRepos(base)).toEqual([repoId]);
   await fsp.rm(base, {recursive: true, force: true});
 });

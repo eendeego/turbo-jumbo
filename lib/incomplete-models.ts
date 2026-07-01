@@ -1,7 +1,7 @@
 import {logger} from '@/lib/logger';
 import {scanModels, type ModelFile} from '@/lib/models';
 import {repoFileStatuses} from '@/lib/repo-files';
-import {repoDownloadFiles} from '@/lib/hf-download';
+import {isPickOneBinRepo, repoDownloadFiles} from '@/lib/hf-download';
 import {listRepoFiles, type HfFileInfo} from '@/lib/hf-infer';
 import {hfSummary, type AuditResult, type TjMeta} from '@/lib/audit';
 import {
@@ -75,6 +75,10 @@ export async function findIncompleteRepos(
       try {
         const expected = await expectedFiles(m.name);
         if (expected.length === 0) return null;
+        // A pick-one .bin repo (ggml whisper.cpp-style) isn't a whole-repo
+        // download — like GGUF, one file is the model, so the repo's other
+        // variants aren't "missing".
+        if (isPickOneBinRepo(expected)) return null;
         const dir = nodePath.join(base, m.name);
         const incomplete = expected.some(
           (f) => !existsSync(nodePath.join(dir, f)),
@@ -145,6 +149,7 @@ export async function detectMissingExpectedFiles(
     const hasGguf = repoPaths.some((p) => /\.gguf$/i.test(p));
     const hasSafetensors = repoPaths.some((p) => /\.safetensors$/i.test(p));
     if (hasGguf && !hasSafetensors) continue; // per-quant GGUF repo
+    if (isPickOneBinRepo(repoPaths)) continue; // pick-one ggml .bin repo (whisper.cpp)
     let expected: string[];
     try {
       expected = await expectedFiles(repoId);
