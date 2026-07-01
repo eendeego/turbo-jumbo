@@ -1,6 +1,7 @@
 import {promises as fsp} from 'fs';
 import path from 'path';
 import {parseHubCachePath} from '@/lib/hf-cache';
+import type {TjMeta} from '@/lib/audit';
 
 export const MODEL_SIDECAR_NAME = 'tjmodel.json';
 
@@ -104,4 +105,63 @@ export async function writeModelSidecar(
   const full = sidecarPath(basePath, dir);
   await fsp.mkdir(path.dirname(full), {recursive: true});
   await fsp.writeFile(full, JSON.stringify(model, null, 2));
+}
+
+// Per-sidecar-path promise chain: serialize read-modify-write so concurrent
+// audits of files in one model don't clobber each other's tjmodel.json.
+const writeChains = new Map<string, Promise<unknown>>();
+
+function withSidecarLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = writeChains.get(key) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  writeChains.set(
+    key,
+    next.catch(() => {}),
+  );
+  return next;
+}
+
+function entryToMeta(modelUrl: string, e: TjModelFile): TjMeta {
+  return {
+    modelUrl,
+    originUrl: e.originUrl,
+    ...(e.sourceCommit ? {sourceCommit: e.sourceCommit} : {}),
+    ...(e.sourceCommitDate ? {sourceCommitDate: e.sourceCommitDate} : {}),
+    sourceSize: e.sourceSize,
+    computedSize: e.computedSize,
+    sourceSha256: e.sourceSha256,
+    computedSha256: e.computedSha256,
+  };
+}
+
+/** A file's `TjMeta` view (modelUrl re-attached) from its model sidecar, or null. */
+export async function readFileMeta(
+  basePath: string,
+  dir: string,
+  key: string,
+): Promise<TjMeta | null> {
+  const model = await readModelSidecar(basePath, dir);
+  const e = model?.files.find((f) => f.path === key);
+  return e ? entryToMeta(model!.modelUrl, e) : null;
+}
+
+/** Read-merge-write a file's entry into its model sidecar, serialized per dir. */
+export async function upsertFileMeta(
+  basePath: string,
+  dir: string,
+  repoId: string,
+  next: TjModelFile,
+): Promise<void> {
+  await withSidecarLock(sidecarPath(basePath, dir), async () => {
+    const model = (await readModelSidecar(basePath, dir)) ?? {
+      modelUrl: `https://huggingface.co/${repoId}`,
+      repoId,
+      files: [],
+    };
+    const i = model.files.findIndex((f) => f.path === next.path);
+    const merged = mergeFileMeta(i >= 0 ? model.files[i] : null, next);
+    if (i >= 0) model.files[i] = merged;
+    else model.files.push(merged);
+    await writeModelSidecar(basePath, dir, model);
+  });
 }

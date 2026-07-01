@@ -5,7 +5,9 @@ import path from 'path';
 import {
   mergeFileMeta,
   modelDirForRepo,
+  readFileMeta,
   readModelSidecar,
+  upsertFileMeta,
   writeModelSidecar,
   type TjModel,
   type TjModelFile,
@@ -79,5 +81,58 @@ test('writeModelSidecar then readModelSidecar round-trips', async () => {
 test('readModelSidecar returns null when absent', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
   expect(await readModelSidecar(base, 'org/repo')).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('upsertFileMeta inserts then merges entries, serialized under concurrency', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  await Promise.all([
+    upsertFileMeta(
+      base,
+      'org/repo',
+      'org/repo',
+      entry({path: 'a.gguf', computedSize: 1}),
+    ),
+    upsertFileMeta(
+      base,
+      'org/repo',
+      'org/repo',
+      entry({path: 'b.gguf', computedSize: 2}),
+    ),
+  ]);
+  const model = await readModelSidecar(base, 'org/repo');
+  expect(model?.files.map((f) => f.path).sort()).toEqual(['a.gguf', 'b.gguf']);
+  expect(model?.modelUrl).toBe('https://huggingface.co/org/repo');
+
+  await upsertFileMeta(
+    base,
+    'org/repo',
+    'org/repo',
+    entry({path: 'a.gguf', computedSize: 1, computedSha256: 'h'}),
+  );
+  await upsertFileMeta(
+    base,
+    'org/repo',
+    'org/repo',
+    entry({path: 'a.gguf', computedSize: 1, computedSha256: ''}),
+  );
+  expect((await readFileMeta(base, 'org/repo', 'a.gguf'))?.computedSha256).toBe(
+    'h',
+  );
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('readFileMeta returns the entry as a TjMeta with modelUrl, or null', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  await upsertFileMeta(
+    base,
+    'org/repo',
+    'org/repo',
+    entry({path: 'a.gguf', sourceCommit: 'c'}),
+  );
+  const meta = await readFileMeta(base, 'org/repo', 'a.gguf');
+  expect(meta?.modelUrl).toBe('https://huggingface.co/org/repo');
+  expect(meta?.sourceCommit).toBe('c');
+  expect(await readFileMeta(base, 'org/repo', 'missing.gguf')).toBeNull();
   await fsp.rm(base, {recursive: true, force: true});
 });
