@@ -360,7 +360,14 @@ export function NameCell({
           content={
             <VStack gap={1}>
               {row.label.includes('/') && (
-                <InfoRow label="Repository">{row.label}</InfoRow>
+                <InfoRow label="Repository">
+                  <Link
+                    href={`https://huggingface.co/${row.label}`}
+                    isExternalLink
+                  >
+                    {row.label}
+                  </Link>
+                </InfoRow>
               )}
               {row.sidecar && <SidecarInfo sidecar={row.sidecar} />}
             </VStack>
