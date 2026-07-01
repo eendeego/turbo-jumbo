@@ -8,6 +8,7 @@ import {
   cachedResultFromMeta,
   copyFileWithMeta,
   decideStatus,
+  decideUpdate,
   duplicateResult,
   expectedRelPath,
   hfSummary,
@@ -1566,4 +1567,18 @@ test('auditFile verifies against an explicit source without any inference', asyn
     globalThis.fetch = realFetch;
     await fsp.rm(base, {recursive: true, force: true});
   }
+});
+
+test('decideUpdate: unknown when either commit is empty', () => {
+  expect(decideUpdate('', 'abc')).toBe('unknown');
+  expect(decideUpdate('abc', '')).toBe('unknown');
+  expect(decideUpdate('', '')).toBe('unknown');
+});
+
+test('decideUpdate: current when the commits are equal', () => {
+  expect(decideUpdate('abc123', 'abc123')).toBe('current');
+});
+
+test('decideUpdate: update when the commits differ', () => {
+  expect(decideUpdate('abc123', 'def456')).toBe('update');
 });

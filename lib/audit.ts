@@ -83,6 +83,33 @@ export interface AuditStartEvent {
   started: true;
 }
 
+/**
+ * A newer-version check result for one file, streamed by the updates endpoint.
+ * `status` is the verdict; the `latest*` fields describe the repo's current
+ * head revision and are present only when `status === 'update'`.
+ */
+export interface UpdateResult {
+  file: string; // path relative to the storage root
+  status: 'update' | 'current' | 'unknown';
+  latestCommit?: string; // head commit SHA
+  latestCommitDate?: string; // ISO 8601
+  latestCommitUrl?: string; // blob page pinned to the head commit
+}
+
+/**
+ * Compare a file's recorded source commit against the repo's current head
+ * commit for that file. `unknown` when either is missing (a legacy sidecar with
+ * no commit, or HF couldn't be reached); `current` when they match; `update`
+ * when they differ. Pure — the I/O lives in `auditFileUpdate`.
+ */
+export function decideUpdate(
+  recordedCommit: string,
+  headCommit: string,
+): UpdateResult['status'] {
+  if (!recordedCommit || !headCommit) return 'unknown';
+  return recordedCommit === headCommit ? 'current' : 'update';
+}
+
 export interface TjMeta {
   modelUrl: string; // HF model/repo URL, e.g. https://huggingface.co/unsloth/GLM-4.7-GGUF
   originUrl: string; // HF file URL within the repo
