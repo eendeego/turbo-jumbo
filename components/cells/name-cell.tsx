@@ -181,6 +181,7 @@ export function NameCell({
         tooltip={tooltip}
         onClick={() => onToggle(row.parentName)}
       />
+      {row.orgSuffix && <Text type="supporting">({row.orgSuffix})</Text>}
       {incomplete && <Badge variant="error" label="incomplete" />}
       {invalid && (
         <HoverCard content="Invalid download — a local file's size or checksum doesn't match its source">

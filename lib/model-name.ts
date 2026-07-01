@@ -26,6 +26,17 @@ export function modelDisplayName(name: string): string {
 }
 
 /**
+ * The org segment of an `org/repo` identity (e.g. `unsloth` from
+ * `unsloth/Qwen3-GGUF`), or null when the name has no org prefix (a
+ * filename-derived name has no slash). Used to disambiguate two models that
+ * share a repo name but come from different orgs.
+ */
+export function modelOrg(name: string): string | null {
+  const slash = name.lastIndexOf('/');
+  return slash === -1 ? null : name.slice(0, slash);
+}
+
+/**
  * Order two model identities by repo name, ignoring the org prefix, so a table
  * groups by the model (Qwen3-GGUF) rather than by who published it. Use as a
  * `.sort` comparator: `models.sort((a, b) => compareByRepoName(a.name, b.name))`.

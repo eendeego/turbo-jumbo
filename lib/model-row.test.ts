@@ -60,6 +60,20 @@ test('a collapsed model yields a single depth-0 row', () => {
   expect(rows[0]).toMatchObject({key: 'org/repo', depth: 0, label: 'org/repo'});
 });
 
+test('two models sharing a repo name get an org suffix; a unique repo name does not', () => {
+  const rows = buildDisplayRows({
+    ...noPeers,
+    models: [
+      model({name: 'alpha/Repo', quants: [quant({label: 'Q4'})]}),
+      model({name: 'beta/Repo', quants: [quant({label: 'Q4'})]}),
+      model({name: 'gamma/Other', quants: [quant({label: 'Q4'})]}),
+    ],
+  });
+  expect(rows[0]).toMatchObject({label: 'alpha/Repo', orgSuffix: 'alpha'});
+  expect(rows[1]).toMatchObject({label: 'beta/Repo', orgSuffix: 'beta'});
+  expect(rows[2].orgSuffix).toBeUndefined();
+});
+
 test('an expanded model adds its quant rows, and an expanded split quant its shards', () => {
   const split = quant({
     label: 'Q8',

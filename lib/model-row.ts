@@ -1,7 +1,12 @@
 import type {AsyncState} from '@/lib/async-state';
 import type {Model} from '@/lib/model-types';
 import type {RepoFile, RepoFileState} from '@/lib/repo-files';
-import {isMmprojFilename, compareByRepoName} from '@/lib/model-name';
+import {
+  isMmprojFilename,
+  compareByRepoName,
+  modelDisplayName,
+  modelOrg,
+} from '@/lib/model-name';
 import {fileBasename, fileJoinKey} from '@/lib/peer-paths';
 import {ggmlModelVariant} from '@/lib/weight-files';
 import {isPickOneSafetensorsRepo} from '@/lib/hf-download';
@@ -86,6 +91,9 @@ export interface DisplayRow extends Record<string, unknown> {
   // Set on a whole-repo model row (depth 0): its invalid + missing files, for
   // the audit hovercard's "why" list and the download action.
   repoIssues?: RepoFile[];
+  // Set on a model row (depth 0) whose repo name is shared with an adjacent
+  // model from a different org: the org to show as a disambiguating suffix.
+  orgSuffix?: string;
 }
 
 // A peer's copy of a row's files relative to what's expected.
@@ -336,7 +344,14 @@ export function buildDisplayRows(args: {
     peerNameByAddr,
   } = args;
   const out: DisplayRow[] = [];
-  for (const m of models) {
+  // A repo name shared with an adjacent model (the list is sorted by repo name,
+  // so collisions are consecutive) needs its org shown to tell the two apart.
+  const repoNames = models.map((m) => modelDisplayName(m.name));
+  for (let i = 0; i < models.length; i++) {
+    const m = models[i];
+    const repoIsAmbiguous =
+      repoNames[i] === repoNames[i - 1] || repoNames[i] === repoNames[i + 1];
+    const orgSuffix = repoIsAmbiguous ? modelOrg(m.name) : null;
     // Per-quant size breakdown across cold storage and peers. Locations
     // disagreeing mark the quant — and, rolled up, the model row. The
     // effective size is the largest known copy; smaller copies are
@@ -447,6 +462,7 @@ export function buildDisplayRows(args: {
         : {}),
       undersizedLocations: new Set<string>(),
       ...(repoIssues && repoIssues.length > 0 ? {repoIssues} : {}),
+      ...(orgSuffix ? {orgSuffix} : {}),
     });
     if (!expanded.has(m.name)) continue;
     if (isWholeRepoModel(m)) {
