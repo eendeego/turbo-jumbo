@@ -1,4 +1,10 @@
-import {config, localPeer, localModelsDir, coldStorageDir} from '@/lib/config';
+import {
+  config,
+  localPeer,
+  localModelsDir,
+  coldStorageDir,
+  lemonadeDir,
+} from '@/lib/config';
 import {logger} from '@/lib/logger';
 import {scanModels, annotateColdStorage} from '@/lib/models';
 import {promises as fsp} from 'fs';
@@ -18,7 +24,7 @@ export async function GET(
 
   if (peer === localPeer) {
     logger.debug(`[peers] fetch models from ${peer.name} (local)`);
-    let models = scanModels(localModelsDir);
+    let models = scanModels(localModelsDir, lemonadeDir);
     if (coldStorageDir) models = annotateColdStorage(models, coldStorageDir);
     logger.debug(`[peers] ${peer.name} returned ${models.length} model(s)`);
     return Response.json(models);

@@ -1,6 +1,12 @@
 import type {Metadata} from 'next';
 import {notFound} from 'next/navigation';
-import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
+import {
+  config,
+  localModelsDir,
+  coldStorageDir,
+  lemonadeDir,
+  localPeer,
+} from '@/lib/config';
 import {scanModels} from '@/lib/models';
 import {resolveLocation} from '@/lib/locations';
 import {getModelsTableData} from '@/components/models/models-table';
@@ -24,7 +30,7 @@ export default async function Home({
   if (activeLocation === null) notFound();
 
   const coldModels = scanModels(coldStorageDir);
-  const localModels = scanModels(localModelsDir);
+  const localModels = scanModels(localModelsDir, lemonadeDir);
   const modelsTableData = getModelsTableData(localModels, coldModels);
   const peerConfigs = config.peers.map((p) => ({
     ...p,

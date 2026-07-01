@@ -153,9 +153,15 @@ export function normalizeModelNames(scans: Model[][]): Model[][] {
   });
 }
 
-export function scanModels(storagePath: string | undefined): Model[] {
+export function scanModels(
+  storagePath: string | undefined,
+  lemonadePath?: string,
+): Model[] {
   if (!storagePath) return [];
   const root = storagePath;
+  // Lemonade keeps its own model cache; when it lives inside storagePath, skip
+  // the directory (matched by name) so its copies don't show up as local models.
+  const lemonadeDir = lemonadePath ? path.basename(lemonadePath) : null;
   const singleMap = new Map<string, SingleFile[]>();
 
   interface SplitAccum {
@@ -178,6 +184,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
     }
     for (const entry of entries) {
       if (entry.isDirectory()) {
+        if (lemonadeDir && entry.name === lemonadeDir) continue;
         walk(path.join(dir, entry.name));
         continue;
       }

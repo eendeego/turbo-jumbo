@@ -89,6 +89,23 @@ test('scanModels groups a file by its sidecar org/repo when present', async () =
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('scanModels skips the configured lemonade directory', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  await writeFile(base, 'Keep-Me-Q4_K_M.gguf');
+  await writeFile(base, 'lemonade/Hidden-Q4_K_M.gguf');
+
+  const lemonadePath = path.join(base, 'lemonade');
+  const names = scanModels(base, lemonadePath).map((m) => m.name);
+  expect(names).toEqual(['Keep-Me']);
+
+  // Without the lemonade path the directory is scanned as usual.
+  const allNames = scanModels(base)
+    .map((m) => m.name)
+    .sort();
+  expect(allNames).toEqual(['Hidden', 'Keep-Me']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('scanModels falls back to the filename-derived name without a sidecar', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
   await writeFile(base, 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf');

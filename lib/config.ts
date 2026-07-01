@@ -83,3 +83,9 @@ export const localModelsDir: string | undefined = localPeer?.base_path
   : undefined;
 
 export const coldStorageDir: string | undefined = localPeer?.cold_storage_path;
+
+// Lemonade keeps its own model cache at <base_path>/lemonade. When present,
+// the scanner skips it so Lemonade's copies don't show up as local models.
+export const lemonadeDir: string | undefined = localPeer?.base_path
+  ? path.join(localPeer.base_path, 'lemonade')
+  : undefined;
