@@ -18,9 +18,10 @@ import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
-import type {AuditResult, AuditStatus} from '@/lib/audit';
+import type {AuditProgressEvent, AuditResult, AuditStatus} from '@/lib/audit';
 import {modelDisplayName} from '@/lib/model-name';
 import {fileBasename, peerFileBasenames} from '@/lib/peer-paths';
+import {rowAudit, type RowAudit} from '@/lib/row-audit';
 
 export interface ShardInfo {
   filename: string;
@@ -104,46 +105,6 @@ const AUDIT_BADGE: Record<
   unverifiable: {label: 'Unverifiable', variant: 'neutral'},
   error: {label: 'Error', variant: 'error'},
 };
-
-// Higher = more severe; a row aggregating several files shows its worst result.
-const AUDIT_SEVERITY: Record<AuditStatus, number> = {
-  error: 6,
-  'checksum-mismatch': 5,
-  incomplete: 4,
-  duplicate: 3,
-  misplaced: 2,
-  unverifiable: 1,
-  pass: 0,
-};
-
-type RowAudit =
-  | {kind: 'pending'}
-  | {kind: 'result'; status: AuditStatus; message?: string; cached: boolean}
-  | null;
-
-function rowAudit(
-  paths: string[],
-  auditedPaths: Set<string>,
-  auditResults: Map<string, AuditResult>,
-  auditing: boolean,
-): RowAudit {
-  const relevant = paths.filter((p) => auditedPaths.has(p));
-  if (relevant.length === 0) return null;
-  const results = relevant
-    .map((p) => auditResults.get(p))
-    .filter((r): r is AuditResult => r != null);
-  if (results.length === 0) return {kind: 'pending'};
-  if (results.length < relevant.length && auditing) return {kind: 'pending'};
-  const worst = results.reduce((a, b) =>
-    AUDIT_SEVERITY[b.status] > AUDIT_SEVERITY[a.status] ? b : a,
-  );
-  return {
-    kind: 'result',
-    status: worst.status,
-    message: worst.message,
-    cached: !!worst.cached,
-  };
-}
 
 // The expected value most relevant to a given failure, drawn from the HF source.
 // Size isn't special-cased here: the `incomplete` message already names the
@@ -324,7 +285,15 @@ function AuditCell({
 }) {
   if (audit == null) return null;
   if (audit.kind === 'pending') {
-    return <Badge label="Auditing…" variant="neutral" />;
+    return (
+      <HStack gap={2} vAlign="center" wrap="nowrap">
+        <Badge label="Auditing…" variant="neutral" />
+        {/* The percent tracks the SHA256 hashing — the long part of an audit. */}
+        {audit.percent != null && (
+          <Text type="supporting">{audit.percent}%</Text>
+        )}
+      </HStack>
+    );
   }
   const {label, variant} = AUDIT_BADGE[audit.status];
   // Cached (metadata-derived) verdicts are toned down to contrast with fresh
@@ -524,6 +493,7 @@ export function ModelsTableClient({
   auditResults,
   auditedPaths,
   auditing = false,
+  auditProgress,
   onFixMisplaced,
   fixing = false,
   onSetSource,
@@ -545,6 +515,7 @@ export function ModelsTableClient({
   auditResults?: Map<string, AuditResult>;
   auditedPaths?: Set<string>;
   auditing?: boolean;
+  auditProgress?: Map<string, AuditProgressEvent>;
   onFixMisplaced?: (paths: string[]) => void;
   fixing?: boolean;
   onSetSource?: (path: string) => void;
@@ -793,7 +764,9 @@ export function ModelsTableClient({
           {
             key: 'audit',
             header: 'Audit',
-            width: pixel(140),
+            // Wide enough for the longest token, "Auditing… 100%", without
+            // wrapping.
+            width: pixel(170),
             align: 'center' as const,
             renderCell: (item: DisplayRow) => {
               const results = auditResults ?? new Map<string, AuditResult>();
@@ -804,7 +777,13 @@ export function ModelsTableClient({
                 );
               return (
                 <AuditCell
-                  audit={rowAudit(item.paths, auditedPaths, results, auditing)}
+                  audit={rowAudit(
+                    item.paths,
+                    auditedPaths,
+                    results,
+                    auditing,
+                    auditProgress,
+                  )}
                   failures={failures}
                   onFix={
                     onFixMisplaced

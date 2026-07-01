@@ -6,11 +6,16 @@ import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Button} from '@astryxdesign/core/Button';
+import {ProgressBar} from '@astryxdesign/core/ProgressBar';
+import type {AuditProgressEvent} from '@/lib/audit';
+import {formatBytes} from '@/components/models/model-list';
 
 interface SetSourceModalProps {
   filename: string;
   busy: boolean;
   error: string | null;
+  /** SHA256 progress of the running verification, when one is in flight. */
+  progress?: AuditProgressEvent | null;
   onSubmit: (url: string) => void;
   onCancel: () => void;
 }
@@ -19,6 +24,7 @@ export function SetSourceModal({
   filename,
   busy,
   error,
+  progress,
   onSubmit,
   onCancel,
 }: SetSourceModalProps) {
@@ -48,6 +54,17 @@ export function SetSourceModal({
           placeholder="https://huggingface.co/org/repo/blob/main/path/file.gguf"
           status={error ? {type: 'error', message: error} : undefined}
         />
+        {busy && progress && (
+          <ProgressBar
+            label="Verifying (SHA256)"
+            value={progress.hashedBytes}
+            max={Math.max(progress.totalBytes, 1)}
+            hasValueLabel
+            formatValueLabel={(v, m) =>
+              `${formatBytes(v)} of ${formatBytes(m)}`
+            }
+          />
+        )}
         <HStack gap={2} hAlign="end">
           <Button
             label="Cancel"

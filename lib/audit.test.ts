@@ -11,6 +11,7 @@ import {
   duplicateResult,
   expectedRelPath,
   hfSummary,
+  localSha256,
   moveFileWithMeta,
   readMeta,
   refreshMetaSource,
@@ -238,6 +239,30 @@ test('hfSummary omits commit fields when the source has no resolved commit', () 
   const s = hfSummary({...hf, commit: ''});
   expect(s.commit).toBeUndefined();
   expect(s.commitUrl).toBeUndefined();
+});
+
+test('localSha256 reports hashed bytes as it reads', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-sha-'));
+  const full = path.join(dir, 'm.gguf');
+  const content = Buffer.from('hello world');
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+
+  const chunks: number[] = [];
+  expect(await localSha256(full, undefined, (n) => chunks.push(n))).toBe(sha);
+  // Progress covers every byte hashed.
+  expect(chunks.reduce((a, b) => a + b, 0)).toBe(content.length);
+  await fsp.rm(dir, {recursive: true, force: true});
+});
+
+test('localSha256 rejects when the signal is already aborted', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-sha-'));
+  const full = path.join(dir, 'm.gguf');
+  await fsp.writeFile(full, 'data');
+  const ac = new AbortController();
+  ac.abort();
+  await expect(localSha256(full, ac.signal)).rejects.toThrow();
+  await fsp.rm(dir, {recursive: true, force: true});
 });
 
 test('writeMeta/readMeta round-trip and metaPath naming', async () => {
@@ -1076,6 +1101,102 @@ test('auditFile passes a current file whose sidecar pins an outdated commit', as
       'https://huggingface.co/h/r5/blob/main/m.gguf',
     );
     expect(meta?.sourceSha256).toBe(sha);
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('auditFile reports SHA256 progress while hashing', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-prog-'));
+  const rel = 'o/r/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  const content = Buffer.from('hello world');
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+
+  const source: HfFileInfo = {
+    repoId: 'o/r',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    commit: 'c',
+    commitDate: '',
+    size: content.length,
+    sha256: sha,
+  };
+
+  const events: Array<[number, number]> = [];
+  const result = await auditFile(
+    base,
+    rel,
+    '',
+    'm.gguf',
+    undefined,
+    source,
+    (done, total) => events.push([done, total]),
+  );
+  expect(result.status).toBe('pass');
+  // Progress spans the whole file: totals are the file size throughout and
+  // the last event reports every byte hashed.
+  expect(events.length).toBeGreaterThan(0);
+  expect(events.every(([, total]) => total === content.length)).toBe(true);
+  expect(events[events.length - 1][0]).toBe(content.length);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('auditFile reports SHA256 progress for the history-walk hash too', async () => {
+  clearHfCache();
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-prog-'));
+  const rel = 'h/r6/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  const content = Buffer.from('old version'); // not the latest's 100 bytes
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+
+  const source: HfFileInfo = {
+    repoId: 'h/r6',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    commit: 'c2',
+    commitDate: '2025-01-02T00:00:00.000Z',
+    size: 100,
+    sha256: 'deadbeef',
+  };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = mockHfHistory(
+    'h/r6',
+    [{id: 'c1', date: '2024-01-01T00:00:00.000Z'}],
+    {
+      c1: {
+        type: 'file',
+        path: 'm.gguf',
+        size: content.length,
+        lfs: {oid: `sha256:${sha}`, size: content.length},
+        lastCommit: {id: 'c1', date: '2024-01-01T00:00:00.000Z'},
+      },
+    },
+  );
+  const events: Array<[number, number]> = [];
+  try {
+    const result = await auditFile(
+      base,
+      rel,
+      '',
+      'm.gguf',
+      undefined,
+      source,
+      (done, total) => events.push([done, total]),
+    );
+    // The size mismatch sends the audit through the history walk, which does
+    // the hashing — its progress must surface the same way.
+    expect(result.status).toBe('pass');
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.every(([, total]) => total === content.length)).toBe(true);
+    expect(events[events.length - 1][0]).toBe(content.length);
   } finally {
     globalThis.fetch = realFetch;
     clearHfCache();

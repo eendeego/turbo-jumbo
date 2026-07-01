@@ -1,11 +1,20 @@
 import path from 'path';
-import {auditFile} from '@/lib/audit';
+import {
+  auditFile,
+  type AuditProgressEvent,
+  type AuditResult,
+} from '@/lib/audit';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
+import {hashProgressEmitter} from '@/lib/audit-progress';
 import {
   canonicalBranch,
   parseHfFileUrl,
   resolveHfFileByPath,
 } from '@/lib/hf-infer';
+
+// SHA256 progress events are thinned to one per this interval (the final 100%
+// event is always sent) — same cadence as the audit route.
+const PROGRESS_INTERVAL_MS = 500;
 
 /**
  * Record the HuggingFace source for a file the audit couldn't infer. The client
@@ -13,6 +22,11 @@ import {
  * then run the normal audit with that source so the verdict (and sidecar) come
  * out exactly as a freshly-inferred one would — including `misplaced`, which the
  * existing Fix action can then relocate.
+ *
+ * Resolution failures return plain JSON errors up front; once verification
+ * starts, the response streams NDJSON — `AuditProgressEvent` lines while the
+ * file hashes, then the verdict as a final `AuditResult` line (distinguished
+ * by its `status` field).
  */
 export async function POST(req: Request) {
   const body = (await req.json()) as {
@@ -72,13 +86,38 @@ export async function POST(req: Request) {
     once: true,
   });
 
-  const result = await auditFile(
-    basePath,
-    file,
-    '',
-    path.basename(file),
-    abortController.signal,
-    hf,
-  );
-  return Response.json({result});
+  const enc = new TextEncoder();
+  const {readable, writable} = new TransformStream();
+  const writer = writable.getWriter();
+
+  (async () => {
+    const emit = async (event: AuditResult | AuditProgressEvent) => {
+      try {
+        await writer.ready;
+        await writer.write(enc.encode(JSON.stringify(event) + '\n'));
+      } catch {
+        /* client disconnected */
+      }
+    };
+
+    const result = await auditFile(
+      basePath,
+      file,
+      '',
+      path.basename(file),
+      abortController.signal,
+      hf,
+      hashProgressEmitter(file, (e) => void emit(e), PROGRESS_INTERVAL_MS),
+    );
+    await emit(result);
+    try {
+      await writer.close();
+    } catch {
+      /* already closed */
+    }
+  })();
+
+  return new Response(readable, {
+    headers: {'Content-Type': 'application/x-ndjson'},
+  });
 }

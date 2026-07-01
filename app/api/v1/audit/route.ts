@@ -1,13 +1,24 @@
 import path from 'path';
 import {duplicateBasenames, scanModels} from '@/lib/models';
-import {auditFile, duplicateResult, type AuditResult} from '@/lib/audit';
+import {
+  auditFile,
+  duplicateResult,
+  type AuditProgressEvent,
+  type AuditResult,
+} from '@/lib/audit';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
+import {hashProgressEmitter} from '@/lib/audit-progress';
 import {clearHfCache} from '@/lib/hf-infer';
 
 // How many files to audit at once. Each job reads an entire (multi-GB) file to
 // hash it, so this is capped low: too high thrashes a single disk and the runs
 // get slower, not faster. Override with AUDIT_CONCURRENCY for faster storage.
 const CONCURRENCY = Number(process.env.AUDIT_CONCURRENCY) || 4;
+
+// SHA256 progress events per file are thinned to one per this interval (the
+// final 100% event is always sent), keeping the stream light next to the
+// multi-second hashes it reports on.
+const PROGRESS_INTERVAL_MS = 500;
 
 export async function POST(req: Request) {
   const body = (await req.json()) as {
@@ -47,14 +58,18 @@ export async function POST(req: Request) {
   const writer = writable.getWriter();
 
   (async () => {
-    const emit = async (result: AuditResult) => {
+    const emit = async (event: AuditResult | AuditProgressEvent) => {
       try {
         await writer.ready;
-        await writer.write(enc.encode(JSON.stringify(result) + '\n'));
+        await writer.write(enc.encode(JSON.stringify(event) + '\n'));
       } catch {
         /* client disconnected */
       }
     };
+
+    // Per-file hashing progress, interleaved with the verdicts.
+    const hashProgress = (file: string) =>
+      hashProgressEmitter(file, (e) => void emit(e), PROGRESS_INTERVAL_MS);
 
     // Collect one job per selected file. A job yields that file's verdict, so
     // they can be run concurrently and emitted in completion order — results are
@@ -87,6 +102,8 @@ export async function POST(req: Request) {
                   model.name,
                   path.basename(shard.path),
                   signal,
+                  undefined,
+                  hashProgress(shard.path),
                 ),
               );
             }
@@ -99,7 +116,15 @@ export async function POST(req: Request) {
             jobs.push(() => Promise.resolve(result));
           } else {
             jobs.push(() =>
-              auditFile(root, file.path, model.name, file.filename, signal),
+              auditFile(
+                root,
+                file.path,
+                model.name,
+                file.filename,
+                signal,
+                undefined,
+                hashProgress(file.path),
+              ),
             );
           }
         }

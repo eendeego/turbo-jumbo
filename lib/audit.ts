@@ -1,9 +1,7 @@
-import {execFile} from 'child_process';
 import {createHash} from 'crypto';
 import {createReadStream, createWriteStream, promises as fsp} from 'fs';
 import path from 'path';
 import {pipeline} from 'stream/promises';
-import {promisify} from 'util';
 import {
   canonicalBranch,
   inferHfFile,
@@ -13,8 +11,6 @@ import {
   resolveHfFileByPath,
   type HfFileInfo,
 } from '@/lib/hf-infer';
-
-const execFileP = promisify(execFile);
 
 export type AuditStatus =
   | 'pass'
@@ -62,6 +58,18 @@ export interface AuditResult {
   revisionsChecked?: RevisionCheck[];
   computedSize?: number;
   computedSha256?: string; // omitted only when hashing failed
+}
+
+/**
+ * A SHA256 hashing progress event, interleaved with `AuditResult` lines on the
+ * audit's NDJSON stream. Distinguished from a result by carrying `hashedBytes`
+ * and no `status`. `totalBytes` is the file's on-disk size; a history-walk
+ * audit can hash more than once, restarting `hashedBytes` each time.
+ */
+export interface AuditProgressEvent {
+  file: string; // path relative to the storage root
+  hashedBytes: number;
+  totalBytes: number;
 }
 
 export interface TjMeta {
@@ -212,12 +220,21 @@ export function decideStatus(input: {
   return 'pass';
 }
 
+/**
+ * SHA256 of a whole file, hashed in-process so `onBytes` can report progress
+ * chunk by chunk (the multi-GB hash is the slow part of an audit). Rejects
+ * when `signal` aborts mid-read.
+ */
 export async function localSha256(
   fullPath: string,
   signal?: AbortSignal,
+  onBytes?: (n: number) => void,
 ): Promise<string> {
-  const {stdout} = await execFileP('sha256sum', [fullPath], {signal});
-  return stdout.split(/\s+/)[0];
+  const hash = createHash('sha256');
+  const rs = createReadStream(fullPath);
+  if (onBytes) rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
+  await pipeline(rs, hash, {signal});
+  return hash.digest('hex');
 }
 
 export function metaPath(fullPath: string): string {
@@ -428,6 +445,23 @@ function revisionCheck(
 }
 
 /**
+ * An `onBytes` adapter for `localSha256` that accumulates chunk sizes into
+ * (hashedBytes, totalBytes) progress reports — one accumulator per hash run.
+ * Undefined when nobody listens, so hashing skips the bookkeeping.
+ */
+function trackHashProgress(
+  totalBytes: number,
+  onHashProgress?: (hashedBytes: number, totalBytes: number) => void,
+): ((n: number) => void) | undefined {
+  if (!onHashProgress) return undefined;
+  let done = 0;
+  return (n) => {
+    done += n;
+    onHashProgress(done, totalBytes);
+  };
+}
+
+/**
  * When the on-disk file doesn't match the latest HF revision (by size or
  * SHA256), walk the repo's commit history looking for an earlier revision of
  * the file that matches what's on disk — the file may simply be an intact
@@ -443,6 +477,7 @@ export async function findHistoricalMatch(
   actualSize: number,
   precomputedSha256: string | null,
   signal?: AbortSignal,
+  onHashProgress?: (hashedBytes: number, totalBytes: number) => void,
 ): Promise<{
   hf: HfFileInfo | null;
   computedSha256: string | null;
@@ -473,7 +508,11 @@ export async function findHistoricalMatch(
     }
     if (sha === null) {
       try {
-        sha = await localSha256(fullPath, signal);
+        sha = await localSha256(
+          fullPath,
+          signal,
+          trackHashProgress(actualSize, onHashProgress),
+        );
       } catch {
         return {hf: null, computedSha256: null, checked};
       }
@@ -538,6 +577,7 @@ export async function auditFile(
   filename: string,
   signal?: AbortSignal,
   source?: HfFileInfo,
+  onHashProgress?: (hashedBytes: number, totalBytes: number) => void,
 ): Promise<AuditResult> {
   const fullPath = path.join(basePath, relPath);
 
@@ -560,7 +600,11 @@ export async function auditFile(
   let revisionsChecked: RevisionCheck[] | undefined;
   if (latest && actualSize === latest.size) {
     try {
-      computedSha256 = await localSha256(fullPath, signal);
+      computedSha256 = await localSha256(
+        fullPath,
+        signal,
+        trackHashProgress(actualSize, onHashProgress),
+      );
     } catch {
       computedSha256 = null; // hashing failed → 'error'
     }
@@ -573,6 +617,7 @@ export async function auditFile(
         actualSize,
         computedSha256,
         signal,
+        onHashProgress,
       );
       if (prev.hf) hf = prev.hf;
       else
@@ -590,6 +635,7 @@ export async function auditFile(
       actualSize,
       null,
       signal,
+      onHashProgress,
     );
     // The search hashes the file as soon as some revision's size matches, so a
     // computed sha may exist even without a match — record it either way.
@@ -606,7 +652,11 @@ export async function auditFile(
   // revision anywhere in history).
   if (revisionsChecked && computedSha256 === null) {
     try {
-      computedSha256 = await localSha256(fullPath, signal);
+      computedSha256 = await localSha256(
+        fullPath,
+        signal,
+        trackHashProgress(actualSize, onHashProgress),
+      );
     } catch {
       computedSha256 = null; // shown as unavailable
     }

@@ -19,6 +19,7 @@ import {
 } from '@/components/models/location-tabs';
 import {ActionBar} from '@/components/models/action-bar';
 import {type CopyProgress, readCopyProgress} from '@/lib/copy-progress';
+import {readNdjson} from '@/lib/ndjson';
 import {
   DeleteModal,
   anyMissingFromColdStorage,
@@ -39,7 +40,12 @@ import {
   buildHfCommand,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
-import type {AuditResult, FixResult, HfSummary} from '@/lib/audit';
+import type {
+  AuditProgressEvent,
+  AuditResult,
+  FixResult,
+  HfSummary,
+} from '@/lib/audit';
 import type {DuplicateFixResult} from '@/lib/fix-duplicates';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
@@ -119,12 +125,20 @@ export function HomeClient({
   );
   const [auditedPaths, setAuditedPaths] = useState<Set<string>>(new Set());
   const [auditing, setAuditing] = useState(false);
+  // Per-file SHA256 hashing progress for the in-flight audit run, keyed by
+  // path; entries drop as verdicts land and the map clears when the run ends.
+  const [auditProgress, setAuditProgress] = useState<
+    Map<string, AuditProgressEvent>
+  >(new Map());
   const [fixing, setFixing] = useState(false);
   const [fixingDuplicate, setFixingDuplicate] = useState(false);
   // The file whose HF source is being set (relative path), plus the request
   // state for the modal.
   const [sourceTarget, setSourceTarget] = useState<string | null>(null);
   const [settingSource, setSettingSource] = useState(false);
+  // SHA256 progress of the verification running in the Set source modal.
+  const [sourceProgress, setSourceProgress] =
+    useState<AuditProgressEvent | null>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -204,29 +218,29 @@ export function HomeClient({
         if (!res.ok || !res.body) {
           throw new Error(`${res.status} ${res.statusText}`);
         }
-        const reader = res.body.getReader();
-        const dec = new TextDecoder();
-        let buf = '';
-        for (;;) {
-          const {done, value} = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, {stream: true});
-          const lines = buf.split('\n');
-          buf = lines.pop() ?? '';
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            const result = JSON.parse(line) as AuditResult;
+        await readNdjson<AuditResult | AuditProgressEvent>(res, (event) => {
+          if ('status' in event) {
             setAuditResults((prev) => {
               const next = new Map(prev);
-              next.set(result.file, result);
+              next.set(event.file, event);
               return next;
             });
+            // The verdict supersedes any hashing progress for the file.
+            setAuditProgress((prev) => {
+              if (!prev.has(event.file)) return prev;
+              const next = new Map(prev);
+              next.delete(event.file);
+              return next;
+            });
+          } else if ('hashedBytes' in event) {
+            setAuditProgress((prev) => new Map(prev).set(event.file, event));
           }
-        }
+        });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setAuditing(false);
+        setAuditProgress(new Map());
       }
     },
     [auditLocation],
@@ -422,6 +436,8 @@ export function HomeClient({
 
   // Resolve a manually-supplied HF URL, verify the file against it, and fold the
   // resulting verdict back into the audit state (same shape as a fresh audit).
+  // Resolution errors come back as plain JSON; once verification starts the
+  // response streams hashing progress (shown in the modal), then the verdict.
   async function submitSource(url: string) {
     if (!auditLocation || !sourceTarget) return;
     setSettingSource(true);
@@ -436,24 +452,33 @@ export function HomeClient({
           url,
         }),
       });
-      const data = (await res.json().catch(() => null)) as {
-        result?: AuditResult;
-        error?: string;
-      } | null;
       if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
         setSourceError(data?.error ?? `${res.status} ${res.statusText}`);
         return;
       }
-      const result = data?.result;
-      if (result) {
-        setAuditedPaths((prev) => new Set(prev).add(result.file));
-        setAuditResults((prev) => new Map(prev).set(result.file, result));
+      // Held in an object property: TS doesn't track assignments made inside
+      // the callback, so a plain `let` would narrow to null at the read below.
+      const got: {verdict: AuditResult | null} = {verdict: null};
+      await readNdjson<AuditResult | AuditProgressEvent>(res, (event) => {
+        if ('status' in event) got.verdict = event;
+        else if ('hashedBytes' in event) setSourceProgress(event);
+      });
+      const result = got.verdict;
+      if (!result) {
+        setSourceError('verification ended without a verdict');
+        return;
       }
+      setAuditedPaths((prev) => new Set(prev).add(result.file));
+      setAuditResults((prev) => new Map(prev).set(result.file, result));
       setSourceTarget(null);
     } catch (e) {
       setSourceError(e instanceof Error ? e.message : String(e));
     } finally {
       setSettingSource(false);
+      setSourceProgress(null);
     }
   }
 
@@ -746,6 +771,7 @@ export function HomeClient({
           auditResults={auditResults}
           auditedPaths={auditedPaths}
           auditing={auditing}
+          auditProgress={auditProgress}
           onFixMisplaced={onFix}
           fixing={fixing}
           onSetSource={onSetSource}
@@ -813,6 +839,7 @@ export function HomeClient({
             filename={sourceTarget.split('/').pop() ?? sourceTarget}
             busy={settingSource}
             error={sourceError}
+            progress={sourceProgress}
             onSubmit={submitSource}
             onCancel={() => {
               setSourceTarget(null);
