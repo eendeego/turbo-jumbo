@@ -94,6 +94,26 @@ export function expectedRelPath(hf: HfFileInfo): string {
   return `${hf.repoId}/${hf.repoPath}`;
 }
 
+// One path segment of an HF repo id (org or repo name).
+const REPO_SEGMENT_RE = /^[A-Za-z0-9_.-]+$/;
+
+/**
+ * The HF repo a file's on-disk placement implies. Storage mirrors HuggingFace
+ * as `<org>/<repo>/<repoPath>` (see `expectedRelPath`), so a path with at
+ * least three segments names a candidate repo to resolve against directly.
+ * Null for files not under an `<org>/<repo>/` directory or whose segments
+ * aren't valid HF ids.
+ */
+export function pathImpliedRepo(
+  relPath: string,
+): {repoId: string; repoPath: string} | null {
+  const segments = relPath.split('/');
+  if (segments.length < 3) return null;
+  const [org, repo] = segments;
+  if (!REPO_SEGMENT_RE.test(org) || !REPO_SEGMENT_RE.test(repo)) return null;
+  return {repoId: `${org}/${repo}`, repoPath: segments.slice(2).join('/')};
+}
+
 export function hfSummary(hf: HfFileInfo): HfSummary {
   return {
     repoId: hf.repoId,
@@ -527,17 +547,31 @@ export async function findHistoricalMatch(
 }
 
 /**
- * Resolve a file's HuggingFace source, in order: name inference, then a fall
- * back to the file's own sidecar `originUrl`. The fallback is what lets a source
- * set by hand survive — both later audits and the Fix action rely on it, so the
- * audit verdict and the relocation target always agree. Returns null when the
- * source can't be determined.
+ * Resolve a file's HuggingFace source, in order: the repo its placement
+ * implies, then name inference, then a fall back to the file's own sidecar
+ * `originUrl`. Placement goes first because it's deterministic — a correctly
+ * placed file names its repo in its path — where search ranking drifts as
+ * newer model families flood the results (e.g. LFM2.5 burying LFM2-1.2B).
+ * The sidecar fallback is what lets a source set by hand survive — both later
+ * audits and the Fix action rely on it, so the audit verdict and the
+ * relocation target always agree. Returns null when the source can't be
+ * determined.
  */
 export async function resolveSource(
   fullPath: string,
+  relPath: string,
   modelName: string,
   filename: string,
 ): Promise<HfFileInfo | null> {
+  const implied = pathImpliedRepo(relPath);
+  if (implied) {
+    const fromPath = await resolveHfFileByPath(
+      implied.repoId,
+      'main',
+      implied.repoPath,
+    );
+    if (fromPath) return fromPath;
+  }
   const inferred = await inferHfFile(modelName, filename);
   if (inferred) return inferred;
   const meta = await readMeta(fullPath);
@@ -590,7 +624,8 @@ export async function auditFile(
     return {file: relPath, status: 'incomplete', message: 'file missing'};
   }
 
-  const latest = source ?? (await resolveSource(fullPath, modelName, filename));
+  const latest =
+    source ?? (await resolveSource(fullPath, relPath, modelName, filename));
 
   // Hash only when there's a source to compare against and the size already
   // matches: a missing source or a size mismatch can't be a checksum pass, so we

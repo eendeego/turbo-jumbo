@@ -26,6 +26,14 @@ const HEADERS = {'User-Agent': 'tj/1.0'};
 const cache = new Map<string, HfFileInfo | null>();
 const commitsCache = new Map<string, HfCommitRef[] | null>();
 const revisionCache = new Map<string, HfFileInfo | null>();
+const treeCache = new Map<string, HfTreeEntry[] | null>();
+
+// How many search results to consider. Ranking drifts as newer model families
+// flood the index (e.g. LFM2.5 pushed unsloth/LFM2-1.2B-GGUF to rank ~13), so
+// the window is effectively unbounded — the API caps it at the full result
+// set. Candidates are tried in order and the loop stops at the first match,
+// so a deep window only costs requests when nothing near the top matches.
+const SEARCH_LIMIT = 500;
 
 /** Reset the inference caches. Call once at the start of each audit run so a
  *  transient HF outage doesn't pin a file to `unverifiable` for the process life. */
@@ -33,6 +41,7 @@ export function clearHfCache(): void {
   cache.clear();
   commitsCache.clear();
   revisionCache.clear();
+  treeCache.clear();
 }
 
 export async function inferHfFile(
@@ -72,23 +81,29 @@ function treeEntryToInfo(
   };
 }
 
-// Fetch a repo's file tree. repoId/branch are interpolated into the URL raw, so
-// callers must validate them (search results and parseHfFileUrl both do).
+// Fetch a repo's file tree, cached per repo+branch for the run — auditing many
+// files of one model resolves against the same tree. repoId/branch are
+// interpolated into the URL raw, so callers must validate them (search
+// results, parseHfFileUrl and pathImpliedRepo all do).
 async function fetchTree(
   repoId: string,
   branch: string,
 ): Promise<HfTreeEntry[] | null> {
-  let res: Response;
+  const key = `${repoId} ${branch}`;
+  const cached = treeCache.get(key);
+  if (cached !== undefined) return cached;
+  let result: HfTreeEntry[] | null = null;
   try {
-    res = await fetch(
+    const res = await fetch(
       `https://huggingface.co/api/models/${repoId}/tree/${branch}?recursive=true&expand=true`,
       {headers: HEADERS},
     );
+    if (res.ok) result = (await res.json()) as HfTreeEntry[];
   } catch {
-    return null;
+    result = null;
   }
-  if (!res.ok) return null;
-  return (await res.json()) as HfTreeEntry[];
+  treeCache.set(key, result);
+  return result;
 }
 
 async function resolveHfFile(
@@ -101,7 +116,7 @@ async function resolveHfFile(
     searchRes = await fetch(
       `https://huggingface.co/api/models?search=${encodeURIComponent(
         modelName,
-      )}&filter=gguf&limit=10`,
+      )}&filter=gguf&limit=${SEARCH_LIMIT}`,
       {headers: HEADERS},
     );
   } catch {

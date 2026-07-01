@@ -168,6 +168,58 @@ test('parseHfFileUrl rejects non-file and non-HF URLs', () => {
   ).toBeNull();
 });
 
+test('the repo search asks for a deep result window', async () => {
+  // Search ranking drifts as newer model families flood the results (e.g.
+  // LFM2.5 burying LFM2); a top-10 window misses the true repo entirely.
+  let searchUrl = '';
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models?')) {
+      searchUrl = u;
+      return jsonResponse([]);
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  await inferHfFile('windowed', 'windowed.gguf');
+  expect(searchUrl).toContain('limit=500');
+});
+
+test('fetches a repo tree once per repo+branch within a run', async () => {
+  let treeFetches = 0;
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models/o/cached-repo/tree/main')) {
+      treeFetches++;
+      return jsonResponse([
+        {
+          type: 'file',
+          path: 'a.gguf',
+          size: 1,
+          lfs: {oid: 'sha256:aa', size: 1},
+        },
+        {
+          type: 'file',
+          path: 'b.gguf',
+          size: 2,
+          lfs: {oid: 'sha256:bb', size: 2},
+        },
+      ]);
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  // Auditing many files of one model resolves against the same tree; fetch it
+  // once and reuse it for the rest of the run (clearHfCache starts it fresh).
+  expect(
+    (await resolveHfFileByPath('o/cached-repo', 'main', 'a.gguf'))?.sha256,
+  ).toBe('aa');
+  expect(
+    (await resolveHfFileByPath('o/cached-repo', 'main', 'b.gguf'))?.sha256,
+  ).toBe('bb');
+  expect(treeFetches).toBe(1);
+});
+
 test('canonicalBranch rewrites a commit SHA to main', () => {
   expect(canonicalBranch('2d03716c45a1d5d5b8a82984e9ee3d39c2a5e69f')).toBe(
     'main',

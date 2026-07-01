@@ -60,12 +60,13 @@ export async function fixDuplicateGroup(
   if (relPaths.length < 2) return skipAll('not a duplicate');
 
   // Resolve the source once. Inference keys on model name + filename — the
-  // same for every copy — but the sidecar-URL fallback is per copy, so try
-  // each until one resolves.
+  // same for every copy — but the placement and sidecar-URL lookups are per
+  // copy, so try each until one resolves.
   let source: HfFileInfo | null = null;
   for (const relPath of relPaths) {
     source = await resolveSource(
       path.join(basePath, relPath),
+      relPath,
       modelName,
       filename,
     );

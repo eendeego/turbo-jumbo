@@ -47,10 +47,12 @@ export async function POST(req: Request) {
     modelName: string,
     filename: string,
   ) => {
-    // Same resolution the audit used (inference, then a manually-set sidecar
-    // source), so the relocation target matches the verdict that surfaced Fix.
+    // Same resolution the audit used (placement, inference, then a manually-set
+    // sidecar source), so the relocation target matches the verdict that
+    // surfaced Fix.
     const hf = await resolveSource(
       path.join(root, relPath),
+      relPath,
       modelName,
       filename,
     );

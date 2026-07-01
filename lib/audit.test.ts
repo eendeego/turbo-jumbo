@@ -19,6 +19,7 @@ import {
   resumeOffset,
   writeMeta,
   metaPath,
+  pathImpliedRepo,
 } from '@/lib/audit';
 import {clearHfCache, type HfFileInfo} from '@/lib/hf-infer';
 
@@ -358,6 +359,122 @@ test('moveFileWithMeta rejects a target that escapes the storage root', async ()
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('pathImpliedRepo reads <org>/<repo>/<repoPath> from a placed file', () => {
+  expect(
+    pathImpliedRepo('unsloth/LFM2-1.2B-GGUF/LFM2-1.2B-Q4_K_M.gguf'),
+  ).toEqual({
+    repoId: 'unsloth/LFM2-1.2B-GGUF',
+    repoPath: 'LFM2-1.2B-Q4_K_M.gguf',
+  });
+  // Deeper nesting belongs to the path within the repo.
+  expect(pathImpliedRepo('org/repo/sub/dir/f.gguf')).toEqual({
+    repoId: 'org/repo',
+    repoPath: 'sub/dir/f.gguf',
+  });
+});
+
+test('pathImpliedRepo is null for files not under an org/repo directory', () => {
+  expect(pathImpliedRepo('f.gguf')).toBeNull();
+  expect(pathImpliedRepo('repo/f.gguf')).toBeNull();
+  // Segments that aren't valid HF ids can't name a repo.
+  expect(pathImpliedRepo('or g/repo/f.gguf')).toBeNull();
+  expect(pathImpliedRepo('org/re#po/f.gguf')).toBeNull();
+});
+
+test('resolveSource resolves a placed file from its repo directory, without searching', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-implied-'));
+  const rel = 'unsloth/LFM2-1.2B-GGUF/LFM2-1.2B-Q4_K_M.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, 'data'); // no sidecar
+
+  const realFetch = globalThis.fetch;
+  clearHfCache();
+  let searched = false;
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models?')) {
+      searched = true;
+      return new Response('[]', {status: 200});
+    }
+    if (u.includes('/api/models/unsloth/LFM2-1.2B-GGUF/tree/main')) {
+      return new Response(
+        JSON.stringify([
+          {
+            type: 'file',
+            path: 'LFM2-1.2B-Q4_K_M.gguf',
+            size: 4,
+            lfs: {oid: 'sha256:feed', size: 4},
+            lastCommit: {id: 'c1', date: '2025-07-10T00:00:00.000Z'},
+          },
+        ]),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  try {
+    const hf = await resolveSource(
+      full,
+      rel,
+      'LFM2-1.2B',
+      'LFM2-1.2B-Q4_K_M.gguf',
+    );
+    expect(hf?.repoId).toBe('unsloth/LFM2-1.2B-GGUF');
+    expect(hf?.sha256).toBe('feed');
+    // The placement names the repo — search (whose ranking drifts as newer
+    // model families arrive) must not be consulted at all.
+    expect(searched).toBe(false);
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('resolveSource falls back to search when the path-implied repo misses', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-implied-'));
+  const rel = 'not-a/real-repo/m2.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, 'data');
+
+  const realFetch = globalThis.fetch;
+  clearHfCache();
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models?')) {
+      return new Response(JSON.stringify([{id: 'found/by-search'}]), {
+        status: 200,
+      });
+    }
+    if (u.includes('/api/models/found/by-search/tree/main')) {
+      return new Response(
+        JSON.stringify([
+          {
+            type: 'file',
+            path: 'm2.gguf',
+            size: 4,
+            lfs: {oid: 'sha256:cafe', size: 4},
+          },
+        ]),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404}); // the implied repo doesn't exist
+  }) as typeof fetch;
+
+  try {
+    const hf = await resolveSource(full, rel, 'm2', 'm2.gguf');
+    expect(hf?.repoId).toBe('found/by-search');
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
 test('resolveSource falls back to the sidecar source when inference fails', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-resolve-'));
   const full = path.join(base, 'GPT.gguf');
@@ -393,7 +510,7 @@ test('resolveSource falls back to the sidecar source when inference fails', asyn
   }) as typeof fetch;
 
   try {
-    const hf = await resolveSource(full, 'GPT', 'GPT.gguf');
+    const hf = await resolveSource(full, 'GPT.gguf', 'GPT', 'GPT.gguf');
     expect(hf).toEqual({
       repoId: 'Hauhau/Repo',
       branch: 'main',
@@ -467,7 +584,12 @@ test('resolveSource resolves a commit-pinned sidecar source at the branch head',
   }) as typeof fetch;
 
   try {
-    const hf = await resolveSource(full, 'Pinned', 'Pinned.gguf');
+    const hf = await resolveSource(
+      full,
+      'Pinned.gguf',
+      'Pinned',
+      'Pinned.gguf',
+    );
     expect(hf).toEqual({
       repoId: 'Pin/Repo',
       branch: 'main',
