@@ -13,8 +13,11 @@ Lemonade sub-tab (the modal goes away).
 ## Navigation (decided via mockups)
 
 - **Location tabs stay the top row:** `All | <peers…> (local) | Cold Storage`.
-- **Sub-tabs appear only on peer/local pages:** `❲ Turbo Jumbo ❳  Lemonade`.
-  The **All** and **Cold Storage** tabs are unchanged (single view each — no
+- **Sub-tabs appear on every tab except Cold Storage:** `❲ Turbo Jumbo ❳  Lemonade`
+  — on each peer (incl. local) **and on the All tab**, so Lemonade can be
+  browsed/downloaded from the overview too. The All tab's Turbo Jumbo sub-tab is
+  the existing cross-peer table; its Lemonade sub-tab is the catalog with
+  Download enabled (targets local). **Cold Storage** stays a single view (no
   sub-tabs).
 - Sub-tab selection is component state (not in the URL). Switching location
   resets to the Turbo Jumbo sub-tab.
@@ -31,8 +34,9 @@ there is no remote-peer download path. So download **actions are local-only**:
   disabled** with a hint ("download on <local>, then copy"). This corrects
   today's quirk where the download box appears on remote tabs but silently
   targets the local machine.
-- **All tab:** keeps an **"Add from Hugging Face…"** button (targets local —
-  unchanged ability to add from the overview); no sub-tabs and no inline Lemonade.
+- **All tab:** has the sub-tabs. Turbo Jumbo keeps the **"Add from Hugging Face…"**
+  button (targets local); Lemonade is the catalog with Download enabled (targets
+  local).
 - **Cold Storage tab:** no download affordance (unchanged — the download box is
   already hidden there).
 

@@ -921,13 +921,13 @@ export function HomeClient({
     [augmentedModels, selected],
   );
 
-  // Downloads run only on the local machine, so the Add/Download surfaces are
-  // gated to the local peer (and the All tab). Peer/local pages get the
-  // Turbo Jumbo / Lemonade sub-tabs; All and Cold Storage stay single views.
+  // Turbo Jumbo / Lemonade sub-tabs show everywhere except Cold Storage (a
+  // single view). Downloads run only on the local machine, so the Add/Download
+  // surfaces are enabled on the local peer and the All tab, but not on a remote
+  // peer's tab.
   const isLocal = activeLocation === localPeerAddress;
-  const isPeerPage =
-    activeLocation !== 'all' && activeLocation !== 'cold-storage';
-  const showHfAdd = activeLocation === 'all' || isLocal;
+  const showKindTabs = activeLocation !== 'cold-storage';
+  const canDownloadLocally = activeLocation === 'all' || isLocal;
 
   return (
     <AppShell contentPadding={5} height="auto">
@@ -944,19 +944,19 @@ export function HomeClient({
           activeLocation={activeLocation}
           onLocationChange={handleLocationChange}
         />
-        {isPeerPage && (
+        {showKindTabs && (
           <ModelKindTabs value={modelKind} onChange={setModelKind} />
         )}
 
-        {isPeerPage && modelKind === 'lemonade' ? (
+        {showKindTabs && modelKind === 'lemonade' ? (
           <LemonadeBrowser
             hfTokenSet={hfTokenSet}
             inventoryLocations={inventoryLocations}
-            canDownload={isLocal}
+            canDownload={canDownloadLocally}
           />
         ) : (
           <>
-            {localModelsPath && showHfAdd && (
+            {localModelsPath && canDownloadLocally && (
               <HuggingFaceDownload
                 localModelsPath={localModelsPath}
                 hfTokenSet={hfTokenSet}
