@@ -569,3 +569,37 @@ test('buildModelRows leaves provenance undefined without a sidecar', () => {
   );
   expect(rows[0].quants[0].provenance).toBeUndefined();
 });
+
+test("a cold copy is not claimed by a different repo's same-named GGUF", () => {
+  const fname = 'LFM2-1.2B-Q4_K_M.gguf';
+  const fileOf = (repo: string): Model['files'][number] => ({
+    isSplit: false,
+    filename: fname,
+    path: `${repo}/${fname}`,
+    quant: 'Q4_K_M',
+    size: 1000,
+    missing: false,
+  });
+  const local: Model[] = [
+    {
+      name: 'unsloth/LFM2-1.2B-GGUF',
+      files: [fileOf('unsloth/LFM2-1.2B-GGUF')],
+      sidecarFiles: [fileRec({path: fname, sourceSha256: 'unsloth-sha'})],
+    },
+  ];
+  const cold: Model[] = [
+    {
+      name: 'LiquidAI/LFM2-1.2B-GGUF',
+      files: [fileOf('LiquidAI/LFM2-1.2B-GGUF')],
+      sidecarFiles: [fileRec({path: fname, sourceSha256: 'liquid-sha'})],
+    },
+  ];
+  const rows = buildModelRows(local, cold);
+  // The local unsloth copy must NOT claim LiquidAI's cold copy: same filename,
+  // same size, but a different recorded source hash → a different build.
+  const unsloth = rows.find((r) => r.name === 'unsloth/LFM2-1.2B-GGUF')!;
+  expect(unsloth.quants[0].inColdStorage).toBe(false);
+  // The cold copy still belongs to its own repo's row.
+  const liquid = rows.find((r) => r.name === 'LiquidAI/LFM2-1.2B-GGUF')!;
+  expect(liquid.quants[0].inColdStorage).toBe(true);
+});

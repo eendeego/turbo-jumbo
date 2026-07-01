@@ -108,29 +108,54 @@ export function buildModelRows(
   // name (model.safetensors) qualified by the repo-derived model name, so a
   // different repo's same-named file isn't mistaken for a cold copy.
   const fileBase = (relPath: string) => relPath.split('/').pop() ?? relPath;
-  const coldByKey = new Map<string, Array<{size: number; path: string}>>();
-  const addCold = (key: string, size: number, p: string) => {
+  // `sha` is the file's recorded source hash (when its sidecar has one), used to
+  // tell apart different builds that merely share a filename — see coldMatch.
+  type ColdCandidate = {size: number; path: string; sha: string};
+  const coldByKey = new Map<string, ColdCandidate[]>();
+  const addCold = (key: string, size: number, p: string, sha: string) => {
     const list = coldByKey.get(key);
-    if (list) list.push({size, path: p});
-    else coldByKey.set(key, [{size, path: p}]);
+    if (list) list.push({size, path: p, sha});
+    else coldByKey.set(key, [{size, path: p, sha}]);
   };
+  // A file's recorded source hash for the model that owns its storage path.
+  const srcSha = (modelName: string, relPath: string): string =>
+    recordFor(modelName, relPath)?.sourceSha256 ?? '';
   for (const m of coldModels) {
     for (const f of m.files) {
       if (f.isSplit) {
         for (const s of f.files)
-          addCold(fileJoinKey(m.name, fileBase(s.path)), s.size, s.path);
+          addCold(
+            fileJoinKey(m.name, fileBase(s.path)),
+            s.size,
+            s.path,
+            srcSha(m.name, s.path),
+          );
       } else {
-        addCold(fileJoinKey(m.name, f.filename), f.size, f.path);
+        addCold(
+          fileJoinKey(m.name, f.filename),
+          f.size,
+          f.path,
+          srcSha(m.name, f.path),
+        );
       }
     }
   }
 
-  // The cold copy of a local file: prefer a size-exact match (a complete,
-  // identical copy), else any file of the same key (a partial/mismatched copy).
-  // null when none exists.
-  const coldMatch = (key: string, size: number) => {
-    const candidates = coldByKey.get(key);
-    if (!candidates || candidates.length === 0) return null;
+  // The cold copy of a local file. The GGUF join key is a bare filename, so two
+  // repos' identically-named builds share it; a recorded source hash is the
+  // file's identity, so when both the local file and a candidate have one and
+  // they differ, that candidate is a different build, not this file's cold copy.
+  // Among the rest, prefer a size-exact match (a complete, identical copy), else
+  // any (a partial/mismatched copy). null when none.
+  const coldMatch = (
+    key: string,
+    size: number,
+    sha: string,
+  ): ColdCandidate | null => {
+    const all = coldByKey.get(key);
+    if (!all || all.length === 0) return null;
+    const candidates = sha ? all.filter((c) => !c.sha || c.sha === sha) : all;
+    if (candidates.length === 0) return null;
     return candidates.find((c) => c.size === size) ?? candidates[0];
   };
 
@@ -182,14 +207,20 @@ export function buildModelRows(
         // whether that copy is complete (identical) or just shares the name
         // (a partial/incomplete copy, or a different repo's same-named build).
         const localFiles = f.isSplit
-          ? f.files.map((s) => ({base: fileBase(s.path), size: s.size}))
-          : [{base: f.filename, size: f.size}];
+          ? f.files.map((s) => ({
+              base: fileBase(s.path),
+              size: s.size,
+              path: s.path,
+            }))
+          : [{base: f.filename, size: f.size, path: f.path}];
         const coldHits = localFiles.map((lf) =>
-          coldMatch(fileJoinKey(m.name, lf.base), lf.size),
+          coldMatch(
+            fileJoinKey(m.name, lf.base),
+            lf.size,
+            srcSha(m.name, lf.path),
+          ),
         );
-        const present = coldHits.filter(
-          (c): c is {size: number; path: string} => c != null,
-        );
+        const present = coldHits.filter((c): c is ColdCandidate => c != null);
         const inColdStorage = present.length > 0;
         const coldComplete =
           inColdStorage &&
