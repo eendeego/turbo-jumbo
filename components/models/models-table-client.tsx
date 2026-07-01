@@ -627,77 +627,83 @@ export function ModelsTableClient({
 
   const showCheckboxes = onToggleSelected != null;
 
-  const rows: DisplayRow[] = [];
-  for (const m of effectiveModels) {
-    rows.push({
-      key: m.name,
-      label: m.name,
-      quantizations: m.quantizations,
-      isSingleFile: false,
-      filename: null,
-      depth: 0,
-      parentName: m.name,
-      size: m.minSize === m.maxSize ? m.minSize : -1,
-      sizeRange: m.minSize !== m.maxSize ? [m.minSize, m.maxSize] : null,
-      inColdStorage: null,
-      coldComplete: null,
-      coldSize: null,
-      allInColdStorage: m.allInColdStorage,
-      noneInColdStorage: m.noneInColdStorage,
-      paths: m.quants.flatMap((q) => q.paths),
-      totalShards: 0,
-      presentShards: 0,
-      missingIndices: [],
-    });
-    if (!expanded.has(m.name)) continue;
-    for (const q of m.quants) {
-      const quantKey = `${m.name}::${q.label}`;
-      rows.push({
-        key: quantKey,
-        label: q.label,
-        quantizations: '',
-        isSingleFile: q.isSingleFile,
-        filename: q.filename,
-        depth: 1,
+  // Memoized so row objects keep their identity across unrelated re-renders;
+  // Table's per-row memo bails out via shallow compare otherwise (the nested
+  // paths/sizeRange arrays would be rebuilt every render).
+  const rows: DisplayRow[] = useMemo(() => {
+    const out: DisplayRow[] = [];
+    for (const m of effectiveModels) {
+      out.push({
+        key: m.name,
+        label: m.name,
+        quantizations: m.quantizations,
+        isSingleFile: false,
+        filename: null,
+        depth: 0,
         parentName: m.name,
-        size: q.size,
-        sizeRange: null,
-        inColdStorage: q.inColdStorage,
-        coldComplete: q.coldComplete,
-        coldSize: q.coldSize,
-        allInColdStorage: false,
-        noneInColdStorage: false,
-        paths: q.paths,
-        totalShards: q.totalShards,
-        presentShards: q.presentShards,
-        missingIndices: q.missingIndices,
+        size: m.minSize === m.maxSize ? m.minSize : -1,
+        sizeRange: m.minSize !== m.maxSize ? [m.minSize, m.maxSize] : null,
+        inColdStorage: null,
+        coldComplete: null,
+        coldSize: null,
+        allInColdStorage: m.allInColdStorage,
+        noneInColdStorage: m.noneInColdStorage,
+        paths: m.quants.flatMap((q) => q.paths),
+        totalShards: 0,
+        presentShards: 0,
+        missingIndices: [],
       });
-      if (!q.isSingleFile && expanded.has(quantKey)) {
-        for (const shard of q.shards) {
-          rows.push({
-            key: `${quantKey}::${shard.filename}`,
-            label: shard.filename,
-            quantizations: '',
-            isSingleFile: false,
-            filename: null,
-            depth: 2,
-            parentName: m.name,
-            size: shard.size,
-            sizeRange: null,
-            inColdStorage: null,
-            coldComplete: null,
-            coldSize: null,
-            allInColdStorage: false,
-            noneInColdStorage: false,
-            paths: [],
-            totalShards: 0,
-            presentShards: 0,
-            missingIndices: [],
-          });
+      if (!expanded.has(m.name)) continue;
+      for (const q of m.quants) {
+        const quantKey = `${m.name}::${q.label}`;
+        out.push({
+          key: quantKey,
+          label: q.label,
+          quantizations: '',
+          isSingleFile: q.isSingleFile,
+          filename: q.filename,
+          depth: 1,
+          parentName: m.name,
+          size: q.size,
+          sizeRange: null,
+          inColdStorage: q.inColdStorage,
+          coldComplete: q.coldComplete,
+          coldSize: q.coldSize,
+          allInColdStorage: false,
+          noneInColdStorage: false,
+          paths: q.paths,
+          totalShards: q.totalShards,
+          presentShards: q.presentShards,
+          missingIndices: q.missingIndices,
+        });
+        if (!q.isSingleFile && expanded.has(quantKey)) {
+          for (const shard of q.shards) {
+            out.push({
+              key: `${quantKey}::${shard.filename}`,
+              label: shard.filename,
+              quantizations: '',
+              isSingleFile: false,
+              filename: null,
+              depth: 2,
+              parentName: m.name,
+              size: shard.size,
+              sizeRange: null,
+              inColdStorage: null,
+              coldComplete: null,
+              coldSize: null,
+              allInColdStorage: false,
+              noneInColdStorage: false,
+              paths: [],
+              totalShards: 0,
+              presentShards: 0,
+              missingIndices: [],
+            });
+          }
         }
       }
     }
-  }
+    return out;
+  }, [effectiveModels, expanded]);
 
   const columns: TableColumn<DisplayRow>[] = [
     ...(showCheckboxes
