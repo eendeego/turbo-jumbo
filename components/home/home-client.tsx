@@ -188,6 +188,8 @@ export function HomeClient({
   const resetAudit = useCallback(() => {
     setAuditResults(new Map());
     setAuditedPaths(new Set());
+    setAuditProgress(new Map());
+    setAuditStarted(new Set());
   }, []);
 
   // Clear any selection whenever the active tab (URL) or the underlying model
@@ -819,6 +821,7 @@ export function HomeClient({
           auditing={auditing}
           auditProgress={auditProgress}
           auditStarted={auditStarted}
+          onClearAudit={resetAudit}
           onFixMisplaced={onFix}
           fixing={fixing}
           onSetSource={onSetSource}

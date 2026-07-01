@@ -12,6 +12,7 @@ import {HStack, VStack} from '@astryxdesign/core/Stack';
 import {Link} from '@astryxdesign/core/Link';
 import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
+import {IconButton} from '@astryxdesign/core/IconButton';
 import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
@@ -500,6 +501,7 @@ export function ModelsTableClient({
   auditing = false,
   auditProgress,
   auditStarted,
+  onClearAudit,
   onFixMisplaced,
   fixing = false,
   onSetSource,
@@ -523,6 +525,7 @@ export function ModelsTableClient({
   auditing?: boolean;
   auditProgress?: Map<string, AuditProgressEvent>;
   auditStarted?: Set<string>;
+  onClearAudit?: () => void;
   onFixMisplaced?: (paths: string[]) => void;
   fixing?: boolean;
   onSetSource?: (path: string) => void;
@@ -770,7 +773,23 @@ export function ModelsTableClient({
       ? [
           {
             key: 'audit',
-            header: 'Audit',
+            header: (
+              <HStack gap={1} vAlign="center" wrap="nowrap">
+                <Text type="body">Audit</Text>
+                {/* Leave audit mode: clear every verdict, which hides the
+                    column. Hidden while a run is streaming results. */}
+                {onClearAudit && !auditing && (
+                  <IconButton
+                    label="Clear audit results"
+                    tooltip="Clear audit results"
+                    icon={<Icon icon="close" size="xsm" />}
+                    variant="ghost"
+                    size="sm"
+                    onClick={onClearAudit}
+                  />
+                )}
+              </HStack>
+            ),
             // Wide enough for the longest token, "Auditing… 100%", without
             // wrapping.
             width: pixel(170),
