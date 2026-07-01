@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import {
   auditFile,
+  auditFileUpdate,
   cachedResultFromMeta,
   copyFileWithMeta,
   decideStatus,
@@ -1581,4 +1582,156 @@ test('decideUpdate: current when the commits are equal', () => {
 
 test('decideUpdate: update when the commits differ', () => {
   expect(decideUpdate('abc123', 'def456')).toBe('update');
+});
+
+test('auditFileUpdate: update when the head commit differs from the recorded one', async () => {
+  clearHfCache();
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-upd-'));
+  const rel = 'o/r/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, 'data');
+  await writeMeta(full, {
+    modelUrl: 'https://huggingface.co/o/r',
+    originUrl: 'https://huggingface.co/o/r/blob/main/m.gguf',
+    sourceCommit: 'oldcommit',
+    sourceCommitDate: '2024-01-01T00:00:00.000Z',
+    sourceSize: 4,
+    computedSize: 4,
+    sourceSha256: 'sha',
+    computedSha256: 'sha',
+  });
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models/o/r/tree/main')) {
+      return new Response(
+        JSON.stringify([
+          {
+            type: 'file',
+            path: 'm.gguf',
+            size: 4,
+            lfs: {oid: 'sha256:sha', size: 4},
+            lastCommit: {id: 'newcommit', date: '2026-01-01T00:00:00.000Z'},
+          },
+        ]),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  try {
+    const r = await auditFileUpdate(base, rel);
+    expect(r).toEqual({
+      file: rel,
+      status: 'update',
+      latestCommit: 'newcommit',
+      latestCommitDate: '2026-01-01T00:00:00.000Z',
+      latestCommitUrl: 'https://huggingface.co/o/r/blob/newcommit/m.gguf',
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('auditFileUpdate: current when the head commit matches the recorded one', async () => {
+  clearHfCache();
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-upd-'));
+  const rel = 'o/r/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, 'data');
+  await writeMeta(full, {
+    modelUrl: 'https://huggingface.co/o/r',
+    originUrl: 'https://huggingface.co/o/r/blob/main/m.gguf',
+    sourceCommit: 'samecommit',
+    sourceSize: 4,
+    computedSize: 4,
+    sourceSha256: 'sha',
+    computedSha256: 'sha',
+  });
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify([
+        {
+          type: 'file',
+          path: 'm.gguf',
+          size: 4,
+          lfs: {oid: 'sha256:sha', size: 4},
+          lastCommit: {id: 'samecommit', date: '2026-01-01T00:00:00.000Z'},
+        },
+      ]),
+      {status: 200},
+    )) as typeof fetch;
+
+  try {
+    const r = await auditFileUpdate(base, rel);
+    expect(r).toEqual({file: rel, status: 'current'});
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('auditFileUpdate: unknown when HF cannot be reached', async () => {
+  clearHfCache();
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-upd-'));
+  const rel = 'o/r/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, 'data');
+  await writeMeta(full, {
+    modelUrl: 'https://huggingface.co/o/r',
+    originUrl: 'https://huggingface.co/o/r/blob/main/m.gguf',
+    sourceCommit: 'oldcommit',
+    sourceSize: 4,
+    computedSize: 4,
+    sourceSha256: 'sha',
+    computedSha256: 'sha',
+  });
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response('nf', {status: 404})) as typeof fetch;
+
+  try {
+    const r = await auditFileUpdate(base, rel);
+    expect(r).toEqual({file: rel, status: 'unknown'});
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('auditFileUpdate: null (not checkable) without a sidecar or recorded commit', async () => {
+  clearHfCache();
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-upd-'));
+  const rel = 'o/r/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, 'data');
+
+  // No sidecar at all.
+  expect(await auditFileUpdate(base, rel)).toBeNull();
+
+  // Sidecar present but no sourceCommit recorded.
+  await writeMeta(full, {
+    modelUrl: 'https://huggingface.co/o/r',
+    originUrl: 'https://huggingface.co/o/r/blob/main/m.gguf',
+    sourceSize: 4,
+    computedSize: 4,
+    sourceSha256: 'sha',
+    computedSha256: 'sha',
+  });
+  expect(await auditFileUpdate(base, rel)).toBeNull();
+
+  await fsp.rm(base, {recursive: true, force: true});
 });

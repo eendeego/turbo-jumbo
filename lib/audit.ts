@@ -110,6 +110,41 @@ export function decideUpdate(
   return recordedCommit === headCommit ? 'current' : 'update';
 }
 
+/**
+ * Network-only update check for one file: read its sidecar, ask Hugging Face for
+ * the repo's current head commit of that file, and compare. Returns null when
+ * the file isn't checkable (no sidecar, no resolved source, or no recorded
+ * `sourceCommit` — e.g. a legacy or unverifiable file). Returns `unknown` when
+ * the source is known but HF can't confirm a head commit; otherwise `current`
+ * or `update`. Never hashes the local file.
+ */
+export async function auditFileUpdate(
+  basePath: string,
+  relPath: string,
+): Promise<UpdateResult | null> {
+  const meta = await readMeta(path.join(basePath, relPath));
+  if (!meta?.originUrl || !meta.sourceCommit) return null;
+  const ref = parseHfFileUrl(meta.originUrl);
+  if (!ref) return null;
+
+  const head = await resolveHfFileByPath(
+    ref.repoId,
+    canonicalBranch(ref.branch),
+    ref.repoPath,
+  );
+  if (!head?.commit) return {file: relPath, status: 'unknown'};
+
+  const status = decideUpdate(meta.sourceCommit, head.commit);
+  if (status !== 'update') return {file: relPath, status};
+  return {
+    file: relPath,
+    status,
+    latestCommit: head.commit,
+    ...(head.commitDate ? {latestCommitDate: head.commitDate} : {}),
+    latestCommitUrl: `https://huggingface.co/${ref.repoId}/blob/${head.commit}/${ref.repoPath}`,
+  };
+}
+
 export interface TjMeta {
   modelUrl: string; // HF model/repo URL, e.g. https://huggingface.co/unsloth/GLM-4.7-GGUF
   originUrl: string; // HF file URL within the repo
