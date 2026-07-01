@@ -15,6 +15,7 @@ export interface FileInfo {
   model: string;
   quant: string;
   filename: string;
+  size?: number; // source size, for size-aware "already present" checks
 }
 
 export function selectedFileInfo(

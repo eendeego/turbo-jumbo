@@ -68,6 +68,12 @@ function selectedFileInfo(
           model: model.name,
           quant: q.label,
           filename: q.displayName,
+          // The source size, so a smaller cold-storage/peer copy (an incomplete
+          // transfer) isn't treated as already present — a single file joins to
+          // one destination key, so its size compares directly. A split's
+          // representative name would compare against a single shard, so leave
+          // size off for splits (presence falls back to name-only).
+          ...(q.isSingleFile ? {size: q.size} : {}),
         });
       } else {
         // Split quant with multiple selected shards: list each shard file.

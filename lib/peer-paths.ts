@@ -29,33 +29,53 @@ export function fileJoinKey(modelName: string, basename: string): string {
 }
 
 /**
+ * The on-disk size of every file in `models`, keyed by `fileJoinKey` (shards
+ * count individually). Lets a presence check compare a destination copy's size
+ * against the source's — a smaller copy is incomplete, not "already present".
+ */
+export function fileSizesByKey(models: Model[]): Map<string, number> {
+  const sizes = new Map<string, number>();
+  for (const m of models) {
+    for (const f of m.files) {
+      const entries = f.isSplit
+        ? f.files.map((s) => ({path: s.path, size: s.size}))
+        : [{path: f.path, size: f.size}];
+      for (const e of entries) {
+        sizes.set(fileJoinKey(m.name, fileBasename(e.path)), e.size);
+      }
+    }
+  }
+  return sizes;
+}
+
+/**
  * Every file join key present on the peer (shards count individually). The
  * models table joins on these to decide which local rows the peer has — both
  * for the presence tokens and for filtering rows on a peer's tab.
  */
 export function peerFileKeys(models: Model[]): Set<string> {
-  const keys = new Set<string>();
-  for (const m of models) {
-    for (const f of m.files) {
-      const paths = f.isSplit ? f.files.map((s) => s.path) : [f.path];
-      for (const p of paths) keys.add(fileJoinKey(m.name, fileBasename(p)));
-    }
-  }
-  return keys;
+  return new Set(fileSizesByKey(models).keys());
 }
 
 /**
- * Whether every selected file already exists in `destModels`. Joins on
- * `fileJoinKey`, so generic and mmproj basenames are qualified by model — a
+ * Whether every selected file already exists *complete* in `destModels`. Joins
+ * on `fileJoinKey`, so generic and mmproj basenames are qualified by model — a
  * destination holding a different model's `mmproj-F16.gguf` doesn't count this
- * model's projector as already present. Gates a copy destination checkbox.
+ * model's projector as already present. A file carrying its source `size`
+ * counts as present only when the destination copy is at least that large: a
+ * smaller copy is an incomplete transfer (e.g. one interrupted partway), so
+ * re-copying it must stay available. Gates a copy destination checkbox.
  */
 export function allFilesPresent(
-  files: Array<{model: string; filename: string}>,
+  files: Array<{model: string; filename: string; size?: number}>,
   destModels: Model[],
 ): boolean {
-  const destKeys = peerFileKeys(destModels);
-  return files.every((f) => destKeys.has(fileJoinKey(f.model, f.filename)));
+  const destSizes = fileSizesByKey(destModels);
+  return files.every((f) => {
+    const destSize = destSizes.get(fileJoinKey(f.model, f.filename));
+    if (destSize === undefined) return false;
+    return f.size == null || destSize >= f.size;
+  });
 }
 
 /**

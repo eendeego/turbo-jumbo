@@ -46,12 +46,20 @@ export function useCopyWorkflow({
     useState<CopyDestinations | null>(null);
 
   // Per-path presence + size across cold storage, local, and remote peers, so
-  // a mixed selection can name each file's own source. Preference order when
-  // a path exists in multiple places: cold → local → remote.
+  // a mixed selection can name each file's own source. When a path exists in
+  // several places the most complete (largest) copy wins, tie-broken by the
+  // index order cold → local → remote (see `record`).
   const pathPresence = useMemo(() => {
     const sources = new Map<string, {from: string; size: number}>();
+    // Prefer the most complete copy when a path exists in several places: a
+    // larger copy wins, so an incomplete cold/peer copy (e.g. a transfer
+    // truncated partway) is never chosen as the source for completing it
+    // elsewhere — copying a smaller cold copy back over itself would just be
+    // skipped. Equal sizes keep the first indexed, preserving the cold → local
+    // → remote order (cold is a local mount, the cheapest source).
     const record = (path: string, size: number, from: string) => {
-      if (!sources.has(path)) sources.set(path, {from, size});
+      const prev = sources.get(path);
+      if (!prev || size > prev.size) sources.set(path, {from, size});
     };
     const indexModels = (list: Model[], from: string) => {
       for (const m of list) {

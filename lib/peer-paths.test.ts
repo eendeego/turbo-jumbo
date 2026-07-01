@@ -403,6 +403,56 @@ test("allFilesPresent matches a projector against the same model's mmproj", () =
   expect(allFilesPresent(selected, dest)).toBe(true);
 });
 
+test('allFilesPresent: a destination copy smaller than the source is not present', () => {
+  // The cold-storage copy is 100 bytes (the `file` helper's size) but the
+  // source is 200 — a truncated/incomplete transfer, so re-copying must stay
+  // available rather than the file reading as already present.
+  const dest: Model[] = [
+    {
+      name: 'unsloth/Jan-nano-GGUF',
+      files: [
+        file('Jan-nano-Q6_K.gguf', 'unsloth/Jan-nano-GGUF/Jan-nano-Q6_K.gguf'),
+      ],
+    },
+  ];
+  const selected = [
+    {model: 'Jan-nano', filename: 'Jan-nano-Q6_K.gguf', size: 200},
+  ];
+  expect(allFilesPresent(selected, dest)).toBe(false);
+});
+
+test('allFilesPresent: a destination copy of equal size is present', () => {
+  const dest: Model[] = [
+    {
+      name: 'unsloth/Jan-nano-GGUF',
+      files: [
+        file('Jan-nano-Q6_K.gguf', 'unsloth/Jan-nano-GGUF/Jan-nano-Q6_K.gguf'),
+      ],
+    },
+  ];
+  const selected = [
+    {model: 'Jan-nano', filename: 'Jan-nano-Q6_K.gguf', size: 100},
+  ];
+  expect(allFilesPresent(selected, dest)).toBe(true);
+});
+
+test('allFilesPresent: a destination copy larger than the source is present', () => {
+  // Equal-or-larger counts as present — only a strictly smaller copy is the
+  // incomplete case we re-enable copying for.
+  const dest: Model[] = [
+    {
+      name: 'unsloth/Jan-nano-GGUF',
+      files: [
+        file('Jan-nano-Q6_K.gguf', 'unsloth/Jan-nano-GGUF/Jan-nano-Q6_K.gguf'),
+      ],
+    },
+  ];
+  const selected = [
+    {model: 'Jan-nano', filename: 'Jan-nano-Q6_K.gguf', size: 50},
+  ];
+  expect(allFilesPresent(selected, dest)).toBe(true);
+});
+
 test('allFilesPresent matches a specific gguf across differently-named hosts', () => {
   // A specific (non-generic) GGUF basename identifies its model, so it joins on
   // the basename alone — presence holds even when the hosts name the model
