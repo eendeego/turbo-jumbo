@@ -13,6 +13,7 @@ import {hfSummary, type AuditResult, type TjMeta} from '@/lib/audit';
 import {
   readModelSidecar,
   upsertFileMeta,
+  removeFileMeta,
   metaToEntry,
 } from '@/lib/model-sidecar';
 import {existsSync, statSync} from 'fs';
@@ -152,8 +153,22 @@ export async function detectMissingExpectedFiles(
     const repoPaths = lfs.map((f) => f.repoPath);
     const hasGguf = repoPaths.some((p) => /\.gguf$/i.test(p));
     const hasSafetensors = repoPaths.some((p) => /\.safetensors$/i.test(p));
-    if (hasGguf && !hasSafetensors) continue; // per-quant GGUF repo
-    if (isPickOneBinRepo(repoPaths)) continue; // pick-one ggml .bin repo (whisper.cpp)
+    // Repos that aren't a single whole-repo download — GGUF (per-quant), a
+    // ggml .bin pick-one, a Comfy split_files bundle, or a diffusers pipeline
+    // (component folders plus alternate single-file/ONNX packagings) — are
+    // judged per file, not by the whole repo, so their un-downloaded files
+    // aren't "missing". Clear any stale flag a prior whole-repo audit recorded,
+    // then skip — otherwise a single-file checkpoint of a diffusers repo, say,
+    // keeps reporting the rest of the pipeline as missing.
+    if (
+      (hasGguf && !hasSafetensors) ||
+      isPickOneBinRepo(repoPaths) ||
+      isPickOneSafetensorsRepo(repoPaths) ||
+      isDiffusersRepo(repoPaths)
+    ) {
+      await clearMissingFlags(base, repoId);
+      continue;
+    }
     let expected: string[];
     try {
       expected = await expectedFiles(repoId);
@@ -199,6 +214,25 @@ export async function detectMissingExpectedFiles(
     }
   }
   return out;
+}
+
+/**
+ * Drop every `missing`-flagged entry from a repo's sidecar — the
+ * expected-but-absent markers a prior whole-repo audit left. Called when the
+ * repo turns out not to be a whole-repo download (pick-one / diffusers), so the
+ * cached audit stops reporting its other variants as missing. Best-effort.
+ */
+async function clearMissingFlags(base: string, repoId: string): Promise<void> {
+  const sidecar = await readModelSidecar(base, repoId);
+  if (!sidecar) return;
+  for (const f of sidecar.files) {
+    if (!f.missing) continue;
+    try {
+      await removeFileMeta(base, repoId, f.path);
+    } catch {
+      /* best-effort: a stale flag isn't worth failing the audit */
+    }
+  }
 }
 
 /**

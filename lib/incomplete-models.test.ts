@@ -5,7 +5,9 @@ import path from 'path';
 import {
   findIncompleteRepos,
   findReposWithInvalidFiles,
+  detectMissingExpectedFiles,
 } from '@/lib/incomplete-models';
+import {MODEL_SIDECAR_NAME, type TjModel} from '@/lib/model-sidecar';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -132,6 +134,87 @@ test('still flags a whole-repo (onnx) model missing a file as incomplete', async
     {path: 'index.json', size: 5}, // missing locally
   ]);
   expect(await findIncompleteRepos(base)).toEqual([repoId]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+// A tree mock that carries LFS oids, so listRepoFiles (which drops checksum-less
+// entries) returns the weight paths.
+function mockTreeLfs(
+  repoId: string,
+  files: Array<{path: string; size: number}>,
+) {
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes(`/api/models/${repoId}/tree/main`)) {
+      return new Response(
+        JSON.stringify(
+          files.map((f) => ({
+            type: 'file',
+            path: f.path,
+            size: f.size,
+            ...(/\.(safetensors|bin)$/i.test(f.path)
+              ? {lfs: {oid: `sha256:${f.path}`, size: f.size}}
+              : {}),
+          })),
+        ),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+}
+
+test('detectMissingExpectedFiles clears stale flags and flags nothing for a diffusers repo', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-miss-'));
+  const repoId = 'stabilityai/sdxl-turbo';
+  // The user has only the single-file checkpoint — a complete packaging.
+  await writeSized(
+    path.join(base, repoId, 'sd_xl_turbo_1.0_fp16.safetensors'),
+    50,
+  );
+  // A prior whole-repo audit wrongly recorded the rest of the pipeline missing.
+  const sidecar: TjModel = {
+    modelUrl: `https://huggingface.co/${repoId}`,
+    repoId,
+    files: [
+      {
+        path: 'sd_xl_turbo_1.0_fp16.safetensors',
+        originUrl: `https://huggingface.co/${repoId}/blob/main/sd_xl_turbo_1.0_fp16.safetensors`,
+        sourceSize: 50,
+        computedSize: 50,
+        sourceSha256: '',
+        computedSha256: '',
+      },
+      {
+        path: 'unet/diffusion_pytorch_model.safetensors',
+        originUrl: `https://huggingface.co/${repoId}/blob/main/unet/diffusion_pytorch_model.safetensors`,
+        sourceSize: 100,
+        computedSize: 0,
+        sourceSha256: 'x',
+        computedSha256: '',
+        missing: true,
+      },
+    ],
+  };
+  await fsp.writeFile(
+    path.join(base, repoId, MODEL_SIDECAR_NAME),
+    JSON.stringify(sidecar),
+  );
+  mockTreeLfs(repoId, [
+    {path: 'sd_xl_turbo_1.0_fp16.safetensors', size: 50},
+    {path: 'unet/diffusion_pytorch_model.safetensors', size: 100},
+    {path: 'vae/diffusion_pytorch_model.safetensors', size: 20},
+    {path: 'model_index.json', size: 6},
+  ]);
+
+  const out = await detectMissingExpectedFiles([repoId], base, 'main');
+  // Nothing flagged — its other packagings/components aren't "missing".
+  expect(out).toEqual([]);
+  // The stale flag was cleared from the sidecar.
+  const after = JSON.parse(
+    await fsp.readFile(path.join(base, repoId, MODEL_SIDECAR_NAME), 'utf8'),
+  ) as TjModel;
+  expect(after.files.filter((f) => f.missing)).toEqual([]);
   await fsp.rm(base, {recursive: true, force: true});
 });
 
