@@ -113,8 +113,9 @@ export function buildModelRows(
       rowMap.set(m.name, quantMap);
     }
     for (const f of m.files) {
-      if (!quantMap.has(fileLabel(f))) {
-        const quantKey = `${m.name}::${fileLabel(f)}`;
+      const label = fileLabel(f);
+      if (!quantMap.has(label)) {
+        const quantKey = `${m.name}::${label}`;
         // Match each file to its cold copy by filename; size then decides
         // whether that copy is complete (identical) or just shares the name
         // (a partial/incomplete copy, or a different repo's same-named build).
@@ -137,8 +138,8 @@ export function buildModelRows(
         // means an incomplete/partial cold copy.
         const coldSize =
           !f.isSplit && present.length === 1 ? present[0].size : null;
-        quantMap.set(fileLabel(f), {
-          label: fileLabel(f),
+        quantMap.set(label, {
+          label,
           isSingleFile: !f.isSplit,
           filename: f.isSplit ? null : f.filename,
           displayName:
@@ -188,8 +189,10 @@ export function buildModelRows(
         maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
         // "Complete" only when every quant has an identical (size-matching) cold
         // copy; an incomplete copy counts as present but not complete.
-        allInColdStorage: weights.every((q) => q.coldComplete),
-        noneInColdStorage: weights.every((q) => !q.inColdStorage),
+        allInColdStorage:
+          weights.length > 0 && weights.every((q) => q.coldComplete),
+        noneInColdStorage:
+          weights.length === 0 || weights.every((q) => !q.inColdStorage),
       };
     })
     .sort((a, b) =>

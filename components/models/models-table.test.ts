@@ -72,6 +72,19 @@ test('buildModelRows detects a projector cold copy only within the same model', 
   expect(projector.coldComplete).toBe(true);
 });
 
+test("buildModelRows does not borrow a different model's projector cold copy", () => {
+  const local: Model[] = [
+    {name: 'org/repo', files: [single('mmproj-F16.gguf', 'F16', 50)]},
+  ];
+  // Only a DIFFERENT model has the projector in cold storage.
+  const cold: Model[] = [
+    {name: 'org/other', files: [single('mmproj-F16.gguf', 'F16', 50)]},
+  ];
+  const row = buildModelRows(local, cold).find((r) => r.name === 'org/repo')!;
+  const projector = row.quants.find((q) => q.isProjector)!;
+  expect(projector.inColdStorage).toBe(false);
+});
+
 test('buildModelRows leaves no projector quant for a weights-only model', () => {
   const local: Model[] = [
     {name: 'org/repo', files: [single('repo-Q8_0.gguf', 'Q8_0')]},
