@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   // Emit a self-contained server bundle (.next/standalone/server.js) so the
   // Docker image can run without an installed node_modules. See Dockerfile.
   output: 'standalone',
+  // Lets an isolated dev/build run write to its own dir (e.g. .next-verify)
+  // instead of clobbering the primary .next used by a running dev server.
+  distDir: process.env.NEXT_DIST_DIR ?? '.next',
 };
 
 // The StyleX SWC loader transforms stylex.create / xstyle calls in app code.
