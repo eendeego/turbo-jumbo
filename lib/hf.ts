@@ -1,6 +1,6 @@
 /**
- * Whether `hf download` runs with HF_XET_HIGH_PERFORMANCE=1, which raises
- * xet's parallelism at the cost of saturating the connection. Controls both
+ * Whether `hf download` runs with HF_HUB_ENABLE_HF_TRANSFER=1, accelerating
+ * transfers via the `hf-transfer` Rust extra (see Dockerfile). Controls both
  * the server-side spawn and the copyable command shown in the download modal.
  */
-export const HF_XET_HIGH_PERFORMANCE = false;
+export const HF_HUB_ENABLE_HF_TRANSFER = true;

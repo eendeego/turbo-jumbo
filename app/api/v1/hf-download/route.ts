@@ -12,7 +12,7 @@ import {
 import {resolveHfFileByPath} from '@/lib/hf-infer';
 import {repoIdFromModelUrl} from '@/lib/model-name';
 import {modelDirForRepo, removeFileMeta} from '@/lib/model-sidecar';
-import {HF_XET_HIGH_PERFORMANCE} from '@/lib/hf';
+import {HF_HUB_ENABLE_HF_TRANSFER} from '@/lib/hf';
 
 const ANSI_RE = /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07]*\x07|[^[\]])/g;
 function stripAnsi(s: string): string {
@@ -222,8 +222,8 @@ export async function POST(req: Request) {
       const enqueue = (s: string) => controller.enqueue(encode(s));
 
       const proc = spawn('script', ['-q', '-c', cmd, '/dev/null'], {
-        env: HF_XET_HIGH_PERFORMANCE
-          ? {...process.env, HF_XET_HIGH_PERFORMANCE: '1'}
+        env: HF_HUB_ENABLE_HF_TRANSFER
+          ? {...process.env, HF_HUB_ENABLE_HF_TRANSFER: '1'}
           : process.env,
       });
 
