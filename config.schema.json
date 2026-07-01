@@ -51,6 +51,16 @@
           "type": "string",
           "minLength": 1,
           "description": "Cold-storage (archival) model directory. Required for the local peer."
+        },
+        "turbo_jumbo_subdir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Subdirectory name under base_path for local models. Optional; defaults to \"turbo-jumbo\"."
+        },
+        "lemonade_subdir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Subdirectory name under base_path for Lemonade's model cache. Optional; defaults to \"lemonade\"."
         }
       }
     }

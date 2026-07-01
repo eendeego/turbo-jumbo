@@ -1,5 +1,5 @@
 import {expect, test} from 'bun:test';
-import {validateRawConfig} from '@/lib/config';
+import {resolveBaseSubdirs, validateRawConfig, type Peer} from '@/lib/config';
 
 const validPeer = {
   name: 'this-machine',
@@ -46,4 +46,30 @@ test('rejects an invalid log_level', () => {
   expect(
     validateRawConfig({log_level: 'loud', peers: [validPeer]}),
   ).not.toBeNull();
+});
+
+const peer = (overrides: Partial<Peer>): Peer => ({
+  name: 'Test',
+  address: '192.0.2.1:3000',
+  base_path: '/mnt/models',
+  cold_storage_path: '/mnt/cold-storage',
+  ...overrides,
+});
+
+test('resolveBaseSubdirs derives turbo-jumbo and lemonade from the base path', () => {
+  expect(resolveBaseSubdirs(peer({}))).toEqual({
+    localModels: '/mnt/models/turbo-jumbo',
+    lemonade: '/mnt/models/lemonade',
+  });
+});
+
+test('resolveBaseSubdirs honors subdir name overrides', () => {
+  expect(
+    resolveBaseSubdirs(
+      peer({turbo_jumbo_subdir: 'tj', lemonade_subdir: 'lmnd'}),
+    ),
+  ).toEqual({
+    localModels: '/mnt/models/tj',
+    lemonade: '/mnt/models/lmnd',
+  });
 });

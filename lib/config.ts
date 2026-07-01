@@ -11,6 +11,9 @@ export interface Peer {
   // Required for the local peer; remote peers manage their own paths.
   base_path?: string;
   cold_storage_path?: string;
+  // Subdirectory names under base_path; default to turbo-jumbo / lemonade.
+  turbo_jumbo_subdir?: string;
+  lemonade_subdir?: string;
   // Set by the /api/v1/peers response for the peer that is this machine.
   isLocal?: boolean;
 }
@@ -75,17 +78,33 @@ export const localPeer: Peer | undefined = (() => {
   return config.peers.find((p) => localIps.has(addressHost(p.address)));
 })();
 
-// The local peer's model directories. Local models live under
-// <base_path>/turbo-jumbo; cold storage at cold_storage_path. undefined when
-// no local peer matches this machine.
+/**
+ * The turbo-jumbo (local models) and Lemonade directories for a peer, derived
+ * from its base_path and optional subdir-name overrides. Defaults: models live
+ * in <base>/turbo-jumbo and Lemonade's cache in <base>/lemonade.
+ */
+export function resolveBaseSubdirs(peer: Peer): {
+  localModels: string;
+  lemonade: string;
+} {
+  const base = peer.base_path!;
+  return {
+    localModels: path.join(base, peer.turbo_jumbo_subdir ?? 'turbo-jumbo'),
+    lemonade: path.join(base, peer.lemonade_subdir ?? 'lemonade'),
+  };
+}
+
+// The local peer's model directories. undefined when no local peer matches
+// this machine.
 export const localModelsDir: string | undefined = localPeer?.base_path
-  ? path.join(localPeer.base_path, 'turbo-jumbo')
+  ? resolveBaseSubdirs(localPeer).localModels
   : undefined;
 
 export const coldStorageDir: string | undefined = localPeer?.cold_storage_path;
 
-// Lemonade keeps its own model cache at <base_path>/lemonade. When present,
-// the scanner skips it so Lemonade's copies don't show up as local models.
+// Lemonade keeps its own model cache. The scanner skips it (see
+// lib/models.ts's scanModels) so Lemonade's copies don't show up as local
+// models.
 export const lemonadeDir: string | undefined = localPeer?.base_path
-  ? path.join(localPeer.base_path, 'lemonade')
+  ? resolveBaseSubdirs(localPeer).lemonade
   : undefined;
