@@ -666,7 +666,13 @@ type Presence = 'untracked' | 'none' | 'partial' | 'complete';
 // One checkpoint's presence within a single location's scan.
 function checkpointPresence(cp: Checkpoint, models: Model[]): Presence {
   const {variant} = cp;
-  if (variant == null) return 'untracked';
+  if (variant == null) {
+    // A whole-repo checkpoint can't be matched file-by-file (the weight scan may
+    // not classify all its files, e.g. a kokoro `.onnx`). Count the repo being
+    // present — by id — as complete, mirroring the Lemonade-cache check
+    // (checkpointInCache). Coarse: it can't confirm every file is there.
+    return models.some((m) => m.name === cp.repoId) ? 'complete' : 'none';
+  }
   const isFilename = FILENAME_VARIANT_RE.test(variant);
   if (isFilename && !isWeightFile(variant)) return 'untracked';
   const files = models

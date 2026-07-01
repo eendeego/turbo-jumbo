@@ -929,14 +929,26 @@ const whisperFiles = repoModel('o/whisper', [
   single('ggml-tiny.bin', 'unknown'),
 ]);
 
-test('collectionDownloadStatus is complete when every trackable member is present', () => {
+const kokoroFiles = repoModel('o/kokoro', [single('voices.bin', 'unknown')]);
+
+test('collectionDownloadStatus is complete when every member is present (incl. whole-repo)', () => {
   const c = coll('Omni', [llmComp, whisperComp, kokoroComp]);
+  const info = collectionDownloadStatus(c, [
+    loc('local', [llmFiles, whisperFiles, kokoroFiles]),
+  ]);
+  // The whole-repo kokoro member counts as present by its repo id.
+  expect(info.status).toBe('complete');
+  expect(info.locations).toEqual([{name: 'local', status: 'complete'}]);
+});
+
+test('collectionDownloadStatus is partial when the whole-repo member is missing', () => {
+  const c = coll('Omni', [llmComp, whisperComp, kokoroComp]);
+  // llm + whisper present, but the kokoro repo is absent — it now counts.
   const info = collectionDownloadStatus(c, [
     loc('local', [llmFiles, whisperFiles]),
   ]);
-  // The untrackable kokoro member doesn't hold it back.
-  expect(info.status).toBe('complete');
-  expect(info.locations).toEqual([{name: 'local', status: 'complete'}]);
+  expect(info.status).toBe('partial');
+  expect(info.locations).toEqual([{name: 'local', status: 'partial'}]);
 });
 
 test('collectionDownloadStatus is partial when a trackable member is missing', () => {
@@ -968,18 +980,21 @@ test('collectionDownloadStatus is partial, not complete, when members are split 
   ]);
 });
 
-test('componentInLemonadeCache flags a null-variant (.onnx) member by repo-id presence', () => {
+test('a null-variant (.onnx) member is present by repo-id, in cache and managed storage', () => {
   // kokoroComp's only checkpoint is a whole-repo (null variant) `o/kokoro`,
-  // which the weight scan can't match file-by-file. Its repo dir being in the
-  // cache (here a stray `.bin`) is enough to flag it.
-  const cache = [repoModel('o/kokoro', [single('voices.bin', 'unknown')])];
-  expect(componentInLemonadeCache(kokoroComp, cache)).toBe(true);
-  // componentDownloadStatus, which needs a matchable file, still reads none.
+  // which the weight scan can't match file-by-file. Its repo dir being present
+  // (here a stray `.bin`) is enough to count it — both in the cache and in
+  // managed storage.
+  const present = [repoModel('o/kokoro', [single('voices.bin', 'unknown')])];
+  expect(componentInLemonadeCache(kokoroComp, present)).toBe(true);
   expect(
-    componentDownloadStatus(kokoroComp, [loc('cache', cache)]).status,
-  ).toBe('none');
-  // Absent from the cache: no flag.
+    componentDownloadStatus(kokoroComp, [loc('cache', present)]).status,
+  ).toBe('complete');
+  // Absent: no flag, no marker.
   expect(componentInLemonadeCache(kokoroComp, [])).toBe(false);
+  expect(componentDownloadStatus(kokoroComp, [loc('cache', [])]).status).toBe(
+    'none',
+  );
 });
 
 test('collectionInLemonadeCache flags a collection when any member is cached', () => {
@@ -1008,7 +1023,7 @@ test('componentDownloadStatus tracks a non-llamacpp member (whisper) by its file
   expect(
     componentDownloadStatus(whisperComp, [loc('local', [whisperFiles])]).status,
   ).toBe('complete');
-  // The kokoro ONNX can't be seen by the weight scan: no marker.
+  // A whole-repo kokoro member absent from the scan reads none.
   expect(componentDownloadStatus(kokoroComp, [loc('local', [])]).status).toBe(
     'none',
   );
