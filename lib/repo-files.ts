@@ -1,4 +1,5 @@
-import {readFileMetaByPath} from '@/lib/model-sidecar';
+import {readFileMetaByPath, fileProvenance} from '@/lib/model-sidecar';
+import type {FileProvenance} from '@/lib/sidecar-types';
 import {isPickOneBinRepo, isPickOneSafetensorsRepo} from '@/lib/hf-download';
 import {isDiffusersRepo} from '@/lib/diffusers';
 import {isClutterFile} from '@/lib/repo-clutter';
@@ -12,6 +13,9 @@ export interface RepoFile {
   state: RepoFileState;
   size: number | null; // local size, null when missing
   expectedSize: number; // size on Hugging Face
+  // The file's sidecar provenance, when the download recorded one (present
+  // on-disk files only). Absent for missing files and unrecorded files.
+  provenance?: FileProvenance;
 }
 
 // The repo tree changes rarely; cache it per repo. The on-disk comparison below
@@ -96,26 +100,33 @@ export async function repoFileStatuses(
       /* unreadable: treated as size 0 below */
     }
     let state: RepoFileState = size === f.size ? 'present' : 'invalid';
-    if (state === 'present') {
+    // For a file present on disk, the sidecar (when the download recorded one)
+    // both validates the copy and supplies the row's provenance.
+    const meta = await readFileMetaByPath(base, `${repoId}/${f.path}`);
+    if (state === 'present' && meta) {
       // The size matches HF. Validate by size alone unless the sidecar can prove
       // a problem from what the download recorded: a computed size that disagrees
       // with a known source size, or disagreeing hashes (truncated or corrupted
       // at download). An unknown source size — a checksum-less file HF serves no
       // way to attest — is left valid on the size match above, not flagged.
-      const meta = await readFileMetaByPath(base, `${repoId}/${f.path}`);
       if (
-        meta &&
-        ((meta.sourceSize > 0 &&
+        (meta.sourceSize > 0 &&
           meta.computedSize > 0 &&
           meta.computedSize !== meta.sourceSize) ||
-          (!!meta.sourceSha256 &&
-            !!meta.computedSha256 &&
-            meta.sourceSha256 !== meta.computedSha256))
+        (!!meta.sourceSha256 &&
+          !!meta.computedSha256 &&
+          meta.sourceSha256 !== meta.computedSha256)
       ) {
         state = 'invalid';
       }
     }
-    out.push({path: f.path, state, size, expectedSize: f.size});
+    out.push({
+      path: f.path,
+      state,
+      size,
+      expectedSize: f.size,
+      ...(meta ? {provenance: fileProvenance(meta)} : {}),
+    });
   }
   return out;
 }

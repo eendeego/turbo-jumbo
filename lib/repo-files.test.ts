@@ -233,3 +233,37 @@ test('a pick-one ggml .bin repo reports only present files, never missing varian
   ]);
   await fsp.rm(base, {recursive: true, force: true});
 });
+
+test('repoFileStatuses attaches sidecar provenance to a present file', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
+  const repoId = 'rf/with-prov';
+  mockTree(repoId, [{path: 'model.safetensors', size: 200}]);
+  await writeFileOfSize(path.join(base, repoId, 'model.safetensors'), 200);
+
+  const model: TjModel = {
+    modelUrl: `https://huggingface.co/${repoId}`,
+    repoId,
+    files: [
+      {
+        path: 'model.safetensors',
+        originUrl: `https://huggingface.co/${repoId}/blob/main/model.safetensors`,
+        sourceCommit: 'c1',
+        sourceSize: 200,
+        computedSize: 200,
+        sourceSha256: 'aa',
+        computedSha256: 'aa',
+      },
+    ],
+  };
+  await fsp.writeFile(
+    path.join(base, repoId, MODEL_SIDECAR_NAME),
+    JSON.stringify(model),
+  );
+
+  const out = await repoFileStatuses(base, repoId);
+  const f = out.find((x) => x.path === 'model.safetensors');
+  expect(f!.provenance!.sourceCommit).toBe('c1');
+  expect(f!.provenance!.sourceSize).toBe(200);
+
+  await fsp.rm(base, {recursive: true, force: true});
+});
