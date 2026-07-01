@@ -29,6 +29,7 @@ import {
   type TjMeta,
 } from '@/lib/audit';
 import {clearHfCache, type HfFileInfo} from '@/lib/hf-infer';
+import {readModelSidecar} from '@/lib/model-sidecar';
 
 const hf: HfFileInfo = {
   repoId: 'o/r',
@@ -1952,4 +1953,66 @@ test('readMetaResolved migrates a legacy per-file sidecar into the model sidecar
   expect(await readMeta(full)).toBeNull();
   expect(await readMetaResolved(base, rel)).toEqual(meta);
   await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('auditFile records the repo HEAD as model-level repoCommit, keeping file-level sourceCommit', async () => {
+  clearHfCache();
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-head-'));
+  const rel = 'o/r/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  const content = Buffer.from('the bytes');
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+
+  // A clean pass: the supplied source matches the file's size and sha256. Its
+  // `commit` is the file-level (lastCommit) revision; the repo HEAD is a
+  // different, later commit served only by the revision endpoint.
+  const source: HfFileInfo = {
+    repoId: 'o/r',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    commit: 'filecommit',
+    commitDate: '2025-01-01T00:00:00.000Z',
+    size: content.length,
+    sha256: sha,
+  };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models/o/r/revision/main')) {
+      return new Response(
+        JSON.stringify({
+          sha: 'repohead0663',
+          lastModified: '2026-01-04T15:37:54.000Z',
+        }),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  try {
+    const result = await auditFile(
+      base,
+      rel,
+      'o/r',
+      'm.gguf',
+      undefined,
+      source,
+    );
+    expect(result.status).toBe('pass');
+
+    const model = await readModelSidecar(base, 'o/r');
+    // Model-level: the repo HEAD, matching the HF cache snapshot revision.
+    expect(model?.repoCommit).toBe('repohead0663');
+    expect(model?.repoCommitDate).toBe('2026-01-04T15:37:54.000Z');
+    // File-level: still the file's own last-modifying commit (drives updates).
+    expect(model?.files[0].sourceCommit).toBe('filecommit');
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
 });

@@ -27,6 +27,7 @@ const cache = new Map<string, HfFileInfo | null>();
 const commitsCache = new Map<string, HfCommitRef[] | null>();
 const revisionCache = new Map<string, HfFileInfo | null>();
 const treeCache = new Map<string, HfTreeEntry[] | null>();
+const headCache = new Map<string, HfCommitRef | null>();
 
 // How many search results to consider. Ranking drifts as newer model families
 // flood the index (e.g. LFM2.5 pushed unsloth/LFM2-1.2B-GGUF to rank ~13), so
@@ -42,6 +43,7 @@ export function clearHfCache(): void {
   commitsCache.clear();
   revisionCache.clear();
   treeCache.clear();
+  headCache.clear();
 }
 
 export async function inferHfFile(
@@ -270,6 +272,37 @@ export async function listHfCommits(
     }
   }
   commitsCache.set(key, result);
+  return result;
+}
+
+/**
+ * Resolve a branch's HEAD commit — the repo revision HuggingFace's cache names
+ * its `snapshots/<rev>/` directory after (and what `git ls-remote … <branch>`
+ * returns), as opposed to the file-level `lastCommit` the tree listing carries.
+ * One lightweight request to the revision-info endpoint, cached per repo+branch
+ * for the run. Returns null when the repo/branch can't be reached.
+ */
+export async function resolveHfHead(
+  repoId: string,
+  branch: string,
+): Promise<HfCommitRef | null> {
+  const key = `${repoId} ${branch}`;
+  const cached = headCache.get(key);
+  if (cached !== undefined) return cached;
+  let result: HfCommitRef | null = null;
+  try {
+    const res = await fetch(
+      `https://huggingface.co/api/models/${repoId}/revision/${branch}`,
+      {headers: HEADERS},
+    );
+    if (res.ok) {
+      const info = (await res.json()) as {sha?: string; lastModified?: string};
+      if (info.sha) result = {id: info.sha, date: info.lastModified ?? ''};
+    }
+  } catch {
+    result = null;
+  }
+  headCache.set(key, result);
   return result;
 }
 

@@ -26,6 +26,12 @@ export interface TjModel {
   // when they all agree, `MIXED_COMMIT` when they don't (or one is missing),
   // omitted when no file records a commit. Maintained by upsert/remove.
   sourceCommit?: string;
+  // The repo's HEAD commit on its branch — the revision HuggingFace's cache names
+  // its `snapshots/<rev>/` directory after (e.g. what Lemonade mirrors). Unlike
+  // `sourceCommit` this is repo-level, not derived from files: it's resolved from
+  // HF during audit and set directly. Omitted until an audit resolves it.
+  repoCommit?: string;
+  repoCommitDate?: string; // ISO 8601 date of `repoCommit`, when known
   files: TjModelFile[];
 }
 
@@ -54,6 +60,9 @@ function withDerivedCommit(model: TjModel): TjModel {
     modelUrl: model.modelUrl,
     repoId: model.repoId,
     ...(sourceCommit ? {sourceCommit} : {}),
+    // Repo-level, not derived: carry through whatever the model already records.
+    ...(model.repoCommit ? {repoCommit: model.repoCommit} : {}),
+    ...(model.repoCommitDate ? {repoCommitDate: model.repoCommitDate} : {}),
     files: model.files,
   };
 }
@@ -256,12 +265,18 @@ export async function readFileMeta(
   return e ? entryToMeta(model!.modelUrl, e) : null;
 }
 
-/** Read-merge-write a file's entry into its model sidecar, serialized per dir. */
+/**
+ * Read-merge-write a file's entry into its model sidecar, serialized per dir.
+ * When `repoHead` is given it sets the model-level `repoCommit`/`repoCommitDate`;
+ * when omitted, any value the sidecar already records is preserved (callers
+ * without a fresh HF resolution — moves, legacy migration — never clobber it).
+ */
 export async function upsertFileMeta(
   basePath: string,
   dir: string,
   repoId: string,
   next: TjModelFile,
+  repoHead?: {id: string; date?: string} | null,
 ): Promise<void> {
   await withSidecarLock(sidecarPath(basePath, dir), async () => {
     const model = (await readModelSidecar(basePath, dir)) ?? {
@@ -273,6 +288,11 @@ export async function upsertFileMeta(
     const merged = mergeFileMeta(i >= 0 ? model.files[i] : null, next);
     if (i >= 0) model.files[i] = merged;
     else model.files.push(merged);
+    if (repoHead?.id) {
+      model.repoCommit = repoHead.id;
+      if (repoHead.date) model.repoCommitDate = repoHead.date;
+      else delete model.repoCommitDate;
+    }
     await writeModelSidecar(basePath, dir, withDerivedCommit(model));
   });
 }

@@ -6,6 +6,7 @@ import {
   listHfCommits,
   parseHfFileUrl,
   resolveHfFileByPath,
+  resolveHfHead,
 } from '@/lib/hf-infer';
 
 const realFetch = globalThis.fetch;
@@ -408,4 +409,41 @@ test('listHfCommits returns null when the listing is unreachable', async () => {
   globalThis.fetch = (async () =>
     new Response('nf', {status: 404})) as typeof fetch;
   expect(await listHfCommits('o/r3', 'main')).toBeNull();
+});
+
+test('resolveHfHead returns the branch HEAD commit and date', async () => {
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models/o/r/revision/main')) {
+      return jsonResponse({
+        sha: '047e06635fbe71469926b35ea414537245218200',
+        lastModified: '2026-01-04T15:37:54.000Z',
+      });
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+  expect(await resolveHfHead('o/r', 'main')).toEqual({
+    id: '047e06635fbe71469926b35ea414537245218200',
+    date: '2026-01-04T15:37:54.000Z',
+  });
+});
+
+test('resolveHfHead caches per repo+branch within a run', async () => {
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return jsonResponse({sha: 'deadbeef'});
+  }) as typeof fetch;
+  expect(await resolveHfHead('o/r', 'main')).toEqual({
+    id: 'deadbeef',
+    date: '',
+  });
+  await resolveHfHead('o/r', 'main');
+  expect(calls).toBe(1);
+});
+
+test('resolveHfHead returns null when the repo is unreachable', async () => {
+  globalThis.fetch = (async () =>
+    new Response('nf', {status: 404})) as typeof fetch;
+  expect(await resolveHfHead('o/missing', 'main')).toBeNull();
 });

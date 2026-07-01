@@ -10,6 +10,7 @@ import {
   parseHfFileUrl,
   resolveHfFileAtRevision,
   resolveHfFileByPath,
+  resolveHfHead,
   type HfFileInfo,
 } from '@/lib/hf-infer';
 import {repoIdFromModelUrl} from '@/lib/model-name';
@@ -465,10 +466,17 @@ export async function updateMetaResolved(
   relPath: string,
   repoId: string,
   next: TjMeta,
+  repoHead?: {id: string; date?: string} | null,
 ): Promise<void> {
   const loc = modelDirForRepo(relPath, repoId);
   if (loc) {
-    await upsertFileMeta(basePath, loc.dir, repoId, metaToEntry(loc.key, next));
+    await upsertFileMeta(
+      basePath,
+      loc.dir,
+      repoId,
+      metaToEntry(loc.key, next),
+      repoHead,
+    );
     return;
   }
   // A stray file with no model dir keeps a legacy per-file sidecar (harmless
@@ -891,6 +899,14 @@ export async function auditFile(
   const latest =
     source ?? (await resolveSource(fullPath, relPath, modelName, filename));
 
+  // The repo's HEAD commit (the revision HF's cache names its snapshot dir
+  // after) — resolved once, cached per repo+branch, and recorded model-level
+  // alongside the file-level `sourceCommit`. Best-effort: null leaves any value
+  // a prior audit recorded untouched.
+  const repoHead = latest
+    ? await resolveHfHead(latest.repoId, canonicalBranch(latest.branch))
+    : null;
+
   // Persist what's already known — the source and the on-disk size — before
   // the expensive hash, so an interruption mid-audit doesn't lose it. The
   // merge keeps a prior source alive when this run resolved none.
@@ -900,6 +916,7 @@ export async function auditFile(
       relPath,
       modelName,
       observedMeta(latest, actualSize, ''),
+      repoHead,
     );
   } catch {
     // best-effort: the final write reports a persistent failure
@@ -987,6 +1004,7 @@ export async function auditFile(
       relPath,
       modelName,
       observedMeta(hf ?? null, actualSize, computedSha256 ?? ''),
+      repoHead,
     );
   } catch {
     metaWriteFailed = true; // non-fatal: still return the verdict

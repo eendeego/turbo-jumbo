@@ -209,6 +209,31 @@ test('removeFileMeta drops one entry, deleting the sidecar when it empties', asy
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('upsertFileMeta records a model-level repoCommit/date when repoHead is given', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  await upsertFileMeta(base, 'org/repo', 'org/repo', entry({path: 'a.gguf'}), {
+    id: '047e0663',
+    date: '2026-01-04T15:37:54.000Z',
+  });
+  const model = await readModelSidecar(base, 'org/repo');
+  expect(model?.repoCommit).toBe('047e0663');
+  expect(model?.repoCommitDate).toBe('2026-01-04T15:37:54.000Z');
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('upsertFileMeta preserves an existing repoCommit when later upserts omit repoHead', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-ms-'));
+  await upsertFileMeta(base, 'org/repo', 'org/repo', entry({path: 'a.gguf'}), {
+    id: '047e0663',
+  });
+  // A later write with no repoHead (a move or legacy migration) must not wipe it.
+  await upsertFileMeta(base, 'org/repo', 'org/repo', entry({path: 'b.gguf'}));
+  const model = await readModelSidecar(base, 'org/repo');
+  expect(model?.repoCommit).toBe('047e0663');
+  expect(model?.files.map((f) => f.path)).toEqual(['a.gguf', 'b.gguf']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('deriveModelCommit returns the shared commit when all files agree', () => {
   expect(
     deriveModelCommit([
