@@ -19,6 +19,11 @@ export function usePeerModels() {
     new Map(),
   );
   const pollIntervalRef = useRef<number>(5000);
+  // Last response body applied per peer address. Polls usually return the
+  // same payload; skipping the state write in that case avoids re-rendering
+  // the whole page every tick. Cleared whenever the state is set to anything
+  // other than that payload, so the next poll always re-applies.
+  const lastPayloadRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     clientLog('debug', '[http] GET /api/v1/peers');
@@ -56,23 +61,37 @@ export function usePeerModels() {
       fetch(url)
         .then((r) => {
           if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-          return r.json();
+          return r.text();
         })
-        .then((models: Model[]) => {
+        .then((body) => {
+          if (lastPayloadRef.current.get(peer.address) === body) {
+            clientLog('trace', `[http] GET ${url} → unchanged`);
+            return;
+          }
+          const models = JSON.parse(body) as Model[];
           clientLog('trace', `[http] GET ${url} → ${models.length} model(s)`);
+          lastPayloadRef.current.set(peer.address, body);
           setPeerModels((prev) =>
             new Map(prev).set(peer.address, AsyncState.value(models)),
           );
         })
         .catch((e: Error) => {
           clientLog('trace', `[http] GET ${url} → error: ${e.message}`);
+          lastPayloadRef.current.delete(peer.address);
           setPeerModels((prev) =>
             new Map(prev).set(peer.address, AsyncState.error(e.message)),
           );
         });
     };
 
-    peerList.forEach(fetchPeer);
+    peerList.forEach((peer) => {
+      lastPayloadRef.current.delete(peer.address);
+      setPeerModels((prev) =>
+        new Map(prev).set(peer.address, AsyncState.loading()),
+      );
+      fetchPeer(peer);
+    });
+
     const interval = pollIntervalRef.current;
     const id = setInterval(() => peerList.forEach(fetchPeer), interval);
     return () => clearInterval(id);
@@ -92,6 +111,7 @@ export function usePeerModels() {
         const msg = JSON.parse(e.data as string) as WsMessage;
         if (msg.type === 'peer-down') {
           clientLog('info', `[ws] peer-down: ${msg.address}`);
+          lastPayloadRef.current.delete(msg.address);
           setPeerModels((prev) =>
             new Map(prev).set(msg.address, AsyncState.error('Host is down')),
           );
@@ -116,6 +136,7 @@ export function usePeerModels() {
 
   const handleModelsRefreshed = useCallback(
     (address: string, models: Model[]) => {
+      lastPayloadRef.current.delete(address);
       setPeerModels((prev) =>
         new Map(prev).set(address, AsyncState.value(models)),
       );
