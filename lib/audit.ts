@@ -466,6 +466,8 @@ export async function updateMetaResolved(
     await upsertFileMeta(basePath, loc.dir, repoId, metaToEntry(loc.key, next));
     return;
   }
+  // A stray file with no model dir keeps a legacy per-file sidecar (harmless
+  // backward-compat); the model-sidecars spec accepts no provenance for these.
   await updateMeta(path.join(basePath, relPath), next);
 }
 
