@@ -19,7 +19,7 @@ import {ActionBar} from '@/components/models/action-bar';
 import {
   buildFileSizes,
   type CopyProgress,
-  readCopyProgress,
+  readCopyAndReportErrors,
 } from '@/lib/copy-progress';
 import {readNdjson} from '@/lib/ndjson';
 import {
@@ -869,7 +869,7 @@ export function HomeClient({
         }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      await readCopyProgress(res, setCopyProgress);
+      await readCopyAndReportErrors(res, setCopyProgress, setError);
       setSelected(new Set());
       resetAudit();
       await refreshModels();
@@ -909,7 +909,7 @@ export function HomeClient({
         }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      await readCopyProgress(res, setCopyProgress);
+      await readCopyAndReportErrors(res, setCopyProgress, setError);
       await refreshModels();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

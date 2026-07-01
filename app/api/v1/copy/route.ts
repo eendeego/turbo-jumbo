@@ -171,6 +171,17 @@ export async function POST(req: Request) {
       resume = null;
     };
 
+    // Per-(file, destination) failures are collected rather than aborting the
+    // whole run: one unreachable peer or unreadable file shouldn't cancel the
+    // copies to other destinations. They ride along in every progress frame's
+    // `errors`, and the client surfaces them once the stream ends. Only a
+    // client disconnect (signal.aborted) tears the whole stream down.
+    const errors: string[] = [];
+
+    // Files that reached cold storage (copied this run, or already there and
+    // skipped), so the post-copy delete only removes sources that are safe.
+    const coldDone = new Set<string>();
+
     const emit = () =>
       safeWrite(
         enc.encode(
@@ -185,9 +196,16 @@ export async function POST(req: Request) {
             verifyDone,
             verifyTotal,
             resume,
+            errors,
           }) + '\n',
         ),
       );
+
+    const fail = (where: string, message: string) => {
+      logger.error(`[copy] ${where}: ${message}`);
+      errors.push(`${where}: ${message}`);
+      emit();
+    };
 
     await emit(); // initial event — awaited so the client receives the opening frame
 
@@ -238,11 +256,8 @@ export async function POST(req: Request) {
               },
             );
             if (!res.ok) {
-              logger.error(
-                `[copy] push failed: ${source} → ${dest}: ${res.status}`,
-              );
-              safeClose();
-              return;
+              fail(`push ${source} → ${dest}`, `HTTP ${res.status}`);
+              continue;
             }
             filesDone += groupFiles.length;
             bytesDone += pushBytes;
@@ -273,11 +288,8 @@ export async function POST(req: Request) {
               },
             );
             if (!res.ok || !res.body) {
-              logger.error(
-                `[copy] cold→local failed for ${dest}: ${res.status}`,
-              );
-              safeClose();
-              return;
+              fail(`cold→local → ${dest}`, `HTTP ${res.status}`);
+              continue;
             }
             // Stream progress from the remote peer.
             const reader = res.body.getReader();
@@ -285,23 +297,31 @@ export async function POST(req: Request) {
             let buf = '';
             const baseBytesDone = bytesDone;
             const baseFilesDone = filesDone;
-            for (;;) {
-              const {done, value} = await reader.read();
-              if (done) break;
-              buf += dec.decode(value, {stream: true});
-              const lines = buf.split('\n');
-              buf = lines.pop() ?? '';
-              for (const line of lines) {
-                if (!line.trim()) continue;
-                const p = JSON.parse(line) as {
-                  bytesDone: number;
-                  filesDone: number;
-                };
-                fileDone = p.bytesDone;
-                bytesDone = baseBytesDone + p.bytesDone;
-                filesDone = baseFilesDone + p.filesDone;
-                emit();
+            try {
+              for (;;) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, {stream: true});
+                const lines = buf.split('\n');
+                buf = lines.pop() ?? '';
+                for (const line of lines) {
+                  if (!line.trim()) continue;
+                  const p = JSON.parse(line) as {
+                    bytesDone: number;
+                    filesDone: number;
+                  };
+                  fileDone = p.bytesDone;
+                  bytesDone = baseBytesDone + p.bytesDone;
+                  filesDone = baseFilesDone + p.filesDone;
+                  emit();
+                }
               }
+            } catch (err) {
+              if (signal.aborted) throw err;
+              fail(
+                `cold→local → ${dest}`,
+                err instanceof Error ? err.message : String(err),
+              );
             }
             continue;
           }
@@ -315,42 +335,52 @@ export async function POST(req: Request) {
               resetFilePhase();
               emit();
 
-              logger.info(`[copy] upload ${f.path} → ${dest}`);
-              const uploadUrl = `http://${dest}/api/v1/local-models/upload`;
-              if (f.size === 0) {
-                await fetch(uploadUrl, {
-                  method: 'POST',
-                  headers: {'x-file-path': f.path, 'x-chunk-offset': '0'},
-                  signal,
-                });
-              } else {
-                for (let offset = 0; offset < f.size; offset += CHUNK_SIZE) {
-                  signal.throwIfAborted();
-                  const chunkEnd = Math.min(offset + CHUNK_SIZE, f.size);
-                  const readable = createReadStream(src, {
-                    start: offset,
-                    end: chunkEnd - 1,
-                  });
-                  await fetch(uploadUrl, {
+              try {
+                logger.info(`[copy] upload ${f.path} → ${dest}`);
+                const uploadUrl = `http://${dest}/api/v1/local-models/upload`;
+                if (f.size === 0) {
+                  const res = await fetch(uploadUrl, {
                     method: 'POST',
-                    headers: {
-                      'x-file-path': f.path,
-                      'x-chunk-offset': String(offset),
-                      'Content-Type': 'application/octet-stream',
-                    },
-                    body: Readable.toWeb(readable) as unknown as BodyInit,
-                    // @ts-expect-error – duplex required for streaming request bodies in Node fetch
-                    duplex: 'half',
+                    headers: {'x-file-path': f.path, 'x-chunk-offset': '0'},
                     signal,
                   });
-                  fileDone = chunkEnd;
-                  bytesDone += chunkEnd - offset;
-                  emit();
+                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                } else {
+                  for (let offset = 0; offset < f.size; offset += CHUNK_SIZE) {
+                    signal.throwIfAborted();
+                    const chunkEnd = Math.min(offset + CHUNK_SIZE, f.size);
+                    const readable = createReadStream(src, {
+                      start: offset,
+                      end: chunkEnd - 1,
+                    });
+                    const res = await fetch(uploadUrl, {
+                      method: 'POST',
+                      headers: {
+                        'x-file-path': f.path,
+                        'x-chunk-offset': String(offset),
+                        'Content-Type': 'application/octet-stream',
+                      },
+                      body: Readable.toWeb(readable) as unknown as BodyInit,
+                      // @ts-expect-error – duplex required for streaming request bodies in Node fetch
+                      duplex: 'half',
+                      signal,
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    fileDone = chunkEnd;
+                    bytesDone += chunkEnd - offset;
+                    emit();
+                  }
                 }
+                filesDone++;
+                fileDone = f.size;
+                emit();
+              } catch (err) {
+                if (signal.aborted) throw err;
+                fail(
+                  `upload ${f.path} → ${dest}`,
+                  err instanceof Error ? err.message : String(err),
+                );
               }
-              filesDone++;
-              fileDone = f.size;
-              emit();
             }
             continue;
           }
@@ -360,51 +390,78 @@ export async function POST(req: Request) {
           for (const f of groupFiles) {
             const dst = resolveWithin(destBase, f.path);
             if (!dst) {
-              logger.error(`[copy] invalid dest path: ${f.path}`);
+              fail(`${source} → ${dest}: ${f.path}`, 'invalid dest path');
               continue;
             }
-            await fsp.mkdir(nodePath.dirname(dst), {recursive: true});
 
-            fileTotal = f.size;
-            fileDone = 0;
-            resetFilePhase();
-            emit();
-            await new Promise((r) => setTimeout(r, 0));
+            try {
+              await fsp.mkdir(nodePath.dirname(dst), {recursive: true});
 
-            if (srcIsCold || srcIsLocalPeer) {
-              const srcBase = srcIsCold ? coldBase : localBase;
-              const src = resolveWithin(srcBase, f.path)!;
-              logger.info(`[copy] ${source} → ${dest}: ${f.path}`);
-
-              // Resume an interrupted earlier copy: skip the prefix already
-              // at the destination when it hash-matches the source's same
-              // region.
-              phase = 'verifying';
+              fileTotal = f.size;
+              fileDone = 0;
+              resetFilePhase();
               emit();
-              let verified = false;
-              let nextVerifyEmit = 0;
-              const offset = await resumeOffset(src, dst, (done, total) => {
-                verified = true;
-                verifyDone = done;
-                verifyTotal = total;
-                if (done >= nextVerifyEmit) {
-                  nextVerifyEmit = done + EMIT_INTERVAL;
+              await new Promise((r) => setTimeout(r, 0));
+
+              if (srcIsCold || srcIsLocalPeer) {
+                const srcBase = srcIsCold ? coldBase : localBase;
+                const src = resolveWithin(srcBase, f.path)!;
+                logger.info(`[copy] ${source} → ${dest}: ${f.path}`);
+
+                // Resume an interrupted earlier copy: skip the prefix already
+                // at the destination when it hash-matches the source's same
+                // region.
+                phase = 'verifying';
+                emit();
+                let verified = false;
+                let nextVerifyEmit = 0;
+                const offset = await resumeOffset(src, dst, (done, total) => {
+                  verified = true;
+                  verifyDone = done;
+                  verifyTotal = total;
+                  if (done >= nextVerifyEmit) {
+                    nextVerifyEmit = done + EMIT_INTERVAL;
+                    emit();
+                  }
+                });
+                phase = 'copying';
+                if (verified) {
+                  resume = offset > 0 ? 'resumed' : 'from-start';
                   emit();
                 }
-              });
-              phase = 'copying';
-              if (verified) {
-                resume = offset > 0 ? 'resumed' : 'from-start';
-                emit();
-              }
-              if (offset > 0) {
-                fileDone = offset;
-                bytesDone += offset;
-                emit();
-              }
-              if (offset === 0 || offset < f.size) {
-                let nextEmitAt = fileDone + EMIT_INTERVAL;
-                const resumeCounter = makeCounter((n) => {
+                if (offset > 0) {
+                  fileDone = offset;
+                  bytesDone += offset;
+                  emit();
+                }
+                if (offset === 0 || offset < f.size) {
+                  let nextEmitAt = fileDone + EMIT_INTERVAL;
+                  const resumeCounter = makeCounter((n) => {
+                    fileDone += n;
+                    bytesDone += n;
+                    if (fileDone >= nextEmitAt) {
+                      nextEmitAt = fileDone + EMIT_INTERVAL;
+                      emit();
+                    }
+                  });
+                  await pipeline(
+                    createReadStream(src, {start: offset}),
+                    resumeCounter,
+                    createWriteStream(dst, offset > 0 ? {flags: 'a'} : {}),
+                    {signal},
+                  );
+                }
+              } else {
+                logger.info(`[copy] fetch ${f.path} from ${source} → ${dest}`);
+                const res = await fetch(
+                  `http://${source}/api/v1/local-models/download?file=${encodeURIComponent(f.path)}`,
+                  {signal},
+                );
+                if (!res.ok || !res.body) {
+                  throw new Error(`HTTP ${res.status}`);
+                }
+                let nextEmitAt = EMIT_INTERVAL;
+                const counter = makeCounter((n) => {
                   fileDone += n;
                   bytesDone += n;
                   if (fileDone >= nextEmitAt) {
@@ -413,78 +470,76 @@ export async function POST(req: Request) {
                   }
                 });
                 await pipeline(
-                  createReadStream(src, {start: offset}),
-                  resumeCounter,
-                  createWriteStream(dst, offset > 0 ? {flags: 'a'} : {}),
+                  // @ts-expect-error – DOM ReadableStream vs Node ReadableStream type mismatch
+                  Readable.fromWeb(res.body),
+                  counter,
+                  createWriteStream(dst),
                   {signal},
                 );
               }
-            } else {
-              logger.info(`[copy] fetch ${f.path} from ${source} → ${dest}`);
-              const res = await fetch(
-                `http://${source}/api/v1/local-models/download?file=${encodeURIComponent(f.path)}`,
-                {signal},
-              );
-              if (!res.ok || !res.body) {
-                logger.error(
-                  `[copy] fetch failed: ${source}/${f.path}: ${res.status}`,
-                );
-                safeClose();
-                return;
-              }
-              let nextEmitAt = EMIT_INTERVAL;
-              const counter = makeCounter((n) => {
-                fileDone += n;
-                bytesDone += n;
-                if (fileDone >= nextEmitAt) {
-                  nextEmitAt = fileDone + EMIT_INTERVAL;
-                  emit();
-                }
-              });
-              await pipeline(
-                // @ts-expect-error – DOM ReadableStream vs Node ReadableStream type mismatch
-                Readable.fromWeb(res.body),
-                counter,
-                createWriteStream(dst),
-                {signal},
+
+              filesDone++;
+              fileDone = f.size;
+              if (destIsCold) coldDone.add(f.path);
+              emit();
+            } catch (err) {
+              if (signal.aborted) throw err;
+              fail(
+                `${source} → ${dest}: ${f.path}`,
+                err instanceof Error ? err.message : String(err),
               );
             }
-
-            filesDone++;
-            fileDone = f.size;
-            emit();
           }
         }
       }
 
-      // Delete sources after a successful cold-storage copy.
+      // Delete sources after a successful cold-storage copy — but only files
+      // that actually reached cold storage this run, so a failed copy never
+      // takes its source with it. (Skipped files were already present at the
+      // destination, hence excluded here.)
       if (deleteAfterCopy && toColdStorage) {
         const bySource = new Map<string, SourceFile[]>();
         for (const f of files) {
           if (f.from === 'cold-storage') continue;
           if (shouldSkip(f.path, 'cold-storage')) continue;
+          if (!coldDone.has(f.path)) continue;
           if (!bySource.has(f.from)) bySource.set(f.from, []);
           bySource.get(f.from)!.push(f);
         }
         for (const [source, srcFiles] of bySource) {
-          if (source === localPeerAddr) {
-            for (const f of srcFiles) {
-              await fsp.rm(resolveWithin(localBase, f.path)!, {force: true});
+          try {
+            if (source === localPeerAddr) {
+              for (const f of srcFiles) {
+                await fsp.rm(resolveWithin(localBase, f.path)!, {force: true});
+              }
+            } else {
+              logger.info(
+                `[copy] delete ${srcFiles.length} file(s) from ${source}`,
+              );
+              const res = await fetch(`http://${source}/api/v1/local-models`, {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({files: srcFiles.map((f) => f.path)}),
+                signal,
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
             }
-          } else {
-            logger.info(
-              `[copy] delete ${srcFiles.length} file(s) from ${source}`,
+          } catch (err) {
+            if (signal.aborted) throw err;
+            fail(
+              `delete from ${source}`,
+              err instanceof Error ? err.message : String(err),
             );
-            await fetch(`http://${source}/api/v1/local-models`, {
-              method: 'DELETE',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({files: srcFiles.map((f) => f.path)}),
-            });
           }
         }
       }
 
-      logger.info(`[copy] done: ${files.length} file(s)`);
+      logger.info(
+        `[copy] done: ${files.length} file(s)${
+          errors.length ? `, ${errors.length} failure(s)` : ''
+        }`,
+      );
+      await emit(); // terminal frame — carries the final counters and full error list
       await safeClose();
     } catch (err) {
       if (signal.aborted) {

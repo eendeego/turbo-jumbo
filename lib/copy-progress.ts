@@ -19,6 +19,9 @@ export interface CopyProgress {
   verifyDone?: number;
   verifyTotal?: number;
   resume?: 'resumed' | 'from-start' | null;
+  // Per-(file, destination) failures collected during the run. A non-empty
+  // list means the copy finished with partial success; the client surfaces it.
+  errors?: string[];
 }
 
 // Map each file's storage-relative path to its byte size, so the copy route
@@ -48,4 +51,23 @@ export function readCopyProgress(
   onProgress: (p: CopyProgress) => void,
 ): Promise<void> {
   return readNdjson<CopyProgress>(res, onProgress);
+}
+
+// Run the copy progress stream to completion, then surface any per-file
+// failures it collected: the stream finishes even on partial success (a file
+// or destination failing no longer aborts the whole run), so the final frame's
+// `errors` list is how the client learns about them.
+export async function readCopyAndReportErrors(
+  res: Response,
+  onProgress: (p: CopyProgress) => void,
+  onError: (msg: string) => void,
+): Promise<void> {
+  const box: {last: CopyProgress | null} = {last: null};
+  await readNdjson<CopyProgress>(res, (p) => {
+    box.last = p;
+    onProgress(p);
+  });
+  if (box.last?.errors && box.last.errors.length > 0) {
+    onError(`Some files failed to copy:\n${box.last.errors.join('\n')}`);
+  }
 }

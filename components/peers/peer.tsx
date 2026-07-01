@@ -11,7 +11,7 @@ import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/model-types';
 import {
   type CopyProgress,
-  readCopyProgress,
+  readCopyAndReportErrors,
   buildFileSizes,
 } from '@/lib/copy-progress';
 import {ModelList} from '@/components/models/model-list';
@@ -153,7 +153,7 @@ export function Peer({
         }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      await readCopyProgress(res, setCopyProgress);
+      await readCopyAndReportErrors(res, setCopyProgress, setError);
       if (destinations.deleteAfterCopy) {
         const refreshed = await fetch(
           `/api/v1/peers/${encodeURIComponent(peer.name)}/models`,
