@@ -192,6 +192,28 @@ export function HomeClient({
     );
     setIncompleteByPeer(new Map(entries));
   }, [peerConfigs]);
+  // Per-peer repo ids with at least one invalid local file (present but corrupt
+  // or unverifiable); drives the table's invalid marker, parallel to incomplete.
+  const [invalidByPeer, setInvalidByPeer] = useState<Map<string, Set<string>>>(
+    new Map(),
+  );
+  const refreshInvalid = useCallback(async () => {
+    const entries = await Promise.all(
+      peerConfigs.map(async (p) => {
+        try {
+          const res = await fetch(
+            `/api/v1/peers/${encodeURIComponent(p.name)}/invalid`,
+          );
+          if (!res.ok) return [p.address, new Set<string>()] as const;
+          const data = (await res.json()) as {invalid?: string[]};
+          return [p.address, new Set(data.invalid ?? [])] as const;
+        } catch {
+          return [p.address, new Set<string>()] as const;
+        }
+      }),
+    );
+    setInvalidByPeer(new Map(entries));
+  }, [peerConfigs]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [auditResults, setAuditResults] = useState<Map<string, AuditResult>>(
     new Map(),
@@ -276,6 +298,11 @@ export function HomeClient({
       await refreshIncomplete();
     })();
   }, [refreshIncomplete]);
+  useEffect(() => {
+    (async () => {
+      await refreshInvalid();
+    })();
+  }, [refreshInvalid]);
 
   // Where audit requests go: this host's storage ('local'/'cold-storage') or
   // a remote peer's address, which the server proxies to that peer. Only the
@@ -768,6 +795,7 @@ export function HomeClient({
         refreshModels(),
         ...peersToRescan.map((p) => refreshPeerModels(p)),
         refreshIncomplete(),
+        refreshInvalid(),
       ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -971,6 +999,17 @@ export function HomeClient({
     return incompleteByPeer.get(activeLocation) ?? EMPTY_SET;
   }, [incompleteByPeer, activeLocation]);
 
+  // Invalid repos for the table's current view: a single location's set, or the
+  // union across all of them on the All tab. Mirrors activeIncomplete.
+  const activeInvalid = useMemo(() => {
+    if (activeLocation === 'all') {
+      const union = new Set<string>();
+      for (const s of invalidByPeer.values()) for (const r of s) union.add(r);
+      return union;
+    }
+    return invalidByPeer.get(activeLocation) ?? EMPTY_SET;
+  }, [invalidByPeer, activeLocation]);
+
   return (
     <AppShell contentPadding={5} height="auto">
       <VStack gap={6}>
@@ -1002,6 +1041,7 @@ export function HomeClient({
           peers={peerConfigs}
           peerModels={seededPeerModels}
           incompleteRepos={activeIncomplete}
+          invalidRepos={activeInvalid}
           selected={selected}
           onToggleSelected={onToggleSelected}
           locations={locations}

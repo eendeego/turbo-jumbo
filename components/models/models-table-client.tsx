@@ -445,12 +445,15 @@ function NameCell({
   isExpanded,
   onToggle,
   incomplete = false,
+  invalid = false,
 }: {
   row: DisplayRow;
   isExpanded: boolean;
   onToggle: (key: string) => void;
   // The model's local copy is present but missing files (depth-0 rows only).
   incomplete?: boolean;
+  // The model has at least one local file that audits invalid (depth-0 rows).
+  invalid?: boolean;
 }) {
   // Whole-repo file row: the filename with a present/missing/invalid marker.
   if (row.fileState) {
@@ -524,17 +527,22 @@ function NameCell({
     ? `Repository: ${row.label} · Quantizations: ${row.quantizations}`
     : `Quantizations: ${row.quantizations}`;
   return (
-    <Button
-      label={modelDisplayName(row.label)}
-      variant="ghost"
-      size="sm"
-      icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
-      endContent={
-        incomplete ? <Badge variant="error" label="incomplete" /> : undefined
-      }
-      tooltip={tooltip}
-      onClick={() => onToggle(row.parentName)}
-    />
+    <HStack gap={2} vAlign="center">
+      <Button
+        label={modelDisplayName(row.label)}
+        variant="ghost"
+        size="sm"
+        icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
+        tooltip={tooltip}
+        onClick={() => onToggle(row.parentName)}
+      />
+      {incomplete && <Badge variant="error" label="incomplete" />}
+      {invalid && (
+        <HoverCard content="Invalid download — a local file's size or checksum doesn't match its source">
+          <Badge variant="error" label="invalid" />
+        </HoverCard>
+      )}
+    </HStack>
   );
 }
 
@@ -806,6 +814,7 @@ export function ModelsTableClient({
   peers,
   peerModels,
   incompleteRepos,
+  invalidRepos,
   selected,
   onToggleSelected,
   locations,
@@ -833,6 +842,8 @@ export function ModelsTableClient({
   peerModels: Map<string, PeerModels>;
   // Repo ids (model names) whose local copy is present but incomplete.
   incompleteRepos?: Set<string>;
+  // Repo ids (model names) with at least one local file that audits invalid.
+  invalidRepos?: Set<string>;
   selected?: Set<string>;
   onToggleSelected?: (paths: string[]) => void;
   locations?: LocationTab[];
@@ -1284,6 +1295,9 @@ export function ModelsTableClient({
           onToggle={toggle}
           incomplete={
             item.depth === 0 && (incompleteRepos?.has(item.parentName) ?? false)
+          }
+          invalid={
+            item.depth === 0 && (invalidRepos?.has(item.parentName) ?? false)
           }
         />
       ),

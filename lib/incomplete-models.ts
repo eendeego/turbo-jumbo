@@ -1,5 +1,6 @@
 import {logger} from '@/lib/logger';
 import {scanModels, type ModelFile} from '@/lib/models';
+import {repoFileStatuses} from '@/lib/repo-files';
 import {repoDownloadFiles} from '@/lib/hf-download';
 import {listRepoFiles, type HfFileInfo} from '@/lib/hf-infer';
 import {hfSummary, type AuditResult, type TjMeta} from '@/lib/audit';
@@ -82,6 +83,37 @@ export async function findIncompleteRepos(
       } catch (e) {
         logger.debug(
           `[incomplete] ${m.name}: ${e instanceof Error ? e.message : String(e)}`,
+        );
+        return null;
+      }
+    }),
+  );
+  return results.filter((x): x is string => x != null);
+}
+
+/**
+ * Repo ids present in `storagePath` with at least one local file that audits
+ * `invalid` — its size differs from Hugging Face, or its sidecar can't attest it
+ * (unknown source size, or a recorded size/hash that disagrees with the source);
+ * see `repoFileStatuses`. Like `findIncompleteRepos`, only non-GGUF (whole-repo)
+ * models are judged: a GGUF repo's per-quant copies are audited file-by-file, so
+ * a bad quant already surfaces in the audit column. A network failure for a repo
+ * leaves it unflagged rather than falsely reported invalid.
+ */
+export async function findReposWithInvalidFiles(
+  storagePath: string,
+  lemonadePath?: string,
+): Promise<string[]> {
+  const local = scanModels(storagePath, lemonadePath);
+  const candidates = local.filter((m) => !isSelfContainedGguf(m.files));
+  const results = await Promise.all(
+    candidates.map(async (m) => {
+      try {
+        const files = await repoFileStatuses(storagePath, m.name);
+        return files.some((f) => f.state === 'invalid') ? m.name : null;
+      } catch (e) {
+        logger.debug(
+          `[invalid] ${m.name}: ${e instanceof Error ? e.message : String(e)}`,
         );
         return null;
       }
