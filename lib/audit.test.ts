@@ -226,6 +226,33 @@ test('cachedResultFromMeta: incomplete when the recorded on-disk size differs fr
   expect(r.message).toBe('size 50 != expected 100');
 });
 
+test('cachedResultFromMeta: incomplete when the live on-disk size differs from the source, even if the sidecar records a passing size', () => {
+  // A sidecar recorded when the file was complete (computedSize == sourceSize)
+  // out-lives a truncation (an interrupted re-copy writes no sidecar): the live
+  // size given by the caller must win, so the file isn't reported a stale pass.
+  const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', cachedMeta, 50);
+  expect(r.status).toBe('incomplete');
+  expect(r.message).toBe('size 50 != expected 100');
+});
+
+test('cachedResultFromMeta: unverifiable when the live size matches the source but differs from what was hashed', () => {
+  // The file grew to full size since an interrupted audit recorded a smaller
+  // one: the recorded checksum is for different bytes, so it can't attest the
+  // file now — a re-audit must recompute it.
+  const r = cachedResultFromMeta(
+    'o/r/sub/M.Q4.gguf',
+    {...cachedMeta, computedSize: 50},
+    100,
+  );
+  expect(r.status).toBe('unverifiable');
+  expect(r.message).toBe('changed since last audit');
+});
+
+test('cachedResultFromMeta: pass when the live size agrees with the recorded one', () => {
+  const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', cachedMeta, 100);
+  expect(r.status).toBe('pass');
+});
+
 test('cachedResultFromMeta: a correctly-placed cache file is not misplaced', () => {
   const r = cachedResultFromMeta(
     'models--o--r/snapshots/abc123/sub/M.Q4.gguf',

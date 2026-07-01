@@ -100,6 +100,7 @@ export function hfSummary(hf: HfFileInfo): HfSummary {
 export function cachedResultFromMeta(
   relPath: string,
   meta: TjMeta,
+  actualSize?: number,
 ): AuditResult {
   const repoId = meta.modelUrl.replace(/^https:\/\/huggingface\.co\//, '');
   const pathMatch = meta.originUrl.match(
@@ -129,6 +130,20 @@ export function cachedResultFromMeta(
         }
       : undefined;
 
+  // The file's size as the sidecar last observed it (`computedSize`) — but the
+  // caller's live on-disk size wins when supplied. A sidecar out-lives the file
+  // it describes: a cold-storage copy writes no sidecar, so an interrupted
+  // re-copy can truncate a file that was complete when last audited, leaving a
+  // passing record over an incomplete file. Trusting the recorded size would
+  // then report a stale `pass`, so the size check is against what's on disk now.
+  const observedSize = actualSize ?? meta.computedSize;
+  // When the live size disagrees with what was hashed, the file changed since
+  // the sidecar was written, so the recorded checksum no longer attests it.
+  const sizeChanged =
+    actualSize != null &&
+    typeof meta.computedSize === 'number' &&
+    actualSize !== meta.computedSize;
+
   let status: AuditStatus;
   let message: string | undefined;
   if (meta.missing) {
@@ -138,12 +153,17 @@ export function cachedResultFromMeta(
   } else if (!meta.sourceSha256) {
     status = 'unverifiable';
   } else if (
-    typeof meta.computedSize === 'number' &&
+    typeof observedSize === 'number' &&
     meta.sourceSize > 0 &&
-    meta.computedSize !== meta.sourceSize
+    observedSize !== meta.sourceSize
   ) {
     status = 'incomplete';
-    message = `size ${meta.computedSize} != expected ${meta.sourceSize}`;
+    message = `size ${observedSize} != expected ${meta.sourceSize}`;
+  } else if (sizeChanged) {
+    // Size matches the source but differs from what was hashed: a re-audit must
+    // recompute the checksum before the file can be attested again.
+    status = 'unverifiable';
+    message = 'changed since last audit';
   } else if (!meta.computedSha256) {
     // An interrupted audit records the source before hashing — the comparison
     // never happened, which is not a mismatch.

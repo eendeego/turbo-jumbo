@@ -42,6 +42,21 @@ export async function POST(req: Request) {
   const models = scanModels(root);
   const dups = duplicateBasenames(models);
 
+  // The live on-disk size of every scanned file (scanModels already stat'd
+  // them). Passed to cachedResultFromMeta so a sidecar that out-lived a
+  // truncation of its file — an interrupted copy leaves the old passing record
+  // — can't report a stale `pass` against a now-incomplete file.
+  const sizeByPath = new Map<string, number>();
+  for (const model of models) {
+    for (const file of model.files) {
+      if (file.isSplit) {
+        for (const shard of file.files) sizeByPath.set(shard.path, shard.size);
+      } else {
+        sizeByPath.set(file.path, file.size);
+      }
+    }
+  }
+
   // Collisions short-circuit the sidecar read: the duplicate verdict is
   // scan-derived, so it's emitted even when no sidecar exists.
   const fromSidecar = async (relPath: string) => {
@@ -51,7 +66,10 @@ export async function POST(req: Request) {
       return;
     }
     const meta = await readMetaResolved(root, relPath);
-    if (meta) results.push(cachedResultFromMeta(relPath, meta));
+    if (meta)
+      results.push(
+        cachedResultFromMeta(relPath, meta, sizeByPath.get(relPath)),
+      );
   };
 
   for (const model of models) {
