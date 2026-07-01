@@ -463,16 +463,18 @@ export async function updateMetaResolved(
  * sidecar even when the original predates a field (e.g. `sourceSize`).
  */
 export async function refreshMetaSource(
-  fullPath: string,
+  basePath: string,
+  relPath: string,
   hf: HfFileInfo,
   signal?: AbortSignal,
 ): Promise<void> {
-  const prev = await readMeta(fullPath);
+  const fullPath = path.join(basePath, relPath);
+  const prev = await readMetaResolved(basePath, relPath);
   const computedSize = (await fsp.stat(fullPath)).size;
   const computedSha256 =
     prev?.computedSha256 || (await localSha256(fullPath, signal));
   const summary = hfSummary(hf);
-  await writeMeta(fullPath, {
+  await updateMetaResolved(basePath, relPath, hf.repoId, {
     modelUrl: summary.modelUrl,
     originUrl: summary.fileUrl,
     ...(hf.commit ? {sourceCommit: hf.commit} : {}),

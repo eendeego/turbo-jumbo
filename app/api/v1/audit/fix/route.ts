@@ -74,7 +74,7 @@ export async function POST(req: Request) {
       // Refresh the relocated sidecar from the resolved source so the file ends
       // up with complete metadata (size + sha256) even if its sidecar predated
       // those fields or named a stale source.
-      await refreshMetaSource(path.join(root, target), hf);
+      await refreshMetaSource(root, target, hf);
       results.push({file: relPath, status: 'moved', to: target});
     } catch (e) {
       results.push({

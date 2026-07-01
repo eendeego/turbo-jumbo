@@ -830,7 +830,7 @@ test('refreshMetaSource backfills size/sha from the source, keeping the computed
     computedSha256: 'computed',
   });
 
-  await refreshMetaSource(full, {
+  await refreshMetaSource(dir, 'm.gguf', {
     repoId: 'o/r',
     branch: 'main',
     repoPath: 'm.gguf',
@@ -861,7 +861,7 @@ test('refreshMetaSource hashes the file when no prior computed sha exists', asyn
   const sha = crypto.createHash('sha256').update(content).digest('hex');
 
   // No sidecar at all: the computed sha must be recomputed from disk.
-  await refreshMetaSource(full, {
+  await refreshMetaSource(dir, 'm.gguf', {
     repoId: 'o/r',
     branch: 'main',
     repoPath: 'm.gguf',
