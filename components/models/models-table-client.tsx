@@ -750,6 +750,19 @@ type PeerPresence = 'present' | 'absent' | 'undersized';
 const peerInitial = (name: string) => (name[0] ?? '?').toUpperCase();
 
 /**
+ * Minimum width (px) for the Peers column. The column is fixed under the table's
+ * fixed layout, so it can't grow to its content — size it to the wider of the
+ * per-peer badges (24px each, 6px gap) and the "Peers" + initials header, plus
+ * the cell's horizontal padding. Scales with the peer count so the column holds
+ * no more empty space than the badges need.
+ */
+function peersColumnWidth(count: number): number {
+  const badges = count * 24 + Math.max(0, count - 1) * 6;
+  const header = 40 + count * 13; // "Peers" label + one initial per peer
+  return Math.max(badges, header) + 24; // + cell padding (12px each side)
+}
+
+/**
  * A peer's presence for a row, as a compact single-letter badge: blue for the
  * local peer, cyan for a remote one, neutral when absent, warning when
  * undersized. Identity is the initial; the full name + status is on hover.
@@ -1554,7 +1567,8 @@ export function ModelsTableClient({
     {
       key: 'size',
       header: 'Size',
-      width: pixel(120),
+      // Fits a two-ended range ("12.3 GB – 45.6 GB") plus the mismatch icon.
+      width: pixel(160),
       align: 'end',
       renderCell: (item) => (
         <HStack gap={1} vAlign="center" hAlign="end">
@@ -1587,7 +1601,7 @@ export function ModelsTableClient({
           {
             key: 'peers',
             header: <PeersHeader peers={peers} />,
-            width: pixel(120),
+            width: pixel(peersColumnWidth(peers.length)),
             align: 'center' as const,
             renderCell: (item: DisplayRow) =>
               item.fileState ? null : (
@@ -1602,7 +1616,8 @@ export function ModelsTableClient({
           {
             key: 'coldStorage',
             header: 'Cold Storage',
-            width: pixel(100),
+            // Fits the "Cold Storage" header, wider than any of its tokens.
+            width: pixel(120),
             align: 'center' as const,
             renderCell: (item: DisplayRow) =>
               item.fileState ? null : (
