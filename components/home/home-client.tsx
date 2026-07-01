@@ -8,9 +8,7 @@ import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
 import type {Peer as PeerConfig} from '@/lib/config';
-import type {InventoryLocation} from '@/lib/lemonade';
 import type {Model} from '@/lib/models';
-import {AsyncState} from '@/lib/async-state';
 import {withPeerPaths} from '@/lib/peer-paths';
 import type {ModelRow} from '@/components/models/models-table-client';
 import {
@@ -38,8 +36,7 @@ import {
   ConflictsModal,
   type ConflictItem,
 } from '@/components/models/conflicts-modal';
-import type {PeerModels} from '@/components/peers/peer';
-import {usePeerModels} from '@/components/peers/use-peer-models';
+import {useInventoryLocations} from '@/components/models/use-inventory-locations';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
 import {
   ModelKindTabs,
@@ -144,7 +141,17 @@ export function HomeClient({
   localPeerModels: Model[];
 }) {
   const router = useRouter();
-  const {peerModels, handleModelsRefreshed} = usePeerModels();
+  const {
+    peerModels,
+    handleModelsRefreshed,
+    seededPeerModels,
+    inventoryLocations,
+  } = useInventoryLocations({
+    peerConfigs,
+    localPeerAddress,
+    localPeerModels,
+    coldModels,
+  });
 
   // Re-fetch a peer's models and push the result into the polled map, so a
   // mutation (download finishing, a delete) is reflected immediately instead
@@ -862,34 +869,6 @@ export function HomeClient({
       setCopyProgress(null);
     }
   }
-
-  // Seed the local peer's models from server data so its location tokens are
-  // active immediately, without waiting for the first client fetch.
-  const seededPeerModels = useMemo(() => {
-    if (!localPeerAddress) return peerModels;
-    const lo = peerModels.get(localPeerAddress);
-    if (lo && lo.type === 'value') return peerModels;
-    const seeded = new Map<string, PeerModels>(peerModels);
-    seeded.set(localPeerAddress, AsyncState.value(localPeerModels));
-    return seeded;
-  }, [peerModels, localPeerAddress, localPeerModels]);
-
-  // The inventory the Lemonade browser checks each catalog entry against:
-  // every configured peer (the local host is seeded into seededPeerModels
-  // under its own name) plus cold storage. A peer still loading/errored
-  // contributes nothing rather than throwing.
-  const inventoryLocations = useMemo<InventoryLocation[]>(() => {
-    const locs: InventoryLocation[] = peerConfigs.map((p) => {
-      const lo = seededPeerModels.get(p.address);
-      return {
-        name: p.name,
-        models: lo?.type === 'value' ? lo.value : [],
-        isLocal: p.isLocal ?? false,
-      };
-    });
-    locs.push({name: 'cold storage', models: coldModels});
-    return locs;
-  }, [peerConfigs, seededPeerModels, coldModels]);
 
   // Per-path presence + size across cold storage, local, and remote peers, so
   // a mixed selection can name each file's own source. Preference order when
