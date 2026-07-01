@@ -7,13 +7,10 @@ import {
   pixel,
   type TableColumn,
 } from '@astryxdesign/core/Table';
-import {HStack, VStack} from '@astryxdesign/core/Stack';
+import {HStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
-import {Button} from '@astryxdesign/core/Button';
-import {Badge} from '@astryxdesign/core/Badge';
-import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
@@ -38,6 +35,8 @@ import {
 import {AuditCell, UpdateBadge} from '@/components/cells/audit-cell';
 import {NameCell} from '@/components/cells/name-cell';
 import {PeersCell, PeersHeader} from '@/components/cells/peers-cell';
+import {ColdStorageCell} from '@/components/cells/cold-storage-cell';
+import {SizeMismatchHover} from '@/components/cells/size-mismatch-hover';
 
 // The model-row data layer (types + pure helpers) lives in lib/model-row; these
 // are re-exported here for existing importers (peer-paths, home-client,
@@ -47,94 +46,6 @@ export type {ModelRow, QuantInfo, ShardInfo};
 
 export type {LocationTab} from '@/components/models/location-tabs';
 import type {LocationTab} from '@/components/models/location-tabs';
-
-// The hovercard shown on a size-mismatch warning icon: each location and the
-// size it holds, grouped by file when a model row spans several mismatches.
-function SizeMismatchHover({groups}: {groups: SizeBreakdownGroup[]}) {
-  return (
-    <HoverCard
-      placement="above"
-      content={
-        <VStack gap={2}>
-          <Text type="supporting">Sizes differ across locations</Text>
-          {groups.map((g) => (
-            <VStack key={g.label ?? '_'} gap={1}>
-              {g.label && <Text type="supporting">{g.label}</Text>}
-              {g.entries.map((e) => (
-                <HStack key={e.id} gap={4} hAlign="between">
-                  <Text type="body">{e.location}</Text>
-                  <Text type="body">{formatSize(e.size)}</Text>
-                </HStack>
-              ))}
-            </VStack>
-          ))}
-        </VStack>
-      }
-    >
-      <Icon icon="warning" size="sm" />
-    </HoverCard>
-  );
-}
-
-function ColdStorageCell({
-  row,
-  onFixIncomplete,
-  fixing = false,
-}: {
-  row: DisplayRow;
-  onFixIncomplete?: (paths: string[]) => void;
-  fixing?: boolean;
-}) {
-  if (row.depth === 2) return null; // shards don't show cold storage status
-  if (row.depth === 1) {
-    if (!row.inColdStorage) return <Badge label="Missing" variant="red" />;
-    if (row.coldComplete) {
-      const undersized = row.undersizedLocations.has('cold-storage');
-      return (
-        <Badge
-          label="Yes"
-          variant="green"
-          icon={undersized ? <Icon icon="warning" size="sm" /> : undefined}
-        />
-      );
-    }
-    // Present by name but a different size — a partial/mismatched cold copy.
-    const incomplete = <Badge label="Incomplete" variant="orange" />;
-    if (row.coldSize == null) return incomplete;
-    // The partial cold copy can be completed by re-running the local → cold
-    // copy, which resumes from the verified prefix already there.
-    const canFix = onFixIncomplete != null && row.paths.length > 0;
-    return (
-      <HoverCard
-        placement="above"
-        content={
-          <VStack gap={2}>
-            <Text type="supporting">
-              Cold copy {formatSize(row.coldSize)} — expected{' '}
-              {formatSize(row.size)}
-            </Text>
-            {canFix && (
-              <HStack>
-                <Button
-                  label={fixing ? 'Fixing…' : 'Fix'}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onFixIncomplete(row.paths)}
-                  isDisabled={fixing}
-                />
-              </HStack>
-            )}
-          </VStack>
-        }
-      >
-        {incomplete}
-      </HoverCard>
-    );
-  }
-  if (row.allInColdStorage) return <Badge label="Complete" variant="green" />;
-  if (row.noneInColdStorage) return <Badge label="Missing" variant="red" />;
-  return <Badge label="Partial" variant="orange" />;
-}
 
 export function ModelsTableClient({
   models,
