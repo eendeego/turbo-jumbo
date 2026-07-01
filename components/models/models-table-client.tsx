@@ -397,6 +397,12 @@ export function ModelsTableClient({
                       (invalidRepos?.has(item.parentName) ?? false)
                     }
                     coldIncomplete={item.coldIncomplete}
+                    onCopyToCold={
+                      onFixColdIncomplete
+                        ? () => onFixColdIncomplete(item.paths)
+                        : undefined
+                    }
+                    copyingToCold={coldFixing}
                     repoIssues={item.repoIssues}
                     repoId={item.parentName}
                     onDownloadFiles={onDownloadRepoFiles}

@@ -254,6 +254,8 @@ export function AuditCell({
   failures,
   invalid = false,
   coldIncomplete = false,
+  onCopyToCold,
+  copyingToCold = false,
   repoIssues,
   repoId,
   onDownloadFiles,
@@ -276,6 +278,10 @@ export function AuditCell({
   // largest known copy). The audit of this tab's own copy can still pass, so a
   // Pass verdict would hide the broken backup — show Incomplete instead.
   coldIncomplete?: boolean;
+  // Re-copy this row's file(s) to cold storage from their most complete copy,
+  // resuming over the partial one. Drives the Incomplete hovercard's button.
+  onCopyToCold?: () => void;
+  copyingToCold?: boolean;
   // The model's invalid + missing files, named in the hovercard and downloaded.
   repoIssues?: RepoFile[];
   repoId?: string;
@@ -368,13 +374,42 @@ export function AuditCell({
   // this tab's own copy verifies (e.g. a peer holds the complete file) — the
   // cold backup is still broken. Mirrors the `invalid` override above.
   if (coldIncomplete && audit.status === 'pass') {
+    const token = (
+      <Badge
+        label="Incomplete"
+        variant="error"
+        xstyle={audit.cached ? styles.dimmed : undefined}
+      />
+    );
+    if (!onCopyToCold) {
+      return (
+        <HoverCard content="Cold storage copy is incomplete — re-copy it to cold storage.">
+          {token}
+        </HoverCard>
+      );
+    }
     return (
-      <HoverCard content="Cold storage copy is incomplete — re-copy it to cold storage.">
-        <Badge
-          label="Incomplete"
-          variant="error"
-          xstyle={audit.cached ? styles.dimmed : undefined}
-        />
+      <HoverCard
+        placement="above"
+        content={
+          <VStack gap={2}>
+            <Text type="supporting">
+              The cold storage copy is incomplete — a partial transfer. Re-copy
+              it from the complete copy to finish it.
+            </Text>
+            <HStack>
+              <Button
+                label={copyingToCold ? 'Copying…' : 'Copy to cold storage'}
+                variant="ghost"
+                size="sm"
+                isDisabled={copyingToCold}
+                onClick={onCopyToCold}
+              />
+            </HStack>
+          </VStack>
+        }
+      >
+        {token}
       </HoverCard>
     );
   }

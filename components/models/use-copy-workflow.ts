@@ -1,11 +1,7 @@
 import {useMemo, useState, type Dispatch, type SetStateAction} from 'react';
 import type {Model} from '@/lib/models';
 import type {AsyncState} from '@/lib/async-state';
-import {
-  buildFileSizes,
-  readCopyAndReportErrors,
-  type CopyProgress,
-} from '@/lib/copy-progress';
+import {readCopyAndReportErrors, type CopyProgress} from '@/lib/copy-progress';
 import {type CopyDestinations} from '@/components/models/copy-modal';
 import {type ConflictItem} from '@/components/models/conflicts-modal';
 
@@ -82,18 +78,20 @@ export function useCopyWorkflow({
     return sources;
   }, [coldModels, localPeerModels, localPeerAddress, seededPeerModels]);
 
-  function buildSourceFiles(): Array<{
-    path: string;
-    from: string;
-    size: number;
-  }> {
+  function buildSourceFilesFor(
+    paths: Iterable<string>,
+  ): Array<{path: string; from: string; size: number}> {
     const out: Array<{path: string; from: string; size: number}> = [];
-    for (const p of selected) {
+    for (const p of paths) {
       const entry = pathPresence.get(p);
       if (!entry) continue;
       out.push({path: p, from: entry.from, size: entry.size});
     }
     return out;
+  }
+
+  function buildSourceFiles() {
+    return buildSourceFilesFor(selected);
   }
 
   async function onCopy(destinations: CopyDestinations) {
@@ -168,27 +166,30 @@ export function useCopyWorkflow({
     }
   }
 
-  // Complete a partial cold-storage copy: re-run the local → cold copy for the
-  // affected files. The server resumes from the verified prefix already in cold
-  // storage, so only the missing tail is transferred. Bypasses the conflict
-  // check — overwriting the partial copy is the point.
+  // Complete a partial cold-storage copy: re-copy the affected files to cold
+  // storage from their most complete copy. pathPresence resolves each file to
+  // its largest copy, so the truncated cold copy loses to the full one whether
+  // that lives locally or on a peer — completing the cold copy works from any
+  // tab. The server resumes from the verified prefix already in cold storage, so
+  // only the missing tail is transferred. Bypasses the conflict check (skip:[])
+  // — overwriting the partial copy is the point.
   async function onFixColdIncomplete(paths: string[]) {
-    if (!localPeerAddress || paths.length === 0) return;
+    if (paths.length === 0) return;
+    // A file whose only copy is the cold one can't be completed from a copy
+    // (cold → cold is a no-op); drop those so we never send an empty transfer.
+    const files = buildSourceFilesFor(paths).filter(
+      (f) => f.from !== 'cold-storage',
+    );
+    if (files.length === 0) return;
     setCopying(true);
     setCopyProgress(null);
     setError(null);
     try {
-      // Sources are local by construction: this re-runs the local → cold copy.
-      const sizes = buildFileSizes(localPeerModels);
       const res = await fetch('/api/v1/copy', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          files: paths.map((p) => ({
-            path: p,
-            from: localPeerAddress,
-            size: sizes[p] ?? 0,
-          })),
+          files,
           toColdStorage: true,
           toPeers: [],
           deleteAfterCopy: false,
