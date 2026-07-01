@@ -19,6 +19,7 @@ import {
   lemonadeDownloadStatus,
   lemonadeStatusTooltip,
   matchVariantFiles,
+  missingVariantFiles,
   type InventoryLocation,
   type LemonadeDownloadInfo,
   type LemonadeModel,
@@ -127,18 +128,25 @@ export function LemonadeBrowser({
       const res = await fetch(`/api/v1/hf-files?${params}`);
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const files = (await res.json()) as HfFile[];
-      const paths = matchVariantFiles(files, selected.variant, selected.mmproj);
-      if (paths.length === 0) {
+      const all = matchVariantFiles(files, selected.variant, selected.mmproj);
+      if (all.length === 0) {
         setResolveError(
           `No files in ${selected.repoId} match "${selected.variant ?? 'any gguf'}".`,
         );
         return;
       }
+      // Download only what's missing from local storage (where downloads land);
+      // if everything is already present, fall back to the full set (the hf CLI
+      // skips complete files).
+      const localModels =
+        inventoryLocations.find((l) => l.isLocal)?.models ?? [];
+      const missing = missingVariantFiles(all, localModels, selected.repoId);
+      const filePaths = missing.length > 0 ? missing : all;
       setShowTerminal(true);
       void start({
         repoId: selected.repoId,
         branch: 'main',
-        filePaths: paths,
+        filePaths,
         sendToCold,
         deleteAfterTransfer,
       });
