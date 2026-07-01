@@ -17,6 +17,7 @@ import {
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
 import {LemonadeBrowser} from '@/components/lemonade/lemonade-browser';
+import type {InventoryLocation} from '@/lib/lemonade';
 import {defaultDownloadSelection} from '@/lib/hf-download';
 
 type ParsedUrl = {
@@ -100,9 +101,11 @@ const styles = stylex.create({
 export function HuggingFaceDownload({
   localModelsPath,
   hfTokenSet,
+  inventoryLocations,
 }: {
   localModelsPath: string;
   hfTokenSet: boolean;
+  inventoryLocations: InventoryLocation[];
 }) {
   const [url, setUrl] = useState('');
   const [showLemonade, setShowLemonade] = useState(false);
@@ -286,6 +289,7 @@ export function HuggingFaceDownload({
       {showLemonade && (
         <LemonadeBrowser
           hfTokenSet={hfTokenSet}
+          inventoryLocations={inventoryLocations}
           onClose={() => setShowLemonade(false)}
         />
       )}

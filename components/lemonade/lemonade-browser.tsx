@@ -14,7 +14,11 @@ import {
   DownloadModal,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
-import {matchVariantFiles, type LemonadeModel} from '@/lib/lemonade';
+import {
+  matchVariantFiles,
+  type InventoryLocation,
+  type LemonadeModel,
+} from '@/lib/lemonade';
 
 type HfFile = {path: string; size: number};
 
@@ -36,9 +40,11 @@ const styles = stylex.create({
  */
 export function LemonadeBrowser({
   hfTokenSet,
+  inventoryLocations,
   onClose,
 }: {
   hfTokenSet: boolean;
+  inventoryLocations: InventoryLocation[];
   onClose: () => void;
 }) {
   const [models, setModels] = useState<LemonadeModel[] | null>(null);

@@ -8,6 +8,7 @@ import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
 import type {Peer as PeerConfig} from '@/lib/config';
+import type {InventoryLocation} from '@/lib/lemonade';
 import type {Model} from '@/lib/models';
 import {AsyncState} from '@/lib/async-state';
 import {withPeerPaths} from '@/lib/peer-paths';
@@ -822,6 +823,19 @@ export function HomeClient({
     return seeded;
   }, [peerModels, localPeerAddress, localPeerModels]);
 
+  // The inventory the Lemonade browser checks each catalog entry against:
+  // every configured peer (the local host is seeded into seededPeerModels
+  // under its own name) plus cold storage. A peer still loading/errored
+  // contributes nothing rather than throwing.
+  const inventoryLocations = useMemo<InventoryLocation[]>(() => {
+    const locs: InventoryLocation[] = peerConfigs.map((p) => {
+      const lo = seededPeerModels.get(p.address);
+      return {name: p.name, models: lo?.type === 'value' ? lo.value : []};
+    });
+    locs.push({name: 'cold storage', models: coldModels});
+    return locs;
+  }, [peerConfigs, seededPeerModels, coldModels]);
+
   // Per-path presence + size across cold storage, local, and remote peers, so
   // a mixed selection can name each file's own source. Preference order when
   // a path exists in multiple places: cold → local → remote.
@@ -909,6 +923,7 @@ export function HomeClient({
           <HuggingFaceDownload
             localModelsPath={localModelsPath}
             hfTokenSet={hfTokenSet}
+            inventoryLocations={inventoryLocations}
           />
         )}
         {checkingUpdates && (
