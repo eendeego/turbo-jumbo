@@ -278,6 +278,31 @@ export async function upsertFileMeta(
 }
 
 /**
+ * Clear a file's `missing` flag once it's present on disk, recording its size.
+ * Returns whether a flag was actually cleared — a no-op (false) when the file
+ * has no entry or wasn't flagged. The downloader uses this for files whose HF
+ * source can't be resolved (small non-LFS files like `index.json`): `auditFile`
+ * can't record them, but a just-downloaded file must not stay flagged missing.
+ */
+export async function clearMissingFlag(
+  basePath: string,
+  dir: string,
+  key: string,
+  computedSize: number,
+): Promise<boolean> {
+  return withSidecarLock(sidecarPath(basePath, dir), async () => {
+    const model = await readModelSidecar(basePath, dir);
+    const i = model?.files.findIndex((f) => f.path === key) ?? -1;
+    if (!model || i < 0 || !model.files[i].missing) return false;
+    const entry = {...model.files[i], computedSize};
+    delete entry.missing;
+    model.files[i] = entry;
+    await writeModelSidecar(basePath, dir, withDerivedCommit(model));
+    return true;
+  });
+}
+
+/**
  * Remove a file's entry from its model sidecar, serialized per dir. When the
  * sidecar has no entries left, the `tjmodel.json` file is deleted.
  */

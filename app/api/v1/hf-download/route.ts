@@ -11,7 +11,11 @@ import {
 } from '@/lib/audit';
 import {resolveHfFileByPath} from '@/lib/hf-infer';
 import {repoIdFromModelUrl} from '@/lib/model-name';
-import {modelDirForRepo, removeFileMeta} from '@/lib/model-sidecar';
+import {
+  clearMissingFlag,
+  modelDirForRepo,
+  removeFileMeta,
+} from '@/lib/model-sidecar';
 import {HF_HUB_ENABLE_HF_TRANSFER} from '@/lib/hf';
 
 const ANSI_RE = /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07]*\x07|[^[\]])/g;
@@ -47,12 +51,24 @@ async function recordSources(
   enqueue('\nRecording sources...\n');
   for (const fp of filePaths) {
     if (signal.aborted) return;
+    const relPath = path.join(repoId, fp);
     const hf = await resolveHfFileByPath(repoId, branch, fp);
     if (!hf) {
-      enqueue(`  ${fp}: could not resolve source — left unverified\n`);
+      // No HF source (a small non-LFS file): can't verify it, but it's now on
+      // disk — clear any `missing` flag a prior audit left so the model isn't
+      // still reported incomplete.
+      let size = 0;
+      try {
+        size = (await fsp.stat(path.join(localBase, relPath))).size;
+      } catch {
+        /* unreadable: clear with size 0, a later audit re-measures */
+      }
+      const cleared = await clearMissingFlag(localBase, repoId, fp, size);
+      enqueue(
+        `  ${fp}: ${cleared ? 'present — source unverifiable' : 'could not resolve source — left unverified'}\n`,
+      );
       continue;
     }
-    const relPath = path.join(repoId, fp);
     const result = await auditFile(
       localBase,
       relPath,
