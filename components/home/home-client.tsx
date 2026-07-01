@@ -144,7 +144,25 @@ export function HomeClient({
   localPeerModels: Model[];
 }) {
   const router = useRouter();
-  const {peerModels} = usePeerModels();
+  const {peerModels, handleModelsRefreshed} = usePeerModels();
+
+  // Re-scan the local peer's models and push the result into the polled map, so
+  // download-status markers (e.g. in the Lemonade browser) reflect a just-
+  // finished download immediately instead of waiting for the next poll.
+  const refreshLocalModels = useCallback(async () => {
+    const local = peerConfigs.find((p) => p.isLocal);
+    if (!local) return;
+    try {
+      const res = await fetch(
+        `/api/v1/peers/${encodeURIComponent(local.name)}/models`,
+      );
+      if (!res.ok) return;
+      const models = (await res.json()) as Model[];
+      handleModelsRefreshed(local.address, models);
+    } catch {
+      /* best-effort: the periodic poll will catch up */
+    }
+  }, [peerConfigs, handleModelsRefreshed]);
   const [models, setModels] = useState(modelsTableData);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modelKind, setModelKind] = useState<ModelKind>('turbo-jumbo');
@@ -947,6 +965,7 @@ export function HomeClient({
             localModelsPath={localModelsPath ?? ''}
             inventoryLocations={inventoryLocations}
             canDownload={canDownloadLocally}
+            onDownloaded={refreshLocalModels}
           />
         ) : (
           <>

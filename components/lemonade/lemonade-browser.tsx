@@ -144,11 +144,15 @@ export function LemonadeBrowser({
   localModelsPath,
   inventoryLocations,
   canDownload,
+  onDownloaded,
 }: {
   hfTokenSet: boolean;
   localModelsPath: string;
   inventoryLocations: InventoryLocation[];
   canDownload: boolean;
+  // Called after a download session ends so the parent can refresh local
+  // models; the status markers then recompute from the new inventory.
+  onDownloaded?: () => void;
 }) {
   const [models, setModels] = useState<LemonadeModel[] | null>(null);
   const [collections, setCollections] = useState<OmniCollection[]>([]);
@@ -336,11 +340,14 @@ export function LemonadeBrowser({
     );
   };
 
-  // Closing the terminal returns to the catalog; the selection stays.
+  // Closing the terminal returns to the catalog; the selection stays. Refresh
+  // local models so the status markers reflect whatever just landed (a finished
+  // download, or partial files from a cancelled one).
   const closeTerminal = () => {
     if (running) cancel();
     setShowTerminal(false);
     reset();
+    onDownloaded?.();
   };
 
   if (showTerminal) {
