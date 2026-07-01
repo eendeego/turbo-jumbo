@@ -132,7 +132,7 @@ function quantBits(quant: string): string {
 
 export function formatSize(bytes: number): string {
   if (bytes < 0) return '';
-  if (bytes === 0) return '0 KB';
+  if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
