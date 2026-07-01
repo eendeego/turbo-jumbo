@@ -135,6 +135,83 @@ test('without a started-set the queued marker never appears', () => {
   });
 });
 
+const cachedPass = (file: string): AuditResult => ({
+  file,
+  status: 'pass',
+  cached: true,
+});
+
+test('hashing progress overrides a cached verdict during a run', () => {
+  const progress = new Map<string, AuditProgressEvent>([
+    ['a.gguf', {file: 'a.gguf', hashedBytes: 42, totalBytes: 100}],
+  ]);
+  expect(
+    rowAudit(
+      ['a.gguf'],
+      new Set(['a.gguf']),
+      new Map([['a.gguf', cachedPass('a.gguf')]]),
+      true,
+      progress,
+      new Set(['a.gguf']),
+    ),
+  ).toEqual({kind: 'pending', percent: 42});
+});
+
+test('a started file shows pending over its cached verdict', () => {
+  expect(
+    rowAudit(
+      ['a.gguf'],
+      new Set(['a.gguf']),
+      new Map([['a.gguf', cachedPass('a.gguf')]]),
+      true,
+      undefined,
+      new Set(['a.gguf']),
+    ),
+  ).toEqual({kind: 'pending'});
+});
+
+test('a cached verdict shows until the file starts (no queued marker)', () => {
+  expect(
+    rowAudit(
+      ['a.gguf'],
+      new Set(['a.gguf']),
+      new Map([['a.gguf', cachedPass('a.gguf')]]),
+      true,
+      undefined,
+      new Set(), // run live, file not started — its cached verdict still shows
+    ),
+  ).toEqual({kind: 'result', status: 'pass', message: undefined, cached: true});
+});
+
+test('a fresh verdict is never overridden by leftover run signals', () => {
+  expect(
+    rowAudit(
+      ['a.gguf'],
+      new Set(['a.gguf']),
+      new Map([['a.gguf', {file: 'a.gguf', status: 'pass'}]]),
+      true,
+      undefined,
+      new Set(['a.gguf']), // started, and since then freshly verdicted
+    ),
+  ).toEqual({
+    kind: 'result',
+    status: 'pass',
+    message: undefined,
+    cached: false,
+  });
+});
+
+test('cached verdicts stay put when no run is active', () => {
+  expect(
+    rowAudit(
+      ['a.gguf'],
+      new Set(['a.gguf']),
+      new Map([['a.gguf', cachedPass('a.gguf')]]),
+      false,
+    ),
+  ).toEqual({kind: 'result', status: 'pass', message: undefined, cached: true});
+});
+
 test('ignores progress of paths that do not belong to the row', () => {
   const progress = new Map<string, AuditProgressEvent>([
     ['other.gguf', {file: 'other.gguf', hashedBytes: 99, totalBytes: 100}],

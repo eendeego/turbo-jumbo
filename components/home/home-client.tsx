@@ -219,13 +219,29 @@ export function HomeClient({
       if (!auditLocation || paths.length === 0) return;
       setAuditing(true);
       setError(null);
-      // Accumulate across runs: keep prior verdicts and merge in the new paths,
-      // clearing only the in-flight paths so they show "Auditing…" as they
-      // stream.
-      setAuditedPaths((prev) => new Set([...prev, ...paths]));
+      // Show the location's full cached state up front: every file's
+      // last-known (sidecar) verdict renders before any hashing starts, and
+      // the submitted paths revert from fresh to cached — the run's live
+      // signals then override them row by row (see rowAudit). When the cached
+      // fetch fails, the submitted paths just show pending, as before.
+      let cached: AuditResult[] = [];
+      try {
+        cached = await fetchCachedResults(auditLocation);
+      } catch {
+        /* best-effort pre-seed */
+      }
+      const cachedByFile = new Map(cached.map((r) => [r.file, r]));
+      setAuditedPaths(
+        (prev) => new Set([...prev, ...paths, ...cachedByFile.keys()]),
+      );
       setAuditResults((prev) => {
         const next = new Map(prev);
-        for (const p of paths) next.delete(p);
+        for (const p of paths) {
+          const c = cachedByFile.get(p);
+          if (c) next.set(p, c);
+          else next.delete(p);
+        }
+        for (const r of cached) if (!next.has(r.file)) next.set(r.file, r);
         return next;
       });
       // Everything submitted starts out queued, until its start event arrives.

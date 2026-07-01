@@ -21,9 +21,12 @@ export type RowAudit =
  * audited, the worst verdict when all results are in, otherwise pending — with
  * the row's SHA256 hashing percent when any of its files reported progress
  * (summed across in-flight paths, so multi-shard rows show one number).
- * While the run serializes files (cold storage audits one at a time), a row
- * none of whose files has started is `queued` — only known when the caller
- * supplies the started-set the server streams.
+ * During a live run, in-flight signals (progress, the started-set the server
+ * streams) override *cached* verdicts — the run pre-seeds rows with their
+ * sidecar state, which must give way as each file's turn comes — but never a
+ * fresh verdict. While the run serializes files (cold storage audits one at a
+ * time), a row none of whose files has started and with no verdict at all is
+ * `queued`; a row with a cached verdict keeps showing it until it starts.
  */
 export function rowAudit(
   paths: string[],
@@ -38,10 +41,16 @@ export function rowAudit(
   const results = relevant
     .map((p) => auditResults.get(p))
     .filter((r): r is AuditResult => r != null);
-  if (results.length === 0 || (results.length < relevant.length && auditing)) {
+
+  if (auditing) {
+    // Paths with no fresh verdict yet — a cached one doesn't finish a path.
+    const unfinished = relevant.filter((p) => {
+      const r = auditResults.get(p);
+      return r == null || r.cached === true;
+    });
     let hashed = 0;
     let total = 0;
-    for (const p of relevant) {
+    for (const p of unfinished) {
       const prog = auditProgress?.get(p);
       if (prog) {
         hashed += prog.hashedBytes;
@@ -51,6 +60,12 @@ export function rowAudit(
     if (total > 0) {
       return {kind: 'pending', percent: Math.floor((hashed / total) * 100)};
     }
+    if (unfinished.some((p) => auditStarted?.has(p))) {
+      return {kind: 'pending'};
+    }
+  }
+
+  if (results.length === 0 || (results.length < relevant.length && auditing)) {
     // Queued only makes sense while the run is live; a run that ended without
     // this row's verdict (e.g. aborted) falls back to plain pending.
     const queued =
