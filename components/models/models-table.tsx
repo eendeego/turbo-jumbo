@@ -1,4 +1,5 @@
 import type {Model} from '@/lib/model-types';
+import {normalizeModelNames} from '@/lib/models';
 import type {ModelRow, QuantInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",
@@ -19,9 +20,14 @@ export function getModelsTableData(
 }
 
 export function buildModelRows(
-  localModels: Model[],
-  coldModels: Model[],
+  localScan: Model[],
+  coldScan: Model[],
 ): ModelRow[] {
+  // A model's name depends on which copies carry sidecars, so the two scans
+  // can name the same model differently; reconcile before grouping by name
+  // (see normalizeModelNames).
+  const [localModels, coldModels] = normalizeModelNames([localScan, coldScan]);
+
   // Index cold files by filename. This is what survives the differences between
   // the two roots: the same file can sit at a bare path in one and under
   // <repoId>/ in the other, and the model name is sidecar-derived (so it differs

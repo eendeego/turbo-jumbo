@@ -65,6 +65,57 @@ export function extractQuant(filename: string): string {
   return m ? m[1].toUpperCase() : 'unknown';
 }
 
+/**
+ * Rewrite filename-derived model names to the repo name when a sidecar-named
+ * copy of the same files exists in any of the given scans, then merge models
+ * that end up sharing a name within a scan. A model's name depends on sidecar
+ * presence (`sidecarRepoId` falls back to the filename), so the same model can
+ * be named `gpt-oss-20b` by one scan and `unsloth/gpt-oss-20b-GGUF` by another
+ * — e.g. when only the local copy has been audited — and would otherwise
+ * produce two table rows. A name claimed by more than one repo is left alone:
+ * there's no way to tell which repo the sidecar-less files belong to.
+ */
+export function normalizeModelNames(scans: Model[][]): Model[][] {
+  // What a file group would be called with no sidecar present.
+  const filenameAlias = (f: ModelFile): string => {
+    const filename = f.isSplit ? f.representativeFilename : f.filename;
+    const split = filename.match(SPLIT_RE);
+    return extractModelName(split ? `${split[1]}.gguf` : filename);
+  };
+
+  // Filename-derived alias -> the repo names whose files claim it.
+  const aliasRepos = new Map<string, Set<string>>();
+  for (const models of scans) {
+    for (const m of models) {
+      if (!m.name.includes('/')) continue;
+      for (const f of m.files) {
+        const alias = filenameAlias(f);
+        const repos = aliasRepos.get(alias);
+        if (repos) {
+          repos.add(m.name);
+        } else {
+          aliasRepos.set(alias, new Set([m.name]));
+        }
+      }
+    }
+  }
+
+  return scans.map((models) => {
+    const out = new Map<string, Model>();
+    for (const m of models) {
+      const repos = m.name.includes('/') ? null : aliasRepos.get(m.name);
+      const name = repos?.size === 1 ? [...repos][0] : m.name;
+      const existing = out.get(name);
+      if (existing) {
+        existing.files = [...existing.files, ...m.files];
+      } else {
+        out.set(name, {...m, name});
+      }
+    }
+    return [...out.values()];
+  });
+}
+
 export function scanModels(storagePath: string | undefined): Model[] {
   if (!storagePath) return [];
   const root = storagePath;

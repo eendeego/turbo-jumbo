@@ -6,7 +6,10 @@ import {
   duplicateBasenames,
   extractModelName,
   extractQuant,
+  normalizeModelNames,
   scanModels,
+  type Model,
+  type SingleFile,
 } from '@/lib/models';
 import {writeMeta} from '@/lib/audit';
 
@@ -162,4 +165,153 @@ test('duplicateBasenames detects colliding split shards but not a lone split gro
     'sub/M-Q4_K_M-00001-of-00002.gguf',
   ]);
   await fsp.rm(base, {recursive: true, force: true});
+});
+
+// --- normalizeModelNames ---
+
+function single(filename: string, p: string, size = 100): SingleFile {
+  return {
+    isSplit: false,
+    filename,
+    path: p,
+    quant: 'Q4_K_M',
+    size,
+    missing: false,
+  };
+}
+
+test('normalizeModelNames renames a filename-derived model to its sidecar repo name', () => {
+  // The local copy was audited (sidecar names the repo); the cold copy has no
+  // sidecar, so its scan derived the name from the filename.
+  const local: Model[] = [
+    {
+      name: 'unsloth/gpt-oss-20b-GGUF',
+      files: [
+        single(
+          'gpt-oss-20b-Q4_K_M.gguf',
+          'unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_K_M.gguf',
+        ),
+      ],
+    },
+  ];
+  const cold: Model[] = [
+    {
+      name: 'gpt-oss-20b',
+      files: [single('gpt-oss-20b-Q4_K_M.gguf', 'gpt-oss-20b-Q4_K_M.gguf')],
+    },
+  ];
+
+  const [l, c] = normalizeModelNames([local, cold]);
+  expect(l.map((m) => m.name)).toEqual(['unsloth/gpt-oss-20b-GGUF']);
+  expect(c.map((m) => m.name)).toEqual(['unsloth/gpt-oss-20b-GGUF']);
+});
+
+test('normalizeModelNames merges same-named models within one scan after renaming', () => {
+  const local: Model[] = [
+    {
+      name: 'unsloth/LFM2-1.2B-GGUF',
+      files: [
+        single(
+          'LFM2-1.2B-Q2_K.gguf',
+          'unsloth/LFM2-1.2B-GGUF/LFM2-1.2B-Q2_K.gguf',
+        ),
+      ],
+    },
+    {
+      name: 'LFM2-1.2B',
+      files: [single('LFM2-1.2B-Q6_K.gguf', 'LFM2-1.2B-Q6_K.gguf')],
+    },
+  ];
+
+  const [l] = normalizeModelNames([local]);
+  expect(l).toHaveLength(1);
+  expect(l[0].name).toBe('unsloth/LFM2-1.2B-GGUF');
+  expect(l[0].files.map((f) => (f as SingleFile).filename).sort()).toEqual([
+    'LFM2-1.2B-Q2_K.gguf',
+    'LFM2-1.2B-Q6_K.gguf',
+  ]);
+});
+
+test('normalizeModelNames leaves a name alone when two repos claim it', () => {
+  const local: Model[] = [
+    {
+      name: 'unsloth/My-Model-GGUF',
+      files: [
+        single(
+          'My-Model-Q4_K_M.gguf',
+          'unsloth/My-Model-GGUF/My-Model-Q4_K_M.gguf',
+        ),
+      ],
+    },
+    {
+      name: 'bartowski/My-Model-GGUF',
+      files: [
+        single(
+          'My-Model-Q4_K_M.gguf',
+          'bartowski/My-Model-GGUF/My-Model-Q4_K_M.gguf',
+        ),
+      ],
+    },
+  ];
+  const cold: Model[] = [
+    {
+      name: 'My-Model',
+      files: [single('My-Model-Q4_K_M.gguf', 'My-Model-Q4_K_M.gguf')],
+    },
+  ];
+
+  const [, c] = normalizeModelNames([local, cold]);
+  expect(c.map((m) => m.name)).toEqual(['My-Model']);
+});
+
+test('normalizeModelNames derives the alias of a split group from its shard names', () => {
+  const local: Model[] = [
+    {
+      name: 'unsloth/Big-MTP-GGUF',
+      files: [
+        {
+          isSplit: true,
+          representativeFilename: 'Big-Q4_K_M-00001-of-00002.gguf',
+          files: [
+            {
+              path: 'unsloth/Big-MTP-GGUF/Big-Q4_K_M-00001-of-00002.gguf',
+              size: 50,
+            },
+            {
+              path: 'unsloth/Big-MTP-GGUF/Big-Q4_K_M-00002-of-00002.gguf',
+              size: 50,
+            },
+          ],
+          quant: 'Q4_K_M',
+          totalShards: 2,
+          presentShards: 2,
+          missingIndices: [],
+          totalSize: 100,
+        },
+      ],
+    },
+  ];
+  const cold: Model[] = [
+    {
+      name: 'Big',
+      files: [
+        {
+          isSplit: true,
+          representativeFilename: 'Big-Q4_K_M-00001-of-00002.gguf',
+          files: [
+            {path: 'Big-Q4_K_M-00001-of-00002.gguf', size: 50},
+            {path: 'Big-Q4_K_M-00002-of-00002.gguf', size: 50},
+          ],
+          quant: 'Q4_K_M',
+          totalShards: 2,
+          presentShards: 2,
+          missingIndices: [],
+          totalSize: 100,
+        },
+      ],
+    },
+  ];
+
+  const [, c] = normalizeModelNames([local, cold]);
+  expect(c.map((m) => m.name)).toEqual(['unsloth/Big-MTP-GGUF']);
 });

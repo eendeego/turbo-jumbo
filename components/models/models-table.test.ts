@@ -127,3 +127,30 @@ test('reports not-in-cold when the local file is absent from cold storage', () =
   expect(rows.find((r) => r.name === 'X')!.quants[0].inColdStorage).toBe(false);
   expect(rows.find((r) => r.name === 'X')!.quants[0].coldPaths).toEqual([]);
 });
+
+test('merges local and cold copies that disagree on sidecar naming into one row', () => {
+  // The local copy was audited, so its scan named it after the sidecar repo;
+  // the cold copy has no sidecar and got the filename-derived name. They are
+  // the same model and must not produce two table rows.
+  const local = [
+    fileAt(
+      'unsloth/gpt-oss-20b-GGUF',
+      'unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_K_M.gguf',
+      'Q4_K_M',
+      100,
+    ),
+  ];
+  const cold = [
+    fileAt('gpt-oss-20b', 'gpt-oss-20b-Q4_K_M.gguf', 'Q4_K_M', 100),
+  ];
+
+  const rows = buildModelRows(local, cold);
+  expect(rows.map((r) => r.name)).toEqual(['unsloth/gpt-oss-20b-GGUF']);
+  expect(rows[0].quants).toHaveLength(1);
+  expect(rows[0].quants[0].inColdStorage).toBe(true);
+  expect(rows[0].quants[0].coldComplete).toBe(true);
+  // Operations target the local copy's real path.
+  expect(rows[0].quants[0].paths).toEqual([
+    'unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_K_M.gguf',
+  ]);
+});
