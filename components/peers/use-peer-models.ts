@@ -1,6 +1,6 @@
 'use client';
 
-import {useEffect, useState, useCallback} from 'react';
+import {useEffect, useState, useCallback, useRef} from 'react';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/model-types';
 import type {WsMessage} from '@/lib/ws-messages';
@@ -18,6 +18,7 @@ export function usePeerModels() {
   const [peerModels, setPeerModels] = useState<Map<string, PeerModels>>(
     new Map(),
   );
+  const pollIntervalRef = useRef<number>(5000);
 
   useEffect(() => {
     clientLog('debug', '[http] GET /api/v1/peers');
@@ -26,12 +27,16 @@ export function usePeerModels() {
         if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
         return r.json();
       })
-      .then((data: PeerConfig[]) => {
-        clientLog('debug', `[http] GET /api/v1/peers → ${data.length} peer(s)`);
-        setPeers(AsyncState.value(data));
-        setPeerModels(
-          new Map(data.map((p) => [p.address, AsyncState.empty()])),
+      .then((data: {peers: PeerConfig[]; interval: number}) => {
+        clientLog(
+          'debug',
+          `[http] GET /api/v1/peers → ${data.peers.length} peer(s)`,
         );
+        setPeers(AsyncState.value(data.peers));
+        setPeerModels(
+          new Map(data.peers.map((p) => [p.address, AsyncState.empty()])),
+        );
+        pollIntervalRef.current = data.interval * 1000;
       })
       .catch((e: Error) => {
         clientLog('debug', `[http] GET /api/v1/peers → error: ${e.message}`);
@@ -68,7 +73,8 @@ export function usePeerModels() {
     };
 
     peerList.forEach(fetchPeer);
-    const id = setInterval(() => peerList.forEach(fetchPeer), 5000);
+    const interval = pollIntervalRef.current;
+    const id = setInterval(() => peerList.forEach(fetchPeer), interval);
     return () => clearInterval(id);
   }, [activePeers]);
 

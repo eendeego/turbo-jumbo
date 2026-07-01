@@ -77,5 +77,5 @@ export function startPeerMonitor(): void {
   };
 
   poll();
-  setInterval(poll, 5000);
+  setInterval(poll, (config.peer_check_interval ?? 5) * 1000);
 }

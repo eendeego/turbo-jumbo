@@ -5,5 +5,8 @@ import {config, localPeer} from '@/lib/config';
 // one that is this machine so the UI can show it as "— local".
 export function GET() {
   const peers = config.peers.map((p) => ({...p, isLocal: p === localPeer}));
-  return NextResponse.json(peers);
+  return NextResponse.json({
+    peers,
+    interval: config.peer_check_interval ?? 5,
+  });
 }

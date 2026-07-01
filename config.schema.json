@@ -18,6 +18,12 @@
       "minItems": 1,
       "description": "Machines that share models, including this one. The local peer is the one whose address host matches this machine's IP.",
       "items": {"$ref": "#/$defs/peer"}
+    },
+    "peer_check_interval": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "default": 5,
+      "description": "How often, in seconds, to poll each remote peer for reachability and model changes. Optional; defaults to 5."
     }
   },
   "$defs": {

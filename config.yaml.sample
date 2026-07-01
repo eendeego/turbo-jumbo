@@ -7,6 +7,10 @@
 # The app reads ./config.yaml from the working directory by default. Set the
 # CONFIG_PATH environment variable to load it from somewhere else.
 
+# How often, in seconds, to poll each remote peer for reachability and model
+# changes. Optional; defaults to 5.
+peer_check_interval: 5
+
 # The machines that share models, including this one. The local peer is the one
 # whose address host matches this machine's own IP; it must set base_path and
 # cold_storage_path. Remote peers only need a name and address.

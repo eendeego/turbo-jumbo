@@ -18,6 +18,7 @@ export interface Peer {
 export interface Config {
   peers: Peer[];
   log_level?: string;
+  peer_check_interval?: number;
 }
 
 const validate = new Ajv2020({allErrors: true}).compile<Config>(schema);
