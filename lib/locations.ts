@@ -35,3 +35,43 @@ export function resolveLocation(
   const peer = peers.find((p) => slugifyPeerName(p.name) === slug);
   return peer ? peer.address : null;
 }
+
+export type RouteView = 'table' | 'lemonade';
+
+// URL segments (optional catch-all) -> resolved location + which view to
+// render. Returns null for unknown/invalid paths (caller should 404).
+// A trailing ['download','lemonade'] selects the Lemonade view; the segments
+// before it (0 or 1) name the location, resolved like a normal location path.
+// Cold Storage has no Lemonade, so that combination is rejected.
+export function parseRoute(
+  segments: string[] | undefined,
+  peers: Peer[],
+): {location: string; view: RouteView} | null {
+  const segs = segments ?? [];
+  const isLemonade =
+    segs.length >= 2 &&
+    segs[segs.length - 2] === 'download' &&
+    segs[segs.length - 1] === 'lemonade';
+
+  if (!isLemonade) {
+    const location = resolveLocation(segs, peers);
+    return location === null ? null : {location, view: 'table'};
+  }
+
+  const head = segs.slice(0, -2);
+  if (head.length > 1) return null;
+  const location = resolveLocation(head, peers);
+  if (location === null || location === COLD_STORAGE_LOCATION) return null;
+  return {location, view: 'lemonade'};
+}
+
+// Internal tab id -> Lemonade route. The "all" tab's Lemonade lives at the
+// bare /download/lemonade; a peer's under its slug. Cold Storage has none.
+export function lemonadeHref(id: string, peers: Peer[]): string {
+  if (id === ALL_LOCATION) return '/download/lemonade';
+  if (id === COLD_STORAGE_LOCATION) return `/${COLD_STORAGE_LOCATION}`;
+  const peer = peers.find((p) => p.address === id);
+  return peer
+    ? `/${slugifyPeerName(peer.name)}/download/lemonade`
+    : '/download/lemonade';
+}
