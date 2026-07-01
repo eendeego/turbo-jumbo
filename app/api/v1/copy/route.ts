@@ -1,4 +1,4 @@
-import {resumeOffset} from '@/lib/audit';
+import {streamCopyResumable} from '@/lib/audit';
 import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {logger} from '@/lib/logger';
 import {isObject, readJsonBody} from '@/lib/request';
@@ -413,47 +413,47 @@ export async function POST(req: Request) {
 
                 // Resume an interrupted earlier copy: skip the prefix already
                 // at the destination when it hash-matches the source's same
-                // region.
+                // region. The shared core (also used by copyFileWithMeta) owns
+                // the resume + stream; the hooks drive this route's phased
+                // progress reporting.
                 phase = 'verifying';
                 emit();
                 let verified = false;
                 let nextVerifyEmit = 0;
-                const offset = await resumeOffset(src, dst, (done, total) => {
-                  verified = true;
-                  verifyDone = done;
-                  verifyTotal = total;
-                  if (done >= nextVerifyEmit) {
-                    nextVerifyEmit = done + EMIT_INTERVAL;
-                    emit();
-                  }
-                });
-                phase = 'copying';
-                if (verified) {
-                  resume = offset > 0 ? 'resumed' : 'from-start';
-                  emit();
-                }
-                if (offset > 0) {
-                  fileDone = offset;
-                  bytesDone += offset;
-                  emit();
-                }
-                if (offset === 0 || offset < f.size) {
-                  let nextEmitAt = fileDone + EMIT_INTERVAL;
-                  const resumeCounter = makeCounter((n) => {
+                let nextEmitAt = 0;
+                await streamCopyResumable(src, dst, {
+                  signal,
+                  onVerify: (done, total) => {
+                    verified = true;
+                    verifyDone = done;
+                    verifyTotal = total;
+                    if (done >= nextVerifyEmit) {
+                      nextVerifyEmit = done + EMIT_INTERVAL;
+                      emit();
+                    }
+                  },
+                  onResume: (offset) => {
+                    phase = 'copying';
+                    if (verified) {
+                      resume = offset > 0 ? 'resumed' : 'from-start';
+                      emit();
+                    }
+                    if (offset > 0) {
+                      fileDone = offset;
+                      bytesDone += offset;
+                      emit();
+                    }
+                    nextEmitAt = fileDone + EMIT_INTERVAL;
+                  },
+                  onChunk: (n) => {
                     fileDone += n;
                     bytesDone += n;
                     if (fileDone >= nextEmitAt) {
                       nextEmitAt = fileDone + EMIT_INTERVAL;
                       emit();
                     }
-                  });
-                  await pipeline(
-                    createReadStream(src, {start: offset}),
-                    resumeCounter,
-                    createWriteStream(dst, offset > 0 ? {flags: 'a'} : {}),
-                    {signal},
-                  );
-                }
+                  },
+                });
               } else {
                 logger.info(`[copy] fetch ${f.path} from ${source} → ${dest}`);
                 const res = await fetch(

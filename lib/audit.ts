@@ -355,20 +355,37 @@ export function decideStatus(input: {
 }
 
 /**
- * SHA256 of a whole file, hashed in-process so `onBytes` can report progress
- * chunk by chunk (the multi-GB hash is the slow part of an audit). Rejects
- * when `signal` aborts mid-read.
+ * SHA256 of a file streamed in-process, so `onBytes` can report progress chunk
+ * by chunk (the multi-GB hash is the slow part of an audit). With `end` set,
+ * hashes only bytes `0..end` inclusive (a prefix); otherwise the whole file.
+ * Rejects when `signal` aborts mid-read.
  */
-export async function localSha256(
+async function streamHash(
+  fullPath: string,
+  opts: {
+    end?: number;
+    signal?: AbortSignal;
+    onBytes?: (n: number) => void;
+  } = {},
+): Promise<string> {
+  const {end, signal, onBytes} = opts;
+  const hash = createHash('sha256');
+  const rs =
+    end === undefined
+      ? createReadStream(fullPath)
+      : createReadStream(fullPath, {start: 0, end});
+  if (onBytes) rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
+  await pipeline(rs, hash, {signal});
+  return hash.digest('hex');
+}
+
+/** SHA256 of a whole file (see `streamHash`). */
+export function localSha256(
   fullPath: string,
   signal?: AbortSignal,
   onBytes?: (n: number) => void,
 ): Promise<string> {
-  const hash = createHash('sha256');
-  const rs = createReadStream(fullPath);
-  if (onBytes) rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
-  await pipeline(rs, hash, {signal});
-  return hash.digest('hex');
+  return streamHash(fullPath, {signal, onBytes});
 }
 
 export function metaPath(fullPath: string): string {
@@ -576,17 +593,13 @@ export async function moveFileWithMeta(
   await fsp.rm(metaPath(fromFull), {force: true});
 }
 
-/** SHA256 of the first `length` bytes of a file. */
-async function sha256Region(
+/** SHA256 of the first `length` bytes of a file (see `streamHash`). */
+function sha256Region(
   fullPath: string,
   length: number,
   onBytes?: (n: number) => void,
 ): Promise<string> {
-  const hash = createHash('sha256');
-  const rs = createReadStream(fullPath, {start: 0, end: length - 1});
-  if (onBytes) rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
-  await pipeline(rs, hash);
-  return hash.digest('hex');
+  return streamHash(fullPath, {end: length - 1, onBytes});
 }
 
 /**
@@ -632,39 +645,69 @@ export async function resumeOffset(
 }
 
 /**
- * Copy a file and its `.tjmeta.json` sidecar (if present) to `dstFull`, creating
- * intermediate directories. Unlike `moveFileWithMeta` this works across
- * filesystems (a stream copy, not a rename), so it's used for the local → cold
- * storage transfer. A destination left behind by an interrupted copy is resumed
- * rather than recopied (see `resumeOffset`). `onBytes` reports copied chunk
- * sizes of the model file for progress — including, up front, the bytes a
- * resume skipped — so progress still sums to the full file size; the sidecar is
- * tiny and not counted.
+ * Resume-aware stream copy of one file's bytes from `srcFull` to `dstFull`,
+ * creating intermediate directories. Unlike a rename this works across
+ * filesystems, so it backs the local → cold-storage transfer and the copy
+ * route. A destination left behind by an interrupted copy is resumed rather
+ * than recopied: the verified prefix is kept and only the tail streams (see
+ * `resumeOffset`). Returns the resume offset — 0 when copied from scratch, >0
+ * when a prefix was kept.
+ *
+ * Progress hooks, all optional: `onVerify` reports the resume-hash progress
+ * (the slow part of a resume); `onResume` fires once the offset is decided,
+ * before any streaming, so a caller can account for the skipped prefix and
+ * switch its own progress phase; `onChunk` reports each streamed chunk's size
+ * (the prefix is *not* reported here — `onResume`'s offset covers it). Aborts
+ * with `signal`.
+ */
+export async function streamCopyResumable(
+  srcFull: string,
+  dstFull: string,
+  hooks: {
+    signal?: AbortSignal;
+    onVerify?: (hashedBytes: number, totalBytes: number) => void;
+    onResume?: (offset: number) => void;
+    onChunk?: (n: number) => void;
+  } = {},
+): Promise<number> {
+  const {signal, onVerify, onResume, onChunk} = hooks;
+  await fsp.mkdir(path.dirname(dstFull), {recursive: true});
+  const offset = await resumeOffset(srcFull, dstFull, onVerify);
+  onResume?.(offset);
+  const srcSize = (await fsp.stat(srcFull)).size;
+  // Skip the stream only when a resume found the destination already complete;
+  // offset 0 always streams, so an empty source still creates its destination.
+  if (offset === 0 || offset < srcSize) {
+    const rs = createReadStream(srcFull, {start: offset});
+    if (onChunk)
+      rs.on('data', (chunk: Buffer | string) => onChunk(chunk.length));
+    // Append on resume; otherwise truncate whatever partial mismatch is there.
+    const ws = createWriteStream(dstFull, offset > 0 ? {flags: 'a'} : {});
+    await pipeline(rs, ws, {signal});
+  }
+  return offset;
+}
+
+/**
+ * Copy a file and its `.tjmeta.json` sidecar (if present) to `dstFull`. Wraps
+ * `streamCopyResumable` (resume, cross-filesystem stream) and adds the sidecar.
+ * `onBytes` reports copied chunk sizes of the model file for progress —
+ * including, up front, the bytes a resume skipped — so progress still sums to
+ * the full file size; the sidecar is tiny and not counted.
  */
 export async function copyFileWithMeta(
   srcFull: string,
   dstFull: string,
   onBytes?: (n: number) => void,
 ): Promise<void> {
-  await fsp.mkdir(path.dirname(dstFull), {recursive: true});
-  const offset = await resumeOffset(srcFull, dstFull);
-  if (offset > 0 && onBytes) onBytes(offset);
-  const srcSize = (await fsp.stat(srcFull)).size;
-  // Skip the stream only when a resume found the destination already complete;
-  // offset 0 always streams, so an empty source still creates its destination.
-  if (offset === 0 || offset < srcSize) {
-    await new Promise<void>((resolve, reject) => {
-      const rs = createReadStream(srcFull, {start: offset});
-      // Append on resume; otherwise truncate whatever partial mismatch is there.
-      const ws = createWriteStream(dstFull, offset > 0 ? {flags: 'a'} : {});
-      if (onBytes)
-        rs.on('data', (chunk: Buffer | string) => onBytes(chunk.length));
-      rs.once('error', reject);
-      ws.once('error', reject);
-      ws.once('finish', resolve);
-      rs.pipe(ws);
-    });
-  }
+  await streamCopyResumable(srcFull, dstFull, {
+    // Report the skipped prefix up front, before the streamed remainder, so
+    // progress sums to the full size in prefix-then-chunks order.
+    onResume: (offset) => {
+      if (offset > 0 && onBytes) onBytes(offset);
+    },
+    onChunk: onBytes,
+  });
 
   // Copy the sidecar alongside if it exists; absence is fine.
   try {

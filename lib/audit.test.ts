@@ -22,6 +22,7 @@ import {
   refreshMetaSource,
   resolveSource,
   resumeOffset,
+  streamCopyResumable,
   updateMeta,
   writeMeta,
   metaPath,
@@ -1016,6 +1017,72 @@ test('copyFileWithMeta tolerates a file with no sidecar', async () => {
 
   expect(await fsp.readFile(dst, 'utf8')).toBe('data');
   expect(await readMeta(dst)).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('streamCopyResumable copies from scratch, reporting offset 0 and chunks only', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scr-'));
+  const src = path.join(base, 'm.gguf');
+  await fsp.writeFile(src, 'hello world');
+  const dst = path.join(base, 'sub', 'm.gguf'); // parent dir created by the copy
+
+  let resumeArg = -1;
+  const chunks: number[] = [];
+  const offset = await streamCopyResumable(src, dst, {
+    onResume: (o) => (resumeArg = o),
+    onChunk: (n) => chunks.push(n),
+  });
+
+  expect(offset).toBe(0);
+  expect(resumeArg).toBe(0); // onResume fires even with no prefix
+  expect(await fsp.readFile(dst, 'utf8')).toBe('hello world');
+  // The whole file streams; the prefix path (offset 0) reports nothing extra.
+  expect(chunks.reduce((a, b) => a + b, 0)).toBe('hello world'.length);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('streamCopyResumable keeps a verified prefix: onResume gets the offset, onChunk only the tail', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scr-'));
+  const src = path.join(base, 'm.gguf');
+  await fsp.writeFile(src, 'hello world');
+  const dst = path.join(base, 'm.gguf.partial');
+  await fsp.writeFile(dst, 'hello'); // a matching prefix
+
+  let resumeArg = -1;
+  let verifyCalls = 0;
+  const chunks: number[] = [];
+  const offset = await streamCopyResumable(src, dst, {
+    onVerify: () => verifyCalls++,
+    onResume: (o) => (resumeArg = o),
+    onChunk: (n) => chunks.push(n),
+  });
+
+  expect(offset).toBe('hello'.length);
+  expect(resumeArg).toBe('hello'.length);
+  expect(verifyCalls).toBeGreaterThan(0); // a partial was hash-verified
+  expect(await fsp.readFile(dst, 'utf8')).toBe('hello world');
+  // onChunk sees only the streamed tail; the prefix is the caller's to account
+  // for via the offset.
+  expect(chunks.reduce((a, b) => a + b, 0)).toBe(
+    'hello world'.length - 'hello'.length,
+  );
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('streamCopyResumable skips the stream when the destination is already complete', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scr-'));
+  const src = path.join(base, 'm.gguf');
+  await fsp.writeFile(src, 'hello world');
+  const dst = path.join(base, 'm.gguf.done');
+  await fsp.writeFile(dst, 'hello world');
+
+  const chunks: number[] = [];
+  const offset = await streamCopyResumable(src, dst, {
+    onChunk: (n) => chunks.push(n),
+  });
+
+  expect(offset).toBe('hello world'.length);
+  expect(chunks).toEqual([]); // nothing streamed
   await fsp.rm(base, {recursive: true, force: true});
 });
 
