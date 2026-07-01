@@ -2,7 +2,7 @@
 
 import {useState, useMemo, useCallback, useEffect, useRef} from 'react';
 import {useRouter} from 'next/navigation';
-import {locationHref} from '@/lib/locations';
+import {locationHref, lemonadeHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
@@ -38,11 +38,7 @@ import {
 } from '@/components/models/conflicts-modal';
 import {useInventoryLocations} from '@/components/models/use-inventory-locations';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
-import {
-  ModelKindTabs,
-  type ModelKind,
-} from '@/components/models/model-kind-tabs';
-import {LemonadeBrowser} from '@/components/lemonade/lemonade-browser';
+import {ModelKindTabs} from '@/components/models/model-kind-tabs';
 import {SetSourceModal} from '@/components/models/set-source-modal';
 import {RevisionsModal} from '@/components/models/revisions-modal';
 import {
@@ -141,17 +137,13 @@ export function HomeClient({
   localPeerModels: Model[];
 }) {
   const router = useRouter();
-  const {
-    peerModels,
-    handleModelsRefreshed,
-    seededPeerModels,
-    inventoryLocations,
-  } = useInventoryLocations({
-    peerConfigs,
-    localPeerAddress,
-    localPeerModels,
-    coldModels,
-  });
+  const {peerModels, handleModelsRefreshed, seededPeerModels} =
+    useInventoryLocations({
+      peerConfigs,
+      localPeerAddress,
+      localPeerModels,
+      coldModels,
+    });
 
   // Re-fetch a peer's models and push the result into the polled map, so a
   // mutation (download finishing, a delete) is reflected immediately instead
@@ -174,15 +166,8 @@ export function HomeClient({
     [handleModelsRefreshed],
   );
 
-  // Re-scan the local peer's models so download-status markers (e.g. in the
-  // Lemonade browser) reflect a just-finished download immediately.
-  const refreshLocalModels = useCallback(async () => {
-    const local = peerConfigs.find((p) => p.isLocal);
-    if (local) await refreshPeerModels(local);
-  }, [peerConfigs, refreshPeerModels]);
   const [models, setModels] = useState(modelsTableData);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [modelKind, setModelKind] = useState<ModelKind>('turbo-jumbo');
   const [auditResults, setAuditResults] = useState<Map<string, AuditResult>>(
     new Map(),
   );
@@ -258,7 +243,6 @@ export function HomeClient({
     setPrevModels(modelsTableData);
     setModels(modelsTableData);
     setSelected(new Set());
-    setModelKind('turbo-jumbo');
     resetAudit();
   }
 
@@ -962,60 +946,53 @@ export function HomeClient({
           onLocationChange={handleLocationChange}
         />
         {showKindTabs && (
-          <ModelKindTabs value={modelKind} onChange={setModelKind} />
+          <ModelKindTabs
+            value="turbo-jumbo"
+            onChange={(kind) => {
+              if (kind === 'lemonade') {
+                router.push(lemonadeHref(activeLocation, peerConfigs));
+              }
+            }}
+          />
         )}
 
-        {showKindTabs && modelKind === 'lemonade' ? (
-          <LemonadeBrowser
+        {localModelsPath && canDownloadLocally && (
+          <HuggingFaceDownload
+            localModelsPath={localModelsPath}
             hfTokenSet={hfTokenSet}
-            localModelsPath={localModelsPath ?? ''}
-            inventoryLocations={inventoryLocations}
-            canDownload={canDownloadLocally}
-            onDownloaded={refreshLocalModels}
           />
-        ) : (
-          <>
-            {localModelsPath && canDownloadLocally && (
-              <HuggingFaceDownload
-                localModelsPath={localModelsPath}
-                hfTokenSet={hfTokenSet}
-              />
-            )}
-            {checkingUpdates && (
-              <Text type="supporting">Checking Hugging Face for updates…</Text>
-            )}
-            <ModelsTableClient
-              models={tableModels}
-              peers={peerConfigs}
-              peerModels={seededPeerModels}
-              selected={selected}
-              onToggleSelected={onToggleSelected}
-              locations={locations}
-              activeLocation={activeLocation}
-              auditResults={auditResults}
-              auditedPaths={auditedPaths}
-              auditing={auditing}
-              auditProgress={auditProgress}
-              auditStarted={auditStarted}
-              updateResults={updateResults}
-              onClearAudit={resetAudit}
-              onFixMisplaced={onFix}
-              fixing={fixing}
-              onSetSource={onSetSource}
-              onRedownload={
-                auditLocation === 'local' ? onRedownload : undefined
-              }
-              onShowRevisions={setRevisionsFile}
-              redownloading={redownload.running}
-              onFixColdIncomplete={
-                localPeerAddress ? onFixColdIncomplete : undefined
-              }
-              coldFixing={copying}
-              onFixDuplicate={onFixDuplicate}
-              fixingDuplicate={fixingDuplicate}
-            />
-          </>
         )}
+        {checkingUpdates && (
+          <Text type="supporting">Checking Hugging Face for updates…</Text>
+        )}
+        <ModelsTableClient
+          models={tableModels}
+          peers={peerConfigs}
+          peerModels={seededPeerModels}
+          selected={selected}
+          onToggleSelected={onToggleSelected}
+          locations={locations}
+          activeLocation={activeLocation}
+          auditResults={auditResults}
+          auditedPaths={auditedPaths}
+          auditing={auditing}
+          auditProgress={auditProgress}
+          auditStarted={auditStarted}
+          updateResults={updateResults}
+          onClearAudit={resetAudit}
+          onFixMisplaced={onFix}
+          fixing={fixing}
+          onSetSource={onSetSource}
+          onRedownload={auditLocation === 'local' ? onRedownload : undefined}
+          onShowRevisions={setRevisionsFile}
+          redownloading={redownload.running}
+          onFixColdIncomplete={
+            localPeerAddress ? onFixColdIncomplete : undefined
+          }
+          coldFixing={copying}
+          onFixDuplicate={onFixDuplicate}
+          fixingDuplicate={fixingDuplicate}
+        />
         {error && <Banner status="error" title={`Error: ${error}`} />}
         <ActionBar
           selected={selected}

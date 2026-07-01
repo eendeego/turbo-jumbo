@@ -8,9 +8,10 @@ import {
   localPeer,
 } from '@/lib/config';
 import {scanModels} from '@/lib/models';
-import {resolveLocation} from '@/lib/locations';
+import {parseRoute} from '@/lib/locations';
 import {getModelsTableData} from '@/components/models/models-table';
 import {HomeClient} from '@/components/home/home-client';
+import {LemonadeClient} from '@/components/lemonade/lemonade-client';
 
 export function generateMetadata(): Metadata {
   return {title: `Turbo Jumbo - ${localPeer?.name ?? 'unknown'}`};
@@ -26,17 +27,33 @@ export default async function Home({
   params: Promise<{location?: string[]}>;
 }) {
   const {location} = await params;
-  const activeLocation = resolveLocation(location, config.peers);
-  if (activeLocation === null) notFound();
+  const route = parseRoute(location, config.peers);
+  if (route === null) notFound();
+  const {location: activeLocation, view} = route;
 
   const coldModels = scanModels(coldStorageDir);
   const localModels = scanModels(localModelsDir, lemonadeDir);
-  const modelsTableData = getModelsTableData(localModels, coldModels);
   const peerConfigs = config.peers.map((p) => ({
     ...p,
     isLocal: p === localPeer,
   }));
 
+  if (view === 'lemonade') {
+    return (
+      <LemonadeClient
+        activeLocation={activeLocation}
+        coldModels={coldModels}
+        localModelsPath={localModelsDir ?? ''}
+        hfTokenSet={!!process.env.HF_TOKEN}
+        logLevel={config.log_level ?? 'info'}
+        peerConfigs={peerConfigs}
+        localPeerAddress={localPeer?.address ?? null}
+        localPeerModels={localModels}
+      />
+    );
+  }
+
+  const modelsTableData = getModelsTableData(localModels, coldModels);
   return (
     <HomeClient
       activeLocation={activeLocation}
