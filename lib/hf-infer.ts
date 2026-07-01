@@ -1,3 +1,5 @@
+import {logger} from '@/lib/logger';
+
 export interface HfFileInfo {
   repoId: string;
   branch: string;
@@ -108,11 +110,17 @@ async function fetchTree(
   for (let page = 0; url && page < MAX_TREE_PAGES; page++) {
     try {
       const res = await fetch(url, {headers: HEADERS});
-      if (!res.ok) break;
+      if (!res.ok) {
+        logger.debug(`[hf] tree ${repoId}@${branch}: HTTP ${res.status}`);
+        break;
+      }
       const entries = (await res.json()) as HfTreeEntry[];
       result = result ? result.concat(entries) : entries;
       url = nextPageUrl(res.headers.get('link'));
-    } catch {
+    } catch (e) {
+      // A thrown error (network fault, non-JSON body) is not the same as a
+      // clean 404 — surface it so a truncated/empty tree isn't a silent mystery.
+      logger.debug(`[hf] tree ${repoId}@${branch} fetch failed:`, e);
       break;
     }
   }
@@ -133,10 +141,14 @@ async function resolveHfFile(
       )}&filter=gguf&limit=${SEARCH_LIMIT}`,
       {headers: HEADERS},
     );
-  } catch {
+  } catch (e) {
+    logger.debug(`[hf] search "${modelName}" fetch failed:`, e);
     return null;
   }
-  if (!searchRes.ok) return null;
+  if (!searchRes.ok) {
+    logger.debug(`[hf] search "${modelName}": HTTP ${searchRes.status}`);
+    return null;
+  }
   const candidates = (await searchRes.json()) as HfSearchEntry[];
 
   for (const candidate of candidates) {
@@ -262,12 +274,16 @@ export async function listHfCommits(
   for (let page = 0; url && page < MAX_COMMIT_PAGES; page++) {
     try {
       const res = await fetch(url, {headers: HEADERS});
-      if (!res.ok) break;
+      if (!res.ok) {
+        logger.debug(`[hf] commits ${repoId}@${branch}: HTTP ${res.status}`);
+        break;
+      }
       const commits = (await res.json()) as Array<{id: string; date?: string}>;
       const refs = commits.map((c) => ({id: c.id, date: c.date ?? ''}));
       result = result ? result.concat(refs) : refs;
       url = nextPageUrl(res.headers.get('link'));
-    } catch {
+    } catch (e) {
+      logger.debug(`[hf] commits ${repoId}@${branch} fetch failed:`, e);
       break;
     }
   }
@@ -298,8 +314,11 @@ export async function resolveHfHead(
     if (res.ok) {
       const info = (await res.json()) as {sha?: string; lastModified?: string};
       if (info.sha) result = {id: info.sha, date: info.lastModified ?? ''};
+    } else {
+      logger.debug(`[hf] head ${repoId}@${branch}: HTTP ${res.status}`);
     }
-  } catch {
+  } catch (e) {
+    logger.debug(`[hf] head ${repoId}@${branch} fetch failed:`, e);
     result = null;
   }
   headCache.set(key, result);
@@ -338,8 +357,16 @@ export async function resolveHfFileAtRevision(
         (e) => e.type === 'file' && e.path === repoPath,
       );
       result = match ? treeEntryToInfo(repoId, branch, match) : null;
+    } else {
+      logger.debug(
+        `[hf] paths-info ${repoId}@${revision} ${repoPath}: HTTP ${res.status}`,
+      );
     }
-  } catch {
+  } catch (e) {
+    logger.debug(
+      `[hf] paths-info ${repoId}@${revision} ${repoPath} fetch failed:`,
+      e,
+    );
     result = null;
   }
   revisionCache.set(key, result);

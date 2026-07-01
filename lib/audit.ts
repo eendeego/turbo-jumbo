@@ -13,6 +13,7 @@ import {
   resolveHfHead,
   type HfFileInfo,
 } from '@/lib/hf-infer';
+import {logger} from '@/lib/logger';
 import {repoIdFromModelUrl} from '@/lib/model-name';
 import {
   metaToEntry,
@@ -393,10 +394,24 @@ export function metaPath(fullPath: string): string {
 }
 
 export async function readMeta(fullPath: string): Promise<TjMeta | null> {
+  const file = metaPath(fullPath);
+  let raw: string;
   try {
-    const raw = await fsp.readFile(metaPath(fullPath), 'utf8');
+    raw = await fsp.readFile(file, 'utf8');
+  } catch (e) {
+    // A missing sidecar is the common, expected case (most files have none);
+    // anything else (a permission error, an I/O fault) is worth surfacing.
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      logger.warn(`[meta] failed to read ${file}:`, e);
+    }
+    return null;
+  }
+  try {
     return JSON.parse(raw) as TjMeta;
-  } catch {
+  } catch (e) {
+    // A corrupt sidecar is a real problem, not the same as "no record" — log it
+    // rather than silently re-resolving and overwriting whatever it held.
+    logger.warn(`[meta] ignoring unparseable sidecar ${file}:`, e);
     return null;
   }
 }

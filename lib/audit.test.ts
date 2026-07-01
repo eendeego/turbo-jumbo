@@ -1020,6 +1020,23 @@ test('copyFileWithMeta tolerates a file with no sidecar', async () => {
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('readMeta returns null for a missing sidecar', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-meta-'));
+  const full = path.join(base, 'm.gguf'); // no .tjmeta.json beside it
+  expect(await readMeta(full)).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('readMeta returns null (does not throw) for a corrupt sidecar', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-meta-'));
+  const full = path.join(base, 'm.gguf');
+  await fsp.writeFile(metaPath(full), '{ not valid json');
+  // A corrupt sidecar is ignored like an absent one (null), rather than
+  // throwing — the audit re-resolves the source.
+  expect(await readMeta(full)).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('streamCopyResumable copies from scratch, reporting offset 0 and chunks only', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scr-'));
   const src = path.join(base, 'm.gguf');
