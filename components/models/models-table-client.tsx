@@ -1567,8 +1567,9 @@ export function ModelsTableClient({
     {
       key: 'size',
       header: 'Size',
-      // Fits a two-ended range ("12.3 GB – 45.6 GB") plus the mismatch icon.
-      width: pixel(160),
+      // A two-ended range ("12.3 GB – 45.6 GB") plus the mismatch icon needs
+      // ~160px; give it headroom for larger ranges.
+      width: pixel(200),
       align: 'end',
       renderCell: (item) => (
         <HStack gap={1} vAlign="center" hAlign="end">
