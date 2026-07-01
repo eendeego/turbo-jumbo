@@ -10,6 +10,7 @@ import {Banner} from '@astryxdesign/core/Banner';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {AsyncState} from '@/lib/async-state';
+import {withPeerPaths} from '@/lib/peer-paths';
 import type {ModelRow} from '@/components/models/models-table-client';
 import {ModelsTableClient} from '@/components/models/models-table-client';
 import {
@@ -695,9 +696,22 @@ export function HomeClient({
     return seeded;
   }, [peerModels, localPeerAddress, localPeerModels]);
 
+  // On a remote peer's tab, quants must carry the peer's own paths: audit,
+  // copy and delete all resolve paths on the peer, whose storage layout can
+  // differ from the local one.
+  const tableModels = useMemo(() => {
+    const peer = peerConfigs.find(
+      (p) => p.address === activeLocation && !p.isLocal,
+    );
+    if (!peer) return models;
+    const lo = peerModels.get(peer.address);
+    if (!lo || lo.type !== 'value') return models;
+    return withPeerPaths(models, lo.value);
+  }, [models, peerConfigs, activeLocation, peerModels]);
+
   const fileInfo = useMemo(
-    () => selectedFileInfo(models, selected),
-    [models, selected],
+    () => selectedFileInfo(tableModels, selected),
+    [tableModels, selected],
   );
 
   return (
@@ -722,7 +736,7 @@ export function HomeClient({
           />
         )}
         <ModelsTableClient
-          models={models}
+          models={tableModels}
           peers={peerConfigs}
           peerModels={seededPeerModels}
           selected={selected}
