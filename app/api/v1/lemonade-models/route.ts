@@ -1,6 +1,7 @@
 import {
   collectionFromManifest,
   parseLemonade,
+  type LemonadeComponent,
   type LemonadeModel,
   type OmniCollection,
   type OmniManifestRef,
@@ -16,6 +17,7 @@ const CATALOG_URL =
 const CACHE_TTL_MS = 5 * 60 * 1000;
 let cache: {
   models: LemonadeModel[];
+  extraModels: LemonadeComponent[];
   collections: OmniCollection[];
   fetchedAt: number;
 } | null = null;
@@ -44,6 +46,7 @@ export async function GET() {
   if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
     return Response.json({
       models: cache.models,
+      extraModels: cache.extraModels,
       collections: cache.collections,
     });
   }
@@ -74,6 +77,7 @@ export async function GET() {
   }
   const {
     models,
+    extraModels,
     collections: inlineCollections,
     manifestRefs,
   } = parseLemonade(catalog);
@@ -82,6 +86,6 @@ export async function GET() {
     manifestRefs.map((ref) => fetchManifestCollection(ref, downloadableNames)),
   );
   const collections = [...inlineCollections, ...manifestCollections];
-  cache = {models, collections, fetchedAt: Date.now()};
-  return Response.json({models, collections});
+  cache = {models, extraModels, collections, fetchedAt: Date.now()};
+  return Response.json({models, extraModels, collections});
 }

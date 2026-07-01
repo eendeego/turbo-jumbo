@@ -21,6 +21,7 @@ import {ModelLabelIcon} from '@/components/lemonade/model-label-icon';
 import {sortLabelsForDisplay} from '@/lib/lemonade-labels';
 import type {Model} from '@/lib/models';
 import {
+  catalogSection,
   collectionDownloadPlan,
   collectionDownloadStatus,
   componentDownloadStatus,
@@ -32,6 +33,7 @@ import {
   missingVariantFiles,
   planRepoJobs,
   resolveCheckpointFiles,
+  type CatalogSection,
   type Checkpoint,
   type InventoryLocation,
   type LemonadeComponent,
@@ -40,17 +42,52 @@ import {
   type OmniCollection,
 } from '@/lib/lemonade';
 
+// The catalog's modality sections, in display order. The niche ONNX (Ryzen AI)
+// and vLLM LLM backends sit below the media sections to keep the top focused.
+const SECTION_LABELS: Record<CatalogSection, string> = {
+  llm: 'Language models',
+  vision: 'Vision models',
+  embeddings: 'Embeddings',
+  reranking: 'Rerankers',
+  image: 'Image models',
+  transcription: 'Speech-to-text',
+  tts: 'Text-to-speech',
+  onnx: 'ONNX (Ryzen AI)',
+  vllm: 'vLLM',
+  other: 'Other',
+};
+const SECTION_ORDER: CatalogSection[] = [
+  'llm',
+  'vision',
+  'embeddings',
+  'reranking',
+  'image',
+  'transcription',
+  'tts',
+  'onnx',
+  'vllm',
+  'other',
+];
+
+// A row in a modality section: a single-file GGUF model or a standalone
+// non-llamacpp model (rendered as a component).
+type CatalogRow =
+  | {kind: 'model'; model: LemonadeModel}
+  | {kind: 'component'; component: LemonadeComponent};
+
 type HfFile = {path: string; size: number};
 
 // What's currently picked for download: a standalone model, one component of a
 // collection, or a whole collection.
 type Selection =
   | {kind: 'model'; model: LemonadeModel}
+  | {kind: 'standalone'; component: LemonadeComponent}
   | {kind: 'component'; collectionName: string; component: LemonadeComponent}
   | {kind: 'collection'; collection: OmniCollection};
 
 function selectionKey(s: Selection): string {
   if (s.kind === 'model') return `model:${s.model.name}`;
+  if (s.kind === 'standalone') return `standalone:${s.component.name}`;
   if (s.kind === 'collection') return `coll:${s.collection.name}`;
   return `comp:${s.collectionName}:${s.component.name}`;
 }
@@ -154,6 +191,18 @@ function componentEndContent(
   );
 }
 
+// A non-interactive divider titling a modality section in the catalog list.
+function SectionHeader({label, count}: {label: string; count?: number}) {
+  return (
+    <ListItem
+      label={label}
+      description={
+        count != null ? `${count} model${count === 1 ? '' : 's'}` : undefined
+      }
+    />
+  );
+}
+
 // The download-status marker shared by model rows and collection children.
 function StatusMarker({info}: {info: LemonadeDownloadInfo | undefined}) {
   if (!info || info.status === 'none') return null;
@@ -194,6 +243,7 @@ export function LemonadeBrowser({
   onDownloaded?: () => void;
 }) {
   const [models, setModels] = useState<LemonadeModel[] | null>(null);
+  const [extraModels, setExtraModels] = useState<LemonadeComponent[]>([]);
   const [collections, setCollections] = useState<OmniCollection[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -215,6 +265,7 @@ export function LemonadeBrowser({
         const res = await fetch('/api/v1/lemonade-models');
         const data = (await res.json().catch(() => null)) as {
           models?: LemonadeModel[];
+          extraModels?: LemonadeComponent[];
           collections?: OmniCollection[];
           error?: string;
         } | null;
@@ -224,6 +275,7 @@ export function LemonadeBrowser({
           return;
         }
         setModels(data.models);
+        setExtraModels(data.extraModels ?? []);
         setCollections(data.collections ?? []);
       } catch (e) {
         if (!cancelled) {
@@ -236,7 +288,7 @@ export function LemonadeBrowser({
     };
   }, []);
 
-  const visible = useMemo(() => {
+  const visibleModels = useMemo(() => {
     if (!models) return [];
     const needle = filter.trim().toLowerCase();
     if (!needle) return models;
@@ -246,6 +298,16 @@ export function LemonadeBrowser({
       ),
     );
   }, [models, filter]);
+
+  const visibleExtra = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    if (!needle) return extraModels;
+    return extraModels.filter((c) =>
+      [c.name, c.recipe, ...c.checkpoints.map((cp) => cp.repoId)].some((s) =>
+        s.toLowerCase().includes(needle),
+      ),
+    );
+  }, [extraModels, filter]);
 
   const visibleCollections = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -283,6 +345,43 @@ export function LemonadeBrowser({
     }
     return map;
   }, [models, lemonadeCacheModels]);
+
+  // Download status + cache presence for the non-llamacpp standalone models,
+  // computed the same way as omni members.
+  const extraStatusByName = useMemo(() => {
+    const map = new Map<string, LemonadeDownloadInfo>();
+    for (const c of extraModels) {
+      map.set(c.name, componentDownloadStatus(c, inventoryLocations));
+    }
+    return map;
+  }, [extraModels, inventoryLocations]);
+  const extraInCacheByName = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const c of extraModels) {
+      map.set(c.name, componentInLemonadeCache(c, lemonadeCacheModels));
+    }
+    return map;
+  }, [extraModels, lemonadeCacheModels]);
+
+  // The flat catalog, grouped into ordered modality sections (GGUF models and
+  // standalone non-llamacpp models together).
+  const sections = useMemo(() => {
+    const byCat = new Map<CatalogSection, CatalogRow[]>();
+    const push = (key: CatalogSection, row: CatalogRow) => {
+      const rows = byCat.get(key);
+      if (rows) rows.push(row);
+      else byCat.set(key, [row]);
+    };
+    for (const m of visibleModels)
+      push(catalogSection('llamacpp', m.labels), {kind: 'model', model: m});
+    for (const c of visibleExtra)
+      push(catalogSection(c.recipe, []), {kind: 'component', component: c});
+    return SECTION_ORDER.map((key) => ({
+      key,
+      label: SECTION_LABELS[key],
+      rows: byCat.get(key) ?? [],
+    })).filter((s) => s.rows.length > 0);
+  }, [visibleModels, visibleExtra]);
 
   const selectedKey = selection ? selectionKey(selection) : null;
   const selLabel = selection ? selectionLabel(selection) : null;
@@ -378,7 +477,7 @@ export function LemonadeBrowser({
   const onDownload = () => {
     if (!selection) return;
     if (selection.kind === 'model') return void startModel(selection.model);
-    if (selection.kind === 'component')
+    if (selection.kind === 'standalone' || selection.kind === 'component')
       return void startPlan(
         selection.component.checkpoints,
         selection.component.name,
@@ -437,12 +536,16 @@ export function LemonadeBrowser({
               />
             </StackItem>
             <Text type="supporting">
-              {visible.length} / {models.length} models
+              {visibleModels.length + visibleExtra.length} /{' '}
+              {models.length + extraModels.length} models
             </Text>
           </HStack>
         )}
         {models != null && (
           <List hasDividers xstyle={styles.modelList}>
+            {visibleCollections.length > 0 && (
+              <SectionHeader label="Omni models" />
+            )}
             {visibleCollections.map((c) => {
               const isExpanded = expanded.has(c.name);
               const aggregate = collectionDownloadStatus(c, inventoryLocations);
@@ -533,21 +636,53 @@ export function LemonadeBrowser({
                 </Fragment>
               );
             })}
-            {visible.map((m) => (
-              <ListItem
-                key={m.name}
-                label={m.name}
-                description={`${m.repoId}${m.variant ? `:${m.variant}` : ''}`}
-                isSelected={selectedKey === `model:${m.name}`}
-                onClick={() => setSelection({kind: 'model', model: m})}
-                endContent={modelEndContent(
-                  m,
-                  statusByName.get(m.name),
-                  inCacheByName.get(m.name) ?? false,
+            {sections.map((sec) => (
+              <Fragment key={sec.key}>
+                <SectionHeader label={sec.label} count={sec.rows.length} />
+                {sec.rows.map((row) =>
+                  row.kind === 'model' ? (
+                    <ListItem
+                      key={`m:${row.model.name}`}
+                      label={row.model.name}
+                      description={`${row.model.repoId}${row.model.variant ? `:${row.model.variant}` : ''}`}
+                      isSelected={selectedKey === `model:${row.model.name}`}
+                      onClick={() =>
+                        setSelection({kind: 'model', model: row.model})
+                      }
+                      endContent={modelEndContent(
+                        row.model,
+                        statusByName.get(row.model.name),
+                        inCacheByName.get(row.model.name) ?? false,
+                      )}
+                    />
+                  ) : (
+                    <ListItem
+                      key={`c:${row.component.name}`}
+                      label={row.component.name}
+                      description={componentSecondary(row.component)}
+                      isSelected={
+                        selectedKey === `standalone:${row.component.name}`
+                      }
+                      onClick={() =>
+                        setSelection({
+                          kind: 'standalone',
+                          component: row.component,
+                        })
+                      }
+                      endContent={componentEndContent(
+                        row.component,
+                        extraStatusByName.get(row.component.name) ?? {
+                          status: 'none',
+                          locations: [],
+                        },
+                        extraInCacheByName.get(row.component.name) ?? false,
+                      )}
+                    />
+                  ),
                 )}
-              />
+              </Fragment>
             ))}
-            {visible.length === 0 && visibleCollections.length === 0 && (
+            {sections.length === 0 && visibleCollections.length === 0 && (
               <ListItem label="No models match the filter." />
             )}
           </List>

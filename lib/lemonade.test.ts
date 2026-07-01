@@ -1,5 +1,6 @@
 import {test, expect} from 'bun:test';
 import {
+  catalogSection,
   collectionDownloadPlan,
   collectionDownloadStatus,
   collectionFromManifest,
@@ -231,6 +232,63 @@ test('parseLemonade sums component sizes when an inline collection declares none
     Combo: {checkpoint: '', recipe: 'collection.omni', components: ['A', 'B']},
   });
   expect(collections[0].sizeGb).toBe(5);
+});
+
+test('catalogSection routes recipes, and splits llamacpp by label', () => {
+  expect(catalogSection('llamacpp', [])).toBe('llm');
+  expect(catalogSection('llamacpp', ['vision'])).toBe('vision');
+  expect(catalogSection('llamacpp', ['embeddings'])).toBe('embeddings');
+  expect(catalogSection('llamacpp', ['reranking'])).toBe('reranking');
+  expect(catalogSection('ryzenai-llm', [])).toBe('onnx');
+  expect(catalogSection('vllm', [])).toBe('vllm');
+  expect(catalogSection('sd-cpp', [])).toBe('image');
+  expect(catalogSection('whispercpp', [])).toBe('transcription');
+  expect(catalogSection('moonshine', [])).toBe('transcription');
+  expect(catalogSection('kokoro', [])).toBe('tts');
+  expect(catalogSection('something-new', [])).toBe('other');
+});
+
+test('parseLemonade collects non-llamacpp standalone models as downloadable components', () => {
+  const {models, extraModels} = parseLemonade({
+    'Qwen-GGUF': {checkpoint: 'o/Qwen-GGUF:Q4_0', recipe: 'llamacpp', size: 1},
+    'kokoro-v1': {
+      checkpoint: 'mikkoph/kokoro-onnx',
+      recipe: 'kokoro',
+      labels: ['tts'],
+      size: 0.3,
+    },
+    'SD-Turbo': {
+      checkpoint: 'stabilityai/sd-turbo:sd.safetensors',
+      recipe: 'sd-cpp',
+      size: 5,
+    },
+    Combo: {
+      checkpoint: '',
+      recipe: 'collection.omni',
+      components: ['Qwen-GGUF'],
+    },
+  });
+  // llamacpp stays in `models`; only the rest land in `extraModels`.
+  expect(models.map((m) => m.name)).toEqual(['Qwen-GGUF']);
+  expect(extraModels.map((c) => c.name).sort()).toEqual([
+    'SD-Turbo',
+    'kokoro-v1',
+  ]);
+  const kokoro = extraModels.find((c) => c.name === 'kokoro-v1')!;
+  expect(kokoro.recipe).toBe('kokoro');
+  expect(kokoro.modality).toBe('tts');
+  expect(kokoro.downloadable).toBe(true);
+  expect(kokoro.checkpoints).toEqual([
+    {repoId: 'mikkoph/kokoro-onnx', variant: null},
+  ]);
+});
+
+test('parseLemonade marks a standalone model non-downloadable when it resolves no checkpoints', () => {
+  const {extraModels} = parseLemonade({
+    Weird: {recipe: 'sd-cpp', size: 1}, // no checkpoint(s)
+  });
+  expect(extraModels).toHaveLength(1);
+  expect(extraModels[0].downloadable).toBe(false);
 });
 
 test('collectionFromManifest keeps the declared collection size over the sum', () => {

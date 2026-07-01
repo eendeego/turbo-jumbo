@@ -66,8 +66,56 @@ export interface OmniManifestRef {
 
 export interface ParsedLemonade {
   models: LemonadeModel[]; // llamacpp GGUF models, as before
+  // Every other standalone catalog entry (ONNX/vLLM LLMs, image, speech, TTS),
+  // as components — they carry their own checkpoints and download like an omni
+  // member, just not via the single-file GGUF path.
+  extraModels: LemonadeComponent[];
   collections: OmniCollection[]; // inline omni collections, fully resolved
   manifestRefs: OmniManifestRef[]; // omni collections needing a manifest fetch
+}
+
+// Which section a catalog entry belongs to, for the modality-split catalog.
+export type CatalogSection =
+  | 'llm'
+  | 'vision'
+  | 'embeddings'
+  | 'reranking'
+  | 'image'
+  | 'transcription'
+  | 'tts'
+  | 'onnx'
+  | 'vllm'
+  | 'other';
+
+/**
+ * The display section for a catalog entry, from its recipe and labels. Embedding
+ * and reranking models (always llamacpp) split off by label; the GGUF LLMs are
+ * their own section (vision GGUFs split out), and the ONNX (Ryzen AI) and vLLM
+ * LLM backends each get their own; the remaining recipes map to their modality.
+ */
+export function catalogSection(
+  recipe: string,
+  labels: string[],
+): CatalogSection {
+  if (labels.includes('embeddings')) return 'embeddings';
+  if (labels.includes('reranking')) return 'reranking';
+  switch (recipe) {
+    case 'llamacpp':
+      return labels.includes('vision') ? 'vision' : 'llm';
+    case 'ryzenai-llm':
+      return 'onnx';
+    case 'vllm':
+      return 'vllm';
+    case 'sd-cpp':
+      return 'image';
+    case 'whispercpp':
+    case 'moonshine':
+      return 'transcription';
+    case 'kokoro':
+      return 'tts';
+    default:
+      return 'other';
+  }
 }
 
 const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -221,15 +269,24 @@ function toComponent(
   };
 }
 
+// A standalone non-llamacpp catalog entry, as a component. Downloadable when it
+// resolves to at least one checkpoint (fetched through the omni-member path).
+function toStandaloneModel(name: string, raw: unknown): LemonadeComponent {
+  const c = toComponent(name, raw, new Set());
+  return {...c, downloadable: c.checkpoints.length > 0};
+}
+
 /**
- * Parse the Lemonade catalog into its llamacpp models, its inline omni
- * collections (components resolved by catalog-name lookup), and references to
- * the omni collections whose components live in a manifest repo — those are
- * fetched and resolved separately with `collectionFromManifest`.
+ * Parse the Lemonade catalog into its llamacpp models, every other standalone
+ * model (`extraModels`), its inline omni collections (components resolved by
+ * catalog-name lookup), and references to the omni collections whose components
+ * live in a manifest repo — those are fetched and resolved separately with
+ * `collectionFromManifest`.
  */
 export function parseLemonade(catalog: unknown): ParsedLemonade {
   const models = lemonadeGgufModels(catalog);
   const downloadableNames = new Set(models.map((m) => m.name));
+  const extraModels: LemonadeComponent[] = [];
   const collections: OmniCollection[] = [];
   const manifestRefs: OmniManifestRef[] = [];
   if (catalog && typeof catalog === 'object' && !Array.isArray(catalog)) {
@@ -244,6 +301,15 @@ export function parseLemonade(catalog: unknown): ParsedLemonade {
         components?: unknown;
         checkpoint?: unknown;
       };
+      // Standalone non-llamacpp models (llamacpp ones are already in `models`).
+      if (
+        e.recipe !== 'collection.omni' &&
+        e.recipe !== 'llamacpp' &&
+        typeof e.recipe === 'string'
+      ) {
+        extraModels.push(toStandaloneModel(name, raw));
+        continue;
+      }
       if (e.recipe !== 'collection.omni') continue;
       const suggested = e.suggested === true;
       const sizeGb = typeof e.size === 'number' ? e.size : 0;
@@ -272,7 +338,7 @@ export function parseLemonade(catalog: unknown): ParsedLemonade {
       }
     }
   }
-  return {models, collections, manifestRefs};
+  return {models, extraModels, collections, manifestRefs};
 }
 
 /**
