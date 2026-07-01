@@ -10,6 +10,7 @@ import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
+import {Link} from '@astryxdesign/core/Link';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Icon} from '@astryxdesign/core/Icon';
 import {
@@ -682,6 +683,17 @@ export function LemonadeBrowser({
                       }
                       endContent={
                         <HStack gap={1} vAlign="center">
+                          {c.manifestUrl && (
+                            <HoverCard content="View the manifest (models.json) this omni model is built from">
+                              <Link
+                                href={c.manifestUrl}
+                                isExternalLink
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                manifest
+                              </Link>
+                            </HoverCard>
+                          )}
                           <Badge label="omni" variant="purple" />
                           <StatusMarker info={aggregate} />
                           <LemonadeCacheMarker

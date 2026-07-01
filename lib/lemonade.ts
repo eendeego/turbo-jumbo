@@ -53,6 +53,10 @@ export interface OmniCollection {
   suggested: boolean;
   sizeGb: number;
   labels: string[];
+  // The manifest (models.json) this omni model is built from, when it's a
+  // manifest-backed collection (a pointer to an HF repo). Absent for inline
+  // collections, whose members are defined directly in the catalog.
+  manifestUrl?: string;
   components: LemonadeComponent[];
 }
 
@@ -368,7 +372,13 @@ export function parseLemonade(catalog: unknown): ParsedLemonade {
  * skipped and a missing `models` array yields an empty (still-rendered) group.
  */
 export function collectionFromManifest(
-  ref: {name: string; suggested: boolean; sizeGb: number; labels: string[]},
+  ref: {
+    name: string;
+    repoId: string;
+    suggested: boolean;
+    sizeGb: number;
+    labels: string[];
+  },
   manifest: unknown,
   downloadableNames: Set<string>,
 ): OmniCollection {
@@ -384,11 +394,15 @@ export function collectionFromManifest(
       }
     }
   }
+  // The manifest lives in the pointer repo as `<repo>.json` (see the route's
+  // fetchManifestCollection); link the human-viewable blob page.
+  const manifestFile = `${ref.repoId.split('/').pop()}.json`;
   return {
     name: ref.name,
     suggested: ref.suggested,
     sizeGb: collectionSize(ref.sizeGb, components),
     labels: ref.labels,
+    manifestUrl: `https://huggingface.co/${ref.repoId}/blob/main/${manifestFile}`,
     components,
   };
 }

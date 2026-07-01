@@ -292,7 +292,13 @@ test('parseLemonade marks a standalone model non-downloadable when it resolves n
 });
 
 test('collectionFromManifest keeps the declared collection size over the sum', () => {
-  const ref = {name: 'X', suggested: false, sizeGb: 9.3, labels: []};
+  const ref = {
+    name: 'X',
+    repoId: 'org/X',
+    suggested: false,
+    sizeGb: 9.3,
+    labels: [],
+  };
   const manifest = {
     models: [
       {model_name: 'A', recipe: 'llamacpp', size: 2},
@@ -324,7 +330,13 @@ test('collectionFromManifest builds components from a fetched manifest', () => {
       },
     ],
   };
-  const ref = {name: 'LMX-Omni-Lite', suggested: true, sizeGb: 9.3, labels: []};
+  const ref = {
+    name: 'LMX-Omni-Lite',
+    repoId: 'lemonade-sdk/LMX-Omni-Lite',
+    suggested: true,
+    sizeGb: 9.3,
+    labels: [],
+  };
   expect(
     collectionFromManifest(ref, manifest, new Set(['Qwen-LLM-GGUF'])),
   ).toEqual({
@@ -332,6 +344,8 @@ test('collectionFromManifest builds components from a fetched manifest', () => {
     suggested: true,
     sizeGb: 9.3,
     labels: [],
+    manifestUrl:
+      'https://huggingface.co/lemonade-sdk/LMX-Omni-Lite/blob/main/LMX-Omni-Lite.json',
     components: [
       {
         name: 'Qwen-LLM-GGUF',
@@ -356,7 +370,13 @@ test('collectionFromManifest builds components from a fetched manifest', () => {
 });
 
 test('collectionFromManifest tolerates a missing or malformed models array', () => {
-  const ref = {name: 'X', suggested: false, sizeGb: 0, labels: []};
+  const ref = {
+    name: 'X',
+    repoId: 'org/X',
+    suggested: false,
+    sizeGb: 0,
+    labels: [],
+  };
   expect(collectionFromManifest(ref, {}, new Set()).components).toEqual([]);
   expect(collectionFromManifest(ref, null, new Set()).components).toEqual([]);
   expect(
