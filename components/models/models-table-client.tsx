@@ -93,7 +93,7 @@ interface DisplayRow extends Record<string, unknown> {
   sizeMismatch: boolean;
   sizeBreakdown: SizeEntry[] | null;
   undersizedLocations: Set<string>;
-  projectors?: ProjectorInfo[];
+  isProjector?: boolean;
 }
 
 const styles = stylex.create({
@@ -431,6 +431,17 @@ function NameCell({
     );
   }
 
+  // Projector (mmproj) row: a companion file, not a quantization — marked so
+  // it reads differently from the quant rows it sits among.
+  if (row.isProjector) {
+    return (
+      <HStack gap={2} vAlign="center" xstyle={styles.indent1}>
+        <Badge variant="neutral" label="projector" />
+        <Text type="supporting">{row.label}</Text>
+      </HStack>
+    );
+  }
+
   // Quant row
   if (row.depth === 1) {
     if (row.isSingleFile) {
@@ -468,19 +479,10 @@ function NameCell({
   }
 
   // Model row. Show the repo segment of an org/repo identity; the full repo (when
-  // the name carries one), the quantizations, and any projector files live in
-  // the tooltip.
-  const tooltip = [
-    row.label.includes('/') ? `Repository: ${row.label}` : null,
-    `Quantizations: ${row.quantizations}`,
-    row.projectors && row.projectors.length > 0
-      ? `${row.projectors.length > 1 ? 'Projectors' : 'Projector'}: ${row.projectors
-          .map((p) => `${p.filename} · ${formatSize(p.size)}`)
-          .join(', ')}`
-      : null,
-  ]
-    .filter((s): s is string => s != null)
-    .join(' · ');
+  // the name carries one) and the quantizations live in the tooltip.
+  const tooltip = row.label.includes('/')
+    ? `Repository: ${row.label} · Quantizations: ${row.quantizations}`
+    : `Quantizations: ${row.quantizations}`;
   return (
     <Button
       label={modelDisplayName(row.label)}
@@ -502,7 +504,7 @@ function PeersCell({
   peers: PeerConfig[];
   peerKeys: Map<string, Set<string>>;
 }) {
-  if (peers.length === 0 || row.depth === 2) return null;
+  if (peers.length === 0 || row.depth === 2 || row.isProjector) return null;
   return (
     <HStack gap={1} vAlign="center" wrap="nowrap">
       {peers.map((peer) => {
@@ -539,6 +541,7 @@ function ColdStorageCell({
   fixing?: boolean;
 }) {
   if (row.depth === 2) return null; // shards don't show cold storage status
+  if (row.isProjector) return null; // projectors aren't tracked across storage
   if (row.depth === 1) {
     if (!row.inColdStorage) return <Badge label="Missing" variant="red" />;
     if (row.coldComplete) {
@@ -993,7 +996,6 @@ export function ModelsTableClient({
         sizeMismatch: anyQuantMismatch,
         sizeBreakdown: null,
         undersizedLocations: new Set<string>(),
-        projectors: m.projectors,
       });
       if (!expanded.has(m.name)) continue;
       for (const q of m.quants) {
@@ -1049,6 +1051,36 @@ export function ModelsTableClient({
             });
           }
         }
+      }
+
+      // Projector (mmproj) companion files: shown as their own rows beneath
+      // the quants, flagged so cells render them differently (not as a
+      // quantization, and without quant/cold/peer/audit columns).
+      for (const proj of m.projectors ?? []) {
+        out.push({
+          key: `${m.name}::projector::${proj.filename}`,
+          label: proj.filename,
+          quantizations: '',
+          isSingleFile: true,
+          filename: null,
+          depth: 1,
+          parentName: m.name,
+          size: proj.size,
+          sizeRange: null,
+          inColdStorage: null,
+          coldComplete: null,
+          coldSize: null,
+          allInColdStorage: false,
+          noneInColdStorage: false,
+          paths: [],
+          totalShards: 0,
+          presentShards: 0,
+          missingIndices: [],
+          sizeMismatch: false,
+          sizeBreakdown: null,
+          undersizedLocations: new Set<string>(),
+          isProjector: true,
+        });
       }
     }
     return out;
@@ -1234,6 +1266,7 @@ export function ModelsTableClient({
             width: pixel(170),
             align: 'center' as const,
             renderCell: (item: DisplayRow) => {
+              if (item.isProjector) return null;
               const results = auditResults ?? new Map<string, AuditResult>();
               // A model (depth 0) row also shows verdicts for files that
               // belong to it but aren't on disk — e.g. a synthetic
