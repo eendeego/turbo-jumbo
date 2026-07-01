@@ -16,10 +16,7 @@ import {
   LocationTabs,
   type LocationTab,
 } from '@/components/models/location-tabs';
-import {
-  ModelKindTabs,
-  type ModelKind,
-} from '@/components/models/model-kind-tabs';
+import {AddModelMenu} from '@/components/models/add-model-menu';
 import {LemonadeBrowser} from '@/components/lemonade/lemonade-browser';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
 import {Log} from '@/components/log/log';
@@ -75,17 +72,6 @@ export function LemonadeClient({
     [router, peerConfigs],
   );
 
-  // The model-kind tabs are links here: Turbo Jumbo returns to this location's
-  // table; Lemonade is already active.
-  const handleKindChange = useCallback(
-    (kind: ModelKind) => {
-      if (kind === 'turbo-jumbo') {
-        router.push(locationHref(activeLocation, peerConfigs));
-      }
-    },
-    [router, activeLocation, peerConfigs],
-  );
-
   // Re-scan the local peer after a download so its status markers update.
   const refreshLocalModels = useCallback(async () => {
     const local = peerConfigs.find((p) => p.isLocal);
@@ -123,7 +109,12 @@ export function LemonadeClient({
           onLocationChange={handleLocationChange}
         />
 
-        <ModelKindTabs value="lemonade" onChange={handleKindChange} />
+        {canDownload && (
+          <AddModelMenu
+            activeLocation={activeLocation}
+            peerConfigs={peerConfigs}
+          />
+        )}
 
         <LemonadeBrowser
           hfTokenSet={hfTokenSet}

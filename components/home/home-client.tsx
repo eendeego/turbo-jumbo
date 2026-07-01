@@ -2,12 +2,11 @@
 
 import {useState, useMemo, useCallback, useEffect, useRef} from 'react';
 import {useRouter} from 'next/navigation';
-import {locationHref, lemonadeHref, hfHref} from '@/lib/locations';
+import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
-import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {withPeerPaths} from '@/lib/peer-paths';
@@ -38,7 +37,7 @@ import {
   type ConflictItem,
 } from '@/components/models/conflicts-modal';
 import {useInventoryLocations} from '@/components/models/use-inventory-locations';
-import {ModelKindTabs} from '@/components/models/model-kind-tabs';
+import {AddModelMenu} from '@/components/models/add-model-menu';
 import {SetSourceModal} from '@/components/models/set-source-modal';
 import {RevisionsModal} from '@/components/models/revisions-modal';
 import {
@@ -922,12 +921,9 @@ export function HomeClient({
     [augmentedModels, selected],
   );
 
-  // Turbo Jumbo / Lemonade sub-tabs show everywhere except Cold Storage (a
-  // single view). Downloads run only on the local machine, so the Add/Download
-  // surfaces are enabled on the local peer and the All tab, but not on a remote
-  // peer's tab.
+  // Downloads run only on the local machine, so the Add model menu is enabled
+  // on the local peer and the All tab, but not on a remote peer's tab.
   const isLocal = activeLocation === localPeerAddress;
-  const showKindTabs = activeLocation !== 'cold-storage';
   const canDownloadLocally = activeLocation === 'all' || isLocal;
 
   return (
@@ -945,32 +941,10 @@ export function HomeClient({
           activeLocation={activeLocation}
           onLocationChange={handleLocationChange}
         />
-        {showKindTabs && (
-          <ModelKindTabs
-            value="turbo-jumbo"
-            onChange={(kind) => {
-              if (kind === 'lemonade') {
-                router.push(lemonadeHref(activeLocation, peerConfigs));
-              }
-            }}
-          />
-        )}
-
         {localModelsPath && canDownloadLocally && (
-          <DropdownMenu
-            button={{label: 'Add model', variant: 'secondary'}}
-            hasChevron
-            items={[
-              {
-                label: 'From Hugging Face',
-                onClick: () => router.push(hfHref(activeLocation, peerConfigs)),
-              },
-              {
-                label: 'From Lemonade',
-                onClick: () =>
-                  router.push(lemonadeHref(activeLocation, peerConfigs)),
-              },
-            ]}
+          <AddModelMenu
+            activeLocation={activeLocation}
+            peerConfigs={peerConfigs}
           />
         )}
         {checkingUpdates && (

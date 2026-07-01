@@ -2,7 +2,7 @@
 
 import {useCallback, useMemo} from 'react';
 import {useRouter} from 'next/navigation';
-import {locationHref, lemonadeHref} from '@/lib/locations';
+import {locationHref} from '@/lib/locations';
 import type {Peer as PeerConfig} from '@/lib/config';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
@@ -11,10 +11,6 @@ import {
   LocationTabs,
   type LocationTab,
 } from '@/components/models/location-tabs';
-import {
-  ModelKindTabs,
-  type ModelKind,
-} from '@/components/models/model-kind-tabs';
 import {HfDownloadPicker} from '@/components/hf-download/hf-download-picker';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
 import {Log} from '@/components/log/log';
@@ -59,18 +55,6 @@ export function HfDownloadClient({
     [router, peerConfigs],
   );
 
-  // Turbo Jumbo returns to this location's table; Lemonade goes to its route.
-  const handleKindChange = useCallback(
-    (kind: ModelKind) => {
-      router.push(
-        kind === 'lemonade'
-          ? lemonadeHref(activeLocation, peerConfigs)
-          : locationHref(activeLocation, peerConfigs),
-      );
-    },
-    [router, activeLocation, peerConfigs],
-  );
-
   const backToTable = useCallback(() => {
     router.push(locationHref(activeLocation, peerConfigs));
   }, [router, activeLocation, peerConfigs]);
@@ -90,8 +74,6 @@ export function HfDownloadClient({
           activeLocation={activeLocation}
           onLocationChange={handleLocationChange}
         />
-
-        <ModelKindTabs value="turbo-jumbo" onChange={handleKindChange} />
 
         <HfDownloadPicker
           localModelsPath={localModelsPath}
