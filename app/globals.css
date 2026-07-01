@@ -1,3 +1,24 @@
 /* The @stylexjs/postcss-plugin replaces this directive with all compiled
    StyleX styles during the build. */
 @stylex;
+
+/*
+ * Models table scroll + sticky header. The table lives in a LayoutContent
+ * marked isScrollable={false} (.tj-models-pane). Astryx wraps the <table> in a
+ * `astryx-table-scroll-wrapper` div that owns the overflow (overflow-x:auto)
+ * but has no height, so it grows to fit every row and gets clipped instead of
+ * scrolling. Give that wrapper a bounded height so it fills the pane and
+ * scrolls internally — which in turn lets the sticky <thead> pin (Astryx's
+ * Table ships no sticky-header option). The Table drops a passed `className`,
+ * so we scope off the LayoutContent's class, not the table's.
+ */
+.tj-models-pane .astryx-table-scroll-wrapper {
+  height: 100%;
+}
+
+.tj-models-pane thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-background-surface);
+}

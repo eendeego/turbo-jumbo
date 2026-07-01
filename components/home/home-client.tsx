@@ -4,6 +4,7 @@ import {useState, useMemo, useCallback, useEffect, useRef} from 'react';
 import {useRouter} from 'next/navigation';
 import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
+import {Layout, LayoutContent, LayoutFooter} from '@astryxdesign/core/Layout';
 import {TopNav, TopNavHeading} from '@astryxdesign/core/TopNav';
 import {NavIcon} from '@astryxdesign/core/NavIcon';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
@@ -1037,7 +1038,7 @@ export function HomeClient({
 
   return (
     <AppShell
-      contentPadding={5}
+      contentPadding={0}
       topNav={
         <TopNav
           label="Main navigation"
@@ -1078,60 +1079,84 @@ export function HomeClient({
         />
       }
     >
-      <VStack gap={4}>
-        {checkingUpdates && (
-          <Text type="supporting">Checking Hugging Face for updates…</Text>
-        )}
-        <ModelsTableClient
-          models={tableModels}
-          peers={peerConfigs}
-          peerModels={seededPeerModels}
-          incompleteRepos={activeIncomplete}
-          invalidRepos={activeInvalid}
-          selected={selected}
-          onToggleSelected={onToggleSelected}
-          locations={locations}
-          activeLocation={activeLocation}
-          auditResults={auditResults}
-          auditedPaths={auditedPaths}
-          auditing={auditing}
-          auditProgress={auditProgress}
-          auditStarted={auditStarted}
-          updateResults={updateResults}
-          onClearAudit={resetAudit}
-          onFixMisplaced={onFix}
-          fixing={fixing}
-          onSetSource={onSetSource}
-          onRedownload={auditLocation === 'local' ? onRedownload : undefined}
-          onDownloadRepoFiles={
-            auditLocation === 'local' ? onDownloadRepoFiles : undefined
-          }
-          onShowRevisions={setRevisionsFile}
-          redownloading={redownload.running}
-          onFixColdIncomplete={
-            localPeerAddress ? onFixColdIncomplete : undefined
-          }
-          coldFixing={copying}
-          onFixDuplicate={onFixDuplicate}
-          fixingDuplicate={fixingDuplicate}
-        />
-        {error && <Banner status="error" title={`Error: ${error}`} />}
-        <ActionBar
-          selected={selected}
-          onDelete={() => setConfirming(true)}
-          deleting={deleting}
-          onCopy={() => setConfirmingCopy(true)}
-          copying={copying}
-          copyProgress={copyProgress}
-          checking={checking}
-          onAudit={onAudit}
-          auditing={auditing}
-          auditSupported={auditLocation !== null}
-          onFixMisplaced={() => onFix(misplacedPaths)}
-          misplacedCount={misplacedPaths.length}
-          fixing={fixing}
-        />
-      </VStack>
+      <Layout
+        height="fill"
+        content={
+          // The table is the single scroll region: it fills this
+          // non-scrollable content area and scrolls internally (its root is
+          // already overflow:auto), which lets its sticky <thead> pin to the
+          // top while the rows scroll. See the .tj-models-pane rule in
+          // globals.css.
+          <LayoutContent
+            className="tj-models-pane"
+            isScrollable={false}
+            padding={0}
+          >
+            <ModelsTableClient
+              models={tableModels}
+              peers={peerConfigs}
+              peerModels={seededPeerModels}
+              incompleteRepos={activeIncomplete}
+              invalidRepos={activeInvalid}
+              selected={selected}
+              onToggleSelected={onToggleSelected}
+              locations={locations}
+              activeLocation={activeLocation}
+              auditResults={auditResults}
+              auditedPaths={auditedPaths}
+              auditing={auditing}
+              auditProgress={auditProgress}
+              auditStarted={auditStarted}
+              updateResults={updateResults}
+              onClearAudit={resetAudit}
+              onFixMisplaced={onFix}
+              fixing={fixing}
+              onFixDuplicate={onFixDuplicate}
+              fixingDuplicate={fixingDuplicate}
+              onSetSource={onSetSource}
+              onRedownload={
+                auditLocation === 'local' ? onRedownload : undefined
+              }
+              onDownloadRepoFiles={
+                auditLocation === 'local' ? onDownloadRepoFiles : undefined
+              }
+              onShowRevisions={setRevisionsFile}
+              redownloading={redownload.running}
+              onFixColdIncomplete={
+                localPeerAddress ? onFixColdIncomplete : undefined
+              }
+              coldFixing={copying}
+            />
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter hasDivider>
+            <VStack gap={2}>
+              {checkingUpdates && (
+                <Text type="supporting">
+                  Checking Hugging Face for updates…
+                </Text>
+              )}
+              {error && <Banner status="error" title={`Error: ${error}`} />}
+              <ActionBar
+                selected={selected}
+                onDelete={() => setConfirming(true)}
+                deleting={deleting}
+                onCopy={() => setConfirmingCopy(true)}
+                copying={copying}
+                copyProgress={copyProgress}
+                checking={checking}
+                onAudit={onAudit}
+                auditing={auditing}
+                auditSupported={auditLocation !== null}
+                onFixMisplaced={() => onFix(misplacedPaths)}
+                misplacedCount={misplacedPaths.length}
+                fixing={fixing}
+              />
+            </VStack>
+          </LayoutFooter>
+        }
+      />
 
       {confirming && (
         <DeleteModal
