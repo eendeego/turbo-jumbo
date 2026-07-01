@@ -175,7 +175,7 @@ export function LemonadeBrowser({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      width={640}
+      width={800}
       purpose="form"
     >
       <VStack gap={4}>
