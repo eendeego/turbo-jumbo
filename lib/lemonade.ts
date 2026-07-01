@@ -6,6 +6,11 @@
 import type {Model, ModelFile} from '@/lib/model-types';
 import {isWeightFile} from '@/lib/weight-files';
 
+// The Lemonade SDK's model catalog, read from the repo's default branch head so
+// the list tracks their latest release rather than a pinned revision.
+export const LEMONADE_CATALOG_URL =
+  'https://raw.githubusercontent.com/lemonade-sdk/lemonade/main/src/cpp/resources/server_models.json';
+
 /** One downloadable GGUF model from the Lemonade catalog. */
 export interface LemonadeModel {
   name: string;
@@ -72,6 +77,21 @@ export interface ParsedLemonade {
   extraModels: LemonadeComponent[];
   collections: OmniCollection[]; // inline omni collections, fully resolved
   manifestRefs: OmniManifestRef[]; // omni collections needing a manifest fetch
+}
+
+/** Every HuggingFace repo id the catalog references — GGUF models plus the
+ *  checkpoints of standalone components and inline collection members. The set
+ *  of repos Lemonade knows about, used to decide which Turbo Jumbo models to
+ *  mirror back into Lemonade's cache. */
+export function catalogRepoIds(parsed: ParsedLemonade): string[] {
+  const ids = new Set<string>();
+  for (const m of parsed.models) ids.add(m.repoId);
+  for (const c of parsed.extraModels)
+    for (const cp of c.checkpoints) ids.add(cp.repoId);
+  for (const col of parsed.collections)
+    for (const c of col.components)
+      for (const cp of c.checkpoints) ids.add(cp.repoId);
+  return [...ids];
 }
 
 // Which section a catalog entry belongs to, for the modality-split catalog.

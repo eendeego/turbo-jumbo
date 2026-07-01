@@ -1,16 +1,14 @@
 import {
   collectionFromManifest,
   parseLemonade,
+  LEMONADE_CATALOG_URL,
   type LemonadeComponent,
   type LemonadeModel,
   type OmniCollection,
   type OmniManifestRef,
 } from '@/lib/lemonade';
 
-// The Lemonade SDK's model catalog, read from the repo's default branch head
-// so the list tracks their latest release rather than a pinned revision.
-const CATALOG_URL =
-  'https://raw.githubusercontent.com/lemonade-sdk/lemonade/main/src/cpp/resources/server_models.json';
+const CATALOG_URL = LEMONADE_CATALOG_URL;
 
 // The catalog changes rarely; cache it briefly so reopening the browser
 // doesn't refetch from GitHub (and re-fetch every omni manifest) every time.

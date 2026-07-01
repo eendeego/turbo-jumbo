@@ -15,10 +15,17 @@ interface Preview {
   rev: string;
   moveCount: number;
   dedupCount: number;
+  linkCount: number;
 }
 interface FileResult {
   repoPath: string;
-  status: 'linked' | 'deduplicated' | 'already-linked' | 'skipped' | 'error';
+  status:
+    | 'linked'
+    | 'deduplicated'
+    | 'materialized'
+    | 'already-linked'
+    | 'skipped'
+    | 'error';
   message?: string;
 }
 interface ModelResult {
@@ -81,11 +88,11 @@ export function LemonadeSyncModal({
   }
 
   const totalFiles = preview.reduce(
-    (n, p) => n + p.moveCount + p.dedupCount,
+    (n, p) => n + p.moveCount + p.dedupCount + p.linkCount,
     0,
   );
-  // Group the preview by action so deduplicated models are listed like imported
-  // ones, each its own row, rather than folded into a count.
+  // Group the preview by action so each model is listed as its own row, the same
+  // way across imports, deduplications, and links — never folded into a count.
   const sections = [
     {
       title: 'Importing into Turbo Jumbo',
@@ -96,6 +103,11 @@ export function LemonadeSyncModal({
       title: 'Deduplicating (already in Turbo Jumbo)',
       items: preview.filter((p) => p.dedupCount > 0),
       count: (p: Preview) => p.dedupCount,
+    },
+    {
+      title: 'Linking into Lemonade (already in Turbo Jumbo)',
+      items: preview.filter((p) => p.linkCount > 0),
+      count: (p: Preview) => p.linkCount,
     },
   ].filter((s) => s.items.length > 0);
   const counts = results
@@ -123,6 +135,8 @@ export function LemonadeSyncModal({
           Moves models that exist only in Lemonade into Turbo Jumbo&apos;s file
           structure, and deduplicates files Turbo Jumbo already holds — then
           replaces the Lemonade copies with symbolic links into Turbo Jumbo.
+          Catalog models Turbo Jumbo already has but Lemonade hasn&apos;t
+          downloaded are linked into Lemonade&apos;s cache.
         </Text>
 
         {phase === 'loading' && (
@@ -167,6 +181,12 @@ export function LemonadeSyncModal({
               {counts.deduplicated ? (
                 <Badge
                   label={`${counts.deduplicated} deduplicated`}
+                  variant="success"
+                />
+              ) : null}
+              {counts.materialized ? (
+                <Badge
+                  label={`${counts.materialized} linked`}
                   variant="success"
                 />
               ) : null}

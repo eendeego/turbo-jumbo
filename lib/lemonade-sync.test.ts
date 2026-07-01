@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {promises as fsp} from 'fs';
+import {existsSync, promises as fsp} from 'fs';
 import os from 'os';
 import path from 'path';
 import {
@@ -218,7 +218,7 @@ test('in a partially-synced model, acts only on the un-synced file', async () =>
 
   // Only the un-synced file is counted as work.
   expect(await previewLemonadeSync(tj, lem)).toEqual([
-    {repoId: 'org/part', rev, moveCount: 1, dedupCount: 0},
+    {repoId: 'org/part', rev, moveCount: 1, dedupCount: 0, linkCount: 0},
   ]);
 
   const [result] = await syncLemonadeToTurboJumbo(tj, lem);
@@ -239,6 +239,91 @@ test('in a partially-synced model, acts only on the un-synced file', async () =>
   expect((await fsp.lstat(path.join(snap, 'new.bin'))).isSymbolicLink()).toBe(
     true,
   );
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+// Put a model in Turbo Jumbo's flat layout with a sidecar recording repoCommit.
+async function tjModel(
+  tjBase: string,
+  repoId: string,
+  rev: string,
+  files: Record<string, string>,
+) {
+  for (const [rel, content] of Object.entries(files)) {
+    await write(tjBase, `${repoId}/${rel}`, content);
+  }
+  await write(
+    tjBase,
+    `${repoId}/tjmodel.json`,
+    JSON.stringify({
+      modelUrl: `https://huggingface.co/${repoId}`,
+      repoId,
+      repoCommit: rev,
+      files: Object.keys(files).map((rel) => ({
+        path: rel,
+        originUrl: `https://huggingface.co/${repoId}/blob/main/${rel}`,
+        sourceSize: 0,
+        computedSize: files[rel].length,
+        sourceSha256: '',
+        computedSha256: '',
+      })),
+    }),
+  );
+}
+
+test('materializes a catalog model Turbo Jumbo has but Lemonade lacks (symlinks + refs/main)', async () => {
+  const {root, tj, lem} = await mkdirs();
+  const rev = 'cafebabe0000';
+  await tjModel(tj, 'org/cat', rev, {
+    'model.gguf': 'WEIGHTS',
+    'index.json': '{}',
+  });
+
+  // Preview lists it as a link, not a move/dedup.
+  expect(await previewLemonadeSync(tj, lem, ['org/cat'])).toEqual([
+    {repoId: 'org/cat', rev, moveCount: 0, dedupCount: 0, linkCount: 2},
+  ]);
+
+  const [result] = await syncLemonadeToTurboJumbo(tj, lem, ['org/cat']);
+  expect(result.rev).toBe(rev);
+  expect(result.files.every((f) => f.status === 'materialized')).toBe(true);
+
+  // Lemonade now has the cache layout, as symlinks into Turbo Jumbo.
+  const snap = path.join(lem, `models--org--cat/snapshots/${rev}`);
+  const link = path.join(snap, 'model.gguf');
+  expect((await fsp.lstat(link)).isSymbolicLink()).toBe(true);
+  expect(await fsp.readlink(link)).toBe(path.join(tj, 'org/cat/model.gguf'));
+  expect(await fsp.readFile(link, 'utf8')).toBe('WEIGHTS');
+  expect(
+    await fsp.readFile(path.join(lem, 'models--org--cat/refs/main'), 'utf8'),
+  ).toBe(rev);
+  // Our sidecar isn't mirrored into Lemonade.
+  expect(existsSync(path.join(snap, 'tjmodel.json'))).toBe(false);
+
+  // Idempotent: the cache entry now exists, so a re-run does nothing.
+  expect(await syncLemonadeToTurboJumbo(tj, lem, ['org/cat'])).toEqual([]);
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('does not materialize when Turbo Jumbo lacks the model or a recorded revision', async () => {
+  const {root, tj, lem} = await mkdirs();
+  // In TJ but no repoCommit recorded → can't name the snapshot dir → skipped.
+  await write(tj, 'org/norev/m.bin', 'X');
+  await write(
+    tj,
+    'org/norev/tjmodel.json',
+    JSON.stringify({
+      modelUrl: 'https://huggingface.co/org/norev',
+      repoId: 'org/norev',
+      files: [],
+    }),
+  );
+  // Not in TJ at all.
+  const repoIds = ['org/norev', 'org/absent'];
+
+  expect(await previewLemonadeSync(tj, lem, repoIds)).toEqual([]);
+  expect(await syncLemonadeToTurboJumbo(tj, lem, repoIds)).toEqual([]);
+  expect(existsSync(path.join(lem, 'models--org--norev'))).toBe(false);
   await fsp.rm(root, {recursive: true, force: true});
 });
 
