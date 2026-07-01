@@ -62,6 +62,7 @@ HuggingFace downloads shell out to the `hf` CLI with `hf-transfer` (see `Dockerf
 ## UI conventions
 
 - Buttons that open a modal or dialog end their label with an ellipsis (`…`) — e.g. `"Delete…"`, `"Copy to…"`.
+- Import Astryx components by their bare names (`import {Button} from '@astryxdesign/core/Button'`) — never alias them (no `XDS*`-style prefixes).
 
 <!-- ASTRYX:START -->
 
