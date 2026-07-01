@@ -1,5 +1,5 @@
 import type {Model} from './models';
-import type {ModelRow} from '@/components/models/models-table-client';
+import type {ModelRow} from '@/lib/model-row';
 import {isMmprojFilename} from '@/lib/model-name';
 
 // A file's basename is the identity hosts usually agree on: model names are

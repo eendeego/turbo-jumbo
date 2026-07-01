@@ -6,10 +6,7 @@ import {
   withPeerPaths,
 } from '@/lib/peer-paths';
 import type {Model} from '@/lib/models';
-import type {
-  ModelRow,
-  QuantInfo,
-} from '@/components/models/models-table-client';
+import type {ModelRow, QuantInfo} from '@/lib/model-row';
 
 function quant(label: string, paths: string[]): QuantInfo {
   return {
