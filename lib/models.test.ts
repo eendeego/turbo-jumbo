@@ -194,6 +194,60 @@ test('scanModels reports a missing safetensors shard', async () => {
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+function safetensorsBytes(dtype: string): Buffer {
+  const json = Buffer.from(
+    JSON.stringify({weight: {dtype, shape: [1], data_offsets: [0, 2]}}),
+    'utf8',
+  );
+  const len = Buffer.alloc(8);
+  len.writeBigUInt64LE(BigInt(json.length));
+  return Buffer.concat([len, json, Buffer.alloc(2)]);
+}
+
+test('scanModels labels a generic safetensors by its header dtype', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  const full = path.join(
+    base,
+    'models--unsloth--Small-Model/snapshots/r1/model.safetensors',
+  );
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, safetensorsBytes('BF16'));
+
+  const file = scanModels(base)[0].files[0];
+  expect(file.quant).toBe('BF16');
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('scanModels labels sharded safetensors by the first shard dtype', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  const dir = path.join(base, 'models--unsloth--Big-Model/snapshots/r1');
+  await fsp.mkdir(dir, {recursive: true});
+  for (let i = 1; i <= 2; i++) {
+    const n = String(i).padStart(5, '0');
+    await fsp.writeFile(
+      path.join(dir, `model-${n}-of-00002.safetensors`),
+      safetensorsBytes('F16'),
+    );
+  }
+
+  const file = scanModels(base)[0].files[0];
+  expect(file.quant).toBe('F16');
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('scanModels keeps a filename quant token over the header', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  const full = path.join(
+    base,
+    'models--unsloth--Tok-Model/snapshots/r1/model-Q4_K_M.safetensors',
+  );
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, safetensorsBytes('F32')); // header differs from token
+  const file = scanModels(base)[0].files[0];
+  expect(file.quant).toBe('Q4_K_M');
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('duplicateBasenames flags a root copy and a nested copy of the same file', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
   const fname = 'gemma-4-26B-A4B-it-UD-IQ2_M.gguf';

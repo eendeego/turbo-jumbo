@@ -9,6 +9,7 @@ import type {
 } from '@/lib/model-types';
 import {metaPath} from '@/lib/audit';
 import {parseHubCachePath} from '@/lib/hf-cache';
+import {readSafetensorsDtype} from '@/lib/safetensors';
 import {repoIdFromModelUrl} from '@/lib/model-name';
 
 export type {
@@ -76,6 +77,25 @@ export function extractModelName(filename: string): string {
 export function extractQuant(filename: string): string {
   const m = lastQuantMatch(stripExtension(filename));
   return m ? m[1].toUpperCase() : 'unknown';
+}
+
+/**
+ * The variant label for a weight file. A filename quant token wins (GGUF, or a
+ * dtype-tagged safetensors). Otherwise a generic safetensors file is labeled by
+ * its header dtype (BF16/F16/…), a `.bin` by a generic tag, and a tokenless
+ * GGUF keeps `unknown`. `fullPath` is only read for tokenless safetensors.
+ */
+function weightLabel(
+  fullPath: string,
+  filename: string,
+  quant: string,
+): string {
+  if (quant !== 'unknown') return quant;
+  if (/\.safetensors$/i.test(filename)) {
+    return readSafetensorsDtype(fullPath) ?? 'safetensors';
+  }
+  if (/\.bin$/i.test(filename)) return 'pytorch';
+  return quant;
 }
 
 /**
@@ -188,7 +208,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
         if (!splitMap.has(key)) {
           splitMap.set(key, {
             modelName,
-            quant,
+            quant: weightLabel(fullPath, entry.name, quant),
             totalShards: total,
             presentIndices: new Set(),
             presentPaths: [],
@@ -216,7 +236,7 @@ export function scanModels(storagePath: string | undefined): Model[] {
           isSplit: false,
           filename: entry.name,
           path: relPath,
-          quant: extractQuant(entry.name),
+          quant: weightLabel(fullPath, entry.name, extractQuant(entry.name)),
           size,
           missing,
         };
