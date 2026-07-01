@@ -15,16 +15,26 @@ function isNonEssential(p: string): boolean {
 }
 
 /**
- * The files to offer from a repo's root listing for download. A safetensors
- * model is unusable without its companion config/tokenizer/index files, so a
- * repo containing safetensors weights lists everything except clutter (other
- * weight formats, docs, images, git/license metadata). A GGUF/bin repo is
- * self-contained, so only its weight files are listed (the user picks a quant).
+ * The files to offer from a repo's root listing for download.
+ *
+ *  - A GGUF repo is self-contained: list only its weight files and let the user
+ *    pick a quant.
+ *  - A safetensors model is unusable without its companion config/tokenizer/
+ *    index files, but its repo is often cluttered with alternate-format weights,
+ *    docs and images, so list everything except that clutter.
+ *  - Any other model repo (ONNX/Kokoro TTS, Ryzen AI, …) isn't self-contained
+ *    and its weights aren't a recognized pick-one format, so take the whole repo
+ *    — matching Lemonade's "non-GGUF → download all files" rule (see
+ *    model_manager.cpp). This is what was dropping Kokoro's `.onnx`, which
+ *    `isWeightFile` doesn't recognize.
  */
 export function repoDownloadFiles(paths: string[]): string[] {
-  const hasSafetensors = paths.some((p) => /\.safetensors$/i.test(p));
-  if (!hasSafetensors) return paths.filter(isWeightFile);
-  return paths.filter((p) => !isNonEssential(p));
+  // Safetensors first: such a repo is a safetensors model even when it also
+  // carries a stray alternate-format weight (a .gguf/.onnx among the clutter).
+  if (paths.some((p) => /\.safetensors$/i.test(p)))
+    return paths.filter((p) => !isNonEssential(p));
+  if (paths.some((p) => /\.gguf$/i.test(p))) return paths.filter(isWeightFile);
+  return paths;
 }
 
 /**

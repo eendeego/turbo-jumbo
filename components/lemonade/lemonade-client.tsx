@@ -1,6 +1,6 @@
 'use client';
 
-import {useCallback, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {
   locationHref,
@@ -109,11 +109,37 @@ export function LemonadeClient({
       /* best-effort: the next page render reseeds from the server scan */
     }
   }, []);
-  // A download can land in managed storage or the Lemonade cache, so refresh
-  // both when one finishes.
+  // Repo ids whose local copy is present but incomplete (missing files a full
+  // download would include). Downloads land locally, so flag against the local
+  // store; re-fetched after each download.
+  const [incompleteRepos, setIncompleteRepos] = useState<Set<string>>(
+    new Set(),
+  );
+  const refreshIncomplete = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/local-models/incomplete');
+      if (!res.ok) return;
+      const data = (await res.json()) as {incomplete?: string[]};
+      setIncompleteRepos(new Set(data.incomplete ?? []));
+    } catch {
+      /* best-effort: the markers just won't show */
+    }
+  }, []);
+  useEffect(() => {
+    (async () => {
+      await refreshIncomplete();
+    })();
+  }, [refreshIncomplete]);
+
+  // A download can land in managed storage or the Lemonade cache, and changes
+  // completeness — refresh all three when one finishes.
   const onDownloaded = useCallback(async () => {
-    await Promise.all([refreshLocalModels(), refreshLemonadeCache()]);
-  }, [refreshLocalModels, refreshLemonadeCache]);
+    await Promise.all([
+      refreshLocalModels(),
+      refreshLemonadeCache(),
+      refreshIncomplete(),
+    ]);
+  }, [refreshLocalModels, refreshLemonadeCache, refreshIncomplete]);
 
   const backToTable = useCallback(() => {
     router.push(locationHref(activeLocation, peerConfigs));
@@ -157,6 +183,7 @@ export function LemonadeClient({
           localModelsPath={localModelsPath}
           inventoryLocations={inventoryLocations}
           lemonadeCacheModels={lemonadeCacheModels}
+          incompleteRepos={incompleteRepos}
           canDownload={canDownload}
           onDownloaded={onDownloaded}
         />

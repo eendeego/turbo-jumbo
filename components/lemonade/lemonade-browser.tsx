@@ -101,6 +101,12 @@ function selectionLabel(s: Selection): {title: string; sizeGb: number} {
 
 const uniq = <T,>(xs: T[]): T[] => [...new Set(xs)];
 
+// Whether any of a model's repos is present-but-incomplete locally.
+const checkpointsIncomplete = (
+  checkpoints: Checkpoint[],
+  incompleteRepos: Set<string>,
+) => checkpoints.some((cp) => incompleteRepos.has(cp.repoId));
+
 function formatGb(sizeGb: number): string {
   return `${sizeGb.toFixed(2)} GB`;
 }
@@ -139,6 +145,13 @@ function LemonadeCacheMarker({
       </span>
     </HoverCard>
   );
+}
+
+// Flags a model whose local copy is missing files a full download would
+// include (e.g. a Kokoro repo with only its voices sidecar, no .onnx model).
+function IncompleteMarker({incomplete}: {incomplete: boolean}) {
+  if (!incomplete) return null;
+  return <Badge variant="error" label="incomplete" />;
 }
 
 // The end-of-row content shared by a flat model and a collection's
@@ -180,11 +193,13 @@ function componentEndContent(
   component: LemonadeComponent,
   info: LemonadeDownloadInfo,
   inCache: boolean,
+  incomplete: boolean,
 ) {
   return (
     <HStack gap={1} vAlign="center">
       <StatusMarker info={info} />
       <LemonadeCacheMarker present={inCache} />
+      <IncompleteMarker incomplete={incomplete} />
       <Badge label={component.modality} variant="neutral" />
       <Text type="supporting">{formatGb(component.sizeGb)}</Text>
     </HStack>
@@ -252,6 +267,7 @@ export function LemonadeBrowser({
   localModelsPath,
   inventoryLocations,
   lemonadeCacheModels,
+  incompleteRepos,
   canDownload,
   onDownloaded,
 }: {
@@ -261,6 +277,8 @@ export function LemonadeBrowser({
   // Models found in Lemonade's own cache directory, surfaced with a distinct
   // token alongside the regular download-status marker.
   lemonadeCacheModels: Model[];
+  // Repo ids whose local copy is present but incomplete; flagged on each row.
+  incompleteRepos: Set<string>;
   canDownload: boolean;
   // Called after a download session ends so the parent can refresh local
   // models; the status markers then recompute from the new inventory.
@@ -609,6 +627,17 @@ export function LemonadeBrowser({
                 const collInCache = cachePresentCount > 0;
                 const cachePartial =
                   collInCache && cachePresentCount < c.components.length;
+                // Members with a present-but-incomplete local copy; the header
+                // flags if any.
+                const componentIncomplete = new Map(
+                  c.components.map((comp) => [
+                    comp.name,
+                    checkpointsIncomplete(comp.checkpoints, incompleteRepos),
+                  ]),
+                );
+                const anyIncomplete = [...componentIncomplete.values()].some(
+                  Boolean,
+                );
                 const collSelection: Selection = {
                   kind: 'collection',
                   collection: c,
@@ -644,6 +673,7 @@ export function LemonadeBrowser({
                             present={collInCache}
                             muted={cachePartial}
                           />
+                          <IncompleteMarker incomplete={anyIncomplete} />
                           {c.suggested && (
                             <Badge label="suggested" variant="green" />
                           )}
@@ -674,6 +704,7 @@ export function LemonadeBrowser({
                               comp,
                               componentDownloadStatus(comp, inventoryLocations),
                               componentInCache.get(comp.name) ?? false,
+                              componentIncomplete.get(comp.name) ?? false,
                             )}
                           />
                         );
@@ -727,6 +758,10 @@ export function LemonadeBrowser({
                             locations: [],
                           },
                           extraInCacheByName.get(row.component.name) ?? false,
+                          checkpointsIncomplete(
+                            row.component.checkpoints,
+                            incompleteRepos,
+                          ),
                         )}
                       />
                     ),

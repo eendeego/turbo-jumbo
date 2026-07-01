@@ -50,13 +50,29 @@ test('repoDownloadFiles lists only weights for a GGUF repo', () => {
   expect(kept.sort()).toEqual(['model-Q4_K_M.gguf', 'model-Q8_0.gguf']);
 });
 
-test('repoDownloadFiles lists only weights for a bin-only repo', () => {
+test('repoDownloadFiles takes an ONNX model repo whole (Kokoro)', () => {
+  // No GGUF and no safetensors: not a pick-a-quant repo, and isWeightFile can't
+  // see the .onnx — so the whole repo is taken, matching Lemonade. Regression
+  // for Kokoro, which previously yielded only voices-v1.0.bin.
+  const kokoro = [
+    '.gitattributes',
+    'README.md',
+    'index.json',
+    'kokoro-v1.0.onnx',
+    'voices-v1.0.bin',
+  ];
+  expect(repoDownloadFiles(kokoro)).toEqual(kokoro);
+});
+
+test('repoDownloadFiles takes a non-gguf/non-safetensors bin repo whole', () => {
+  // A legacy pytorch .bin model needs its config to run, so it's taken whole
+  // rather than weight-only.
   const kept = repoDownloadFiles([
     'pytorch_model.bin',
     'config.json',
     'README.md',
   ]);
-  expect(kept).toEqual(['pytorch_model.bin']);
+  expect(kept).toEqual(['pytorch_model.bin', 'config.json', 'README.md']);
 });
 
 const asFiles = (paths: string[]) => paths.map((path) => ({path}));

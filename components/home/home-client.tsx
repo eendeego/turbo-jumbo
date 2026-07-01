@@ -56,6 +56,10 @@ import type {DuplicateFixResult} from '@/lib/fix-duplicates';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
 
+// A stable empty set, so locations with no incomplete repos don't hand the
+// table a fresh reference each render.
+const EMPTY_SET: Set<string> = new Set();
+
 // The location's last-known audit verdicts, derived server-side from the
 // `.tjmeta.json` sidecars — no hashing, no network beyond this call.
 async function fetchCachedResults(location: string): Promise<AuditResult[]> {
@@ -166,6 +170,28 @@ export function HomeClient({
   );
 
   const [models, setModels] = useState(modelsTableData);
+  // Per-peer repo ids whose local copy is incomplete (present but missing
+  // files a full download would include); drives the table's incomplete marker.
+  const [incompleteByPeer, setIncompleteByPeer] = useState<
+    Map<string, Set<string>>
+  >(new Map());
+  const refreshIncomplete = useCallback(async () => {
+    const entries = await Promise.all(
+      peerConfigs.map(async (p) => {
+        try {
+          const res = await fetch(
+            `/api/v1/peers/${encodeURIComponent(p.name)}/incomplete`,
+          );
+          if (!res.ok) return [p.address, new Set<string>()] as const;
+          const data = (await res.json()) as {incomplete?: string[]};
+          return [p.address, new Set(data.incomplete ?? [])] as const;
+        } catch {
+          return [p.address, new Set<string>()] as const;
+        }
+      }),
+    );
+    setIncompleteByPeer(new Map(entries));
+  }, [peerConfigs]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [auditResults, setAuditResults] = useState<Map<string, AuditResult>>(
     new Map(),
@@ -244,6 +270,12 @@ export function HomeClient({
     setSelected(new Set());
     resetAudit();
   }
+
+  useEffect(() => {
+    (async () => {
+      await refreshIncomplete();
+    })();
+  }, [refreshIncomplete]);
 
   // Where audit requests go: this host's storage ('local'/'cold-storage') or
   // a remote peer's address, which the server proxies to that peer. Only the
@@ -735,6 +767,7 @@ export function HomeClient({
       await Promise.all([
         refreshModels(),
         ...peersToRescan.map((p) => refreshPeerModels(p)),
+        refreshIncomplete(),
       ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -926,6 +959,18 @@ export function HomeClient({
   const isLocal = activeLocation === localPeerAddress;
   const canDownloadLocally = activeLocation === 'all' || isLocal;
 
+  // Incomplete repos for the table's current view: a single location's set, or
+  // the union across all of them on the All tab.
+  const activeIncomplete = useMemo(() => {
+    if (activeLocation === 'all') {
+      const union = new Set<string>();
+      for (const s of incompleteByPeer.values())
+        for (const r of s) union.add(r);
+      return union;
+    }
+    return incompleteByPeer.get(activeLocation) ?? EMPTY_SET;
+  }, [incompleteByPeer, activeLocation]);
+
   return (
     <AppShell contentPadding={5} height="auto">
       <VStack gap={6}>
@@ -956,6 +1001,7 @@ export function HomeClient({
           models={tableModels}
           peers={peerConfigs}
           peerModels={seededPeerModels}
+          incompleteRepos={activeIncomplete}
           selected={selected}
           onToggleSelected={onToggleSelected}
           locations={locations}

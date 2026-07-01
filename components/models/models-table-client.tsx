@@ -416,10 +416,13 @@ function NameCell({
   row,
   isExpanded,
   onToggle,
+  incomplete = false,
 }: {
   row: DisplayRow;
   isExpanded: boolean;
   onToggle: (key: string) => void;
+  // The model's local copy is present but missing files (depth-0 rows only).
+  incomplete?: boolean;
 }) {
   // Shard row
   if (row.depth === 2) {
@@ -488,6 +491,9 @@ function NameCell({
       variant="ghost"
       size="sm"
       icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
+      endContent={
+        incomplete ? <Badge variant="error" label="incomplete" /> : undefined
+      }
       tooltip={tooltip}
       onClick={() => onToggle(row.parentName)}
     />
@@ -761,6 +767,7 @@ export function ModelsTableClient({
   models,
   peers,
   peerModels,
+  incompleteRepos,
   selected,
   onToggleSelected,
   locations,
@@ -786,6 +793,8 @@ export function ModelsTableClient({
   models: ModelRow[];
   peers: PeerConfig[];
   peerModels: Map<string, PeerModels>;
+  // Repo ids (model names) whose local copy is present but incomplete.
+  incompleteRepos?: Set<string>;
   selected?: Set<string>;
   onToggleSelected?: (paths: string[]) => void;
   locations?: LocationTab[];
@@ -1160,6 +1169,9 @@ export function ModelsTableClient({
             item.depth === 0 ? item.parentName : item.key,
           )}
           onToggle={toggle}
+          incomplete={
+            item.depth === 0 && (incompleteRepos?.has(item.parentName) ?? false)
+          }
         />
       ),
     },
