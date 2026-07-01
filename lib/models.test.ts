@@ -13,6 +13,7 @@ import {
   type SingleFile,
 } from '@/lib/models';
 import {writeMeta} from '@/lib/audit';
+import {MODEL_SIDECAR_NAME, type TjModel} from '@/lib/model-sidecar';
 
 async function writeFile(base: string, rel: string, content = 'data') {
   const full = path.join(base, rel);
@@ -632,4 +633,58 @@ test('normalizeModelNames derives the alias of a split group from its shard name
 
   const [, c] = normalizeModelNames([local, cold]);
   expect(c.map((m) => m.name)).toEqual(['unsloth/Big-MTP-GGUF']);
+});
+
+test('scanModels attaches the sidecar summary to a model', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'scan-'));
+  const dir = path.join(root, 'models--org--repo');
+  await fsp.mkdir(dir, {recursive: true});
+  const sidecar: TjModel = {
+    modelUrl: 'https://huggingface.co/org/repo',
+    repoId: 'org/repo',
+    sourceCommit: 'abc123def456',
+    repoCommit: 'fff111222333',
+    repoCommitDate: '2026-06-12T00:00:00Z',
+    files: [
+      {
+        path: 'model.gguf',
+        originUrl: 'https://huggingface.co/org/repo/blob/main/model.gguf',
+        sourceSize: 500,
+        computedSize: 500,
+        sourceSha256: '',
+        computedSha256: '',
+      },
+    ],
+  };
+  await fsp.writeFile(
+    path.join(dir, MODEL_SIDECAR_NAME),
+    JSON.stringify(sidecar),
+  );
+  await fsp.writeFile(path.join(dir, 'model.gguf'), Buffer.alloc(500));
+
+  const models = scanModels(root);
+  const m = models.find((x) => x.name === 'org/repo');
+  expect(m).toBeDefined();
+  expect(m!.sidecar).toBeDefined();
+  expect(m!.sidecar!.sourceCommit).toBe('abc123def456');
+  expect(m!.sidecar!.repoCommit).toBe('fff111222333');
+  expect(m!.sidecar!.fileCount).toBe(1);
+  expect(m!.sidecar!.totalSourceSize).toBe(500);
+
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('scanModels leaves sidecar undefined when there is none', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'scan-'));
+  await fsp.mkdir(path.join(root, 'loose'), {recursive: true});
+  await fsp.writeFile(
+    path.join(root, 'loose', 'tinyllama-Q4_K_M.gguf'),
+    Buffer.alloc(10),
+  );
+
+  const models = scanModels(root);
+  expect(models.length).toBeGreaterThan(0);
+  expect(models.every((m) => m.sidecar === undefined)).toBe(true);
+
+  await fsp.rm(root, {recursive: true, force: true});
 });

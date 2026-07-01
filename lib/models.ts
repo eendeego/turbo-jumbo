@@ -12,7 +12,8 @@ import {parseHubCachePath} from '@/lib/hf-cache';
 import {readSafetensorsDtype} from '@/lib/safetensors';
 import {isMmprojFilename, repoIdFromModelUrl} from '@/lib/model-name';
 import {isDiffusersComponentFile} from '@/lib/diffusers';
-import {MODEL_SIDECAR_NAME} from '@/lib/model-sidecar';
+import {MODEL_SIDECAR_NAME, summarizeModel} from '@/lib/model-sidecar';
+import type {SidecarSummary, TjModel} from '@/lib/model-sidecar';
 import {
   WEIGHT_EXT_RE,
   ggmlModelVariant,
@@ -56,30 +57,47 @@ function sidecarRepoId(fullPath: string): string | null {
 }
 
 /**
- * The repoId recorded in the model sidecar (`tjmodel.json`) that owns `fullPath`,
- * found by walking up from the file's directory to the nearest ancestor holding
- * one (bounded by `storagePath`). Read synchronously to fit the sync scan; the
- * authoritative name for the whole model dir. Returns null when none is found.
+ * The model sidecar (`tjmodel.json`) that owns `fullPath`, found by walking up
+ * from the file's directory to the nearest ancestor holding one (bounded by
+ * `storagePath`). Read synchronously to fit the sync scan. Returns null when
+ * none is found or the JSON is unparseable.
  */
-function modelSidecarRepoId(
-  fullPath: string,
-  storagePath: string,
-): string | null {
+function readSidecarFor(fullPath: string, storagePath: string): TjModel | null {
   let dir = path.dirname(fullPath);
   const root = path.resolve(storagePath);
   for (;;) {
     try {
       const raw = fs.readFileSync(path.join(dir, MODEL_SIDECAR_NAME), 'utf8');
-      const m = JSON.parse(raw) as {repoId?: unknown};
-      return typeof m.repoId === 'string' ? m.repoId : null;
+      return JSON.parse(raw) as TjModel;
     } catch {
-      // no sidecar here; keep walking up
+      // no (readable) sidecar here; keep walking up
     }
     if (path.resolve(dir) === root) return null;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+/**
+ * The repoId recorded in the model sidecar that owns `fullPath`, or null. The
+ * authoritative name for the whole model dir.
+ */
+function modelSidecarRepoId(
+  fullPath: string,
+  storagePath: string,
+): string | null {
+  const m = readSidecarFor(fullPath, storagePath);
+  return m && typeof m.repoId === 'string' ? m.repoId : null;
+}
+
+/** The model-level summary of the sidecar owning `fullPath`, or null. */
+function modelSidecarSummary(
+  fullPath: string,
+  storagePath: string,
+): SidecarSummary | null {
+  const m = readSidecarFor(fullPath, storagePath);
+  return m && typeof m.repoId === 'string' ? summarizeModel(m) : null;
 }
 
 // A quantization token: IQ2_XS, Q4_K_M, MXFP4 (Microscaling FP4), BF16, F16, …
@@ -203,6 +221,10 @@ export function scanModels(
   const lemonadeDir = lemonadePath ? path.basename(lemonadePath) : null;
   const singleMap = new Map<string, SingleFile[]>();
 
+  // One representative file path per model name, to read the model's sidecar
+  // once after the walk (all of a model's files share its sidecar dir).
+  const sampleByModel = new Map<string, string>();
+
   interface SplitAccum {
     modelName: string;
     quant: string;
@@ -260,6 +282,8 @@ export function scanModels(
           extractModelName(`${base}.gguf`);
         const quant = extractQuant(`${base}.gguf`);
         const key = `${modelName}::${base}`;
+        if (!sampleByModel.has(modelName))
+          sampleByModel.set(modelName, fullPath);
 
         let size = 0;
         try {
@@ -297,6 +321,8 @@ export function scanModels(
           sidecarRepoId(fullPath) ??
           flatRepoId ??
           extractModelName(entry.name);
+        if (!sampleByModel.has(modelName))
+          sampleByModel.set(modelName, fullPath);
         const file: SingleFile = {
           isSplit: false,
           filename: entry.name,
@@ -347,10 +373,15 @@ export function scanModels(
   }
 
   return Array.from(modelMap.entries())
-    .map(([name, files]) => ({
-      name,
-      files: files.sort((a, b) => a.quant.localeCompare(b.quant)),
-    }))
+    .map(([name, files]) => {
+      const sample = sampleByModel.get(name);
+      const sidecar = sample ? modelSidecarSummary(sample, storagePath) : null;
+      return {
+        name,
+        files: files.sort((a, b) => a.quant.localeCompare(b.quant)),
+        ...(sidecar ? {sidecar} : {}),
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
