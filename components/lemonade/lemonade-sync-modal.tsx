@@ -37,9 +37,12 @@ interface ModelResult {
 type Phase = 'loading' | 'preview' | 'running' | 'done' | 'error';
 
 export function LemonadeSyncModal({
+  syncUrl,
   onClose,
   onSynced,
 }: {
+  // The sync endpoint for the targeted peer (preview via GET, run via POST).
+  syncUrl: string;
   onClose: () => void;
   // Called once a sync completes so the caller can refresh the table.
   onSynced: () => void;
@@ -53,7 +56,7 @@ export function LemonadeSyncModal({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch('/api/v1/lemonade/sync');
+        const res = await fetch(syncUrl);
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const data = (await res.json()) as {preview?: Preview[]};
         if (!cancelled) {
@@ -70,12 +73,12 @@ export function LemonadeSyncModal({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [syncUrl]);
 
   async function runSync() {
     setPhase('running');
     try {
-      const res = await fetch('/api/v1/lemonade/sync', {method: 'POST'});
+      const res = await fetch(syncUrl, {method: 'POST'});
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const data = (await res.json()) as {results?: ModelResult[]};
       setResults(data.results ?? []);

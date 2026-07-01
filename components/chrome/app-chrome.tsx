@@ -27,12 +27,10 @@ import {ConsoleProvider} from '@/components/chrome/console-context';
 // (HF/Lemonade) views.
 export function AppChrome({
   peers,
-  localPeerAddress,
   logLevel,
   children,
 }: {
   peers: PeerConfig[];
-  localPeerAddress: string | null;
   logLevel: string;
   children: React.ReactNode;
 }) {
@@ -45,8 +43,9 @@ export function AppChrome({
     const segments = pathname.split('/').filter(Boolean);
     return parseRoute(segments, peers)?.location ?? ALL_LOCATION;
   }, [pathname, peers]);
-  // "Consolidate" runs on the local peer only, so it's hidden on All.
-  const canConsolidate = activeLocation === localPeerAddress;
+  // "Consolidate" runs on a single machine, so it shows on any peer tab (it
+  // runs on that peer) but not on All.
+  const consolidatePeer = peers.find((p) => p.address === activeLocation);
   // "Add model" works on any peer tab (downloads run on that peer) and on All.
   const canAddModel =
     activeLocation === ALL_LOCATION ||
@@ -106,7 +105,7 @@ export function AppChrome({
             }
             endContent={
               <HStack gap={2} vAlign="center">
-                {canConsolidate && (
+                {consolidatePeer && (
                   <Button
                     label="Consolidate with Lemonade…"
                     variant="secondary"
@@ -131,8 +130,9 @@ export function AppChrome({
 
       <Log logLevel={logLevel} open={consoleOpen} onToggle={toggleConsole} />
 
-      {syncOpen && (
+      {syncOpen && consolidatePeer && (
         <LemonadeSyncModal
+          syncUrl={`/api/v1/peers/${encodeURIComponent(consolidatePeer.name)}/lemonade/sync`}
           onClose={() => setSyncOpen(false)}
           onSynced={() => router.refresh()}
         />
