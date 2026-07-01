@@ -29,7 +29,6 @@ import {
   componentDownloadStatus,
   componentInLemonadeCache,
   lemonadeDownloadStatus,
-  lemonadeStatusTooltip,
   modelInLemonadeCache,
   matchVariantFiles,
   missingVariantFiles,
@@ -53,6 +52,12 @@ import {
   type HfFile,
   type Selection,
 } from '@/lib/lemonade-catalog';
+import {
+  IncompleteMarker,
+  LemonadeCacheMarker,
+  SectionHeader,
+  StatusMarker,
+} from '@/components/lemonade/markers';
 
 // The catalog's modality sections, in display order. The niche ONNX (Ryzen AI)
 // and vLLM LLM backends sit below the media sections to keep the top focused.
@@ -88,41 +93,6 @@ const styles = stylex.create({
   modelList: {flexGrow: 1, minHeight: 0, overflowY: 'auto'},
   indent: {width: 20, display: 'inline-block'},
 });
-
-// Flags an entry that lives in Lemonade's own cache directory — separate from
-// the managed storage the download-status marker reports on. Shown alongside
-// it, so an entry can carry both, one, or neither. `muted` dims the badge for a
-// collection only partially present in the cache.
-function LemonadeCacheMarker({
-  present,
-  muted = false,
-}: {
-  present: boolean;
-  muted?: boolean;
-}) {
-  if (!present) return null;
-  return (
-    <HoverCard
-      placement="above"
-      content={
-        muted
-          ? "Partially in Lemonade's local cache"
-          : "In Lemonade's local cache"
-      }
-    >
-      <span style={muted ? {opacity: 0.45} : undefined}>
-        <Badge label="lemonade" variant="yellow" />
-      </span>
-    </HoverCard>
-  );
-}
-
-// Flags a model whose local copy is missing files a full download would
-// include (e.g. a Kokoro repo with only its voices sidecar, no .onnx model).
-function IncompleteMarker({incomplete}: {incomplete: boolean}) {
-  if (!incomplete) return null;
-  return <Badge variant="error" label="incomplete" />;
-}
 
 // The end-of-row content shared by a flat model and a collection's
 // downloadable member: download status, suggested badge, capability icons,
@@ -176,55 +146,6 @@ function componentEndContent(
       <Badge label={component.modality} variant="neutral" />
       <Text type="supporting">{formatGb(component.sizeGb)}</Text>
     </HStack>
-  );
-}
-
-// A clickable divider titling a modality section in the catalog list; toggles
-// the section's collapsed state.
-function SectionHeader({
-  label,
-  count,
-  collapsed,
-  onToggle,
-}: {
-  label: string;
-  count?: number;
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <ListItem
-      label={label}
-      description={
-        count != null ? `${count} model${count === 1 ? '' : 's'}` : undefined
-      }
-      onClick={onToggle}
-      startContent={
-        <IconButton
-          label={collapsed ? 'Expand' : 'Collapse'}
-          variant="ghost"
-          size="sm"
-          icon={<Icon icon={collapsed ? 'chevronRight' : 'chevronDown'} />}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-        />
-      }
-    />
-  );
-}
-
-// The download-status marker shared by model rows and collection children.
-function StatusMarker({info}: {info: LemonadeDownloadInfo | undefined}) {
-  if (!info || info.status === 'none') return null;
-  return (
-    <HoverCard placement="above" content={lemonadeStatusTooltip(info)}>
-      <Badge
-        label={info.status === 'complete' ? 'downloaded' : 'partial'}
-        variant={info.status === 'complete' ? 'blue' : 'orange'}
-      />
-    </HoverCard>
   );
 }
 
