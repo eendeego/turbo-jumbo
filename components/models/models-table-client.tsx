@@ -162,11 +162,15 @@ function AuditFailureContent({
   onFix,
   fixing,
   onSetSource,
+  onRedownload,
+  redownloading,
 }: {
   failures: AuditResult[];
   onFix?: (path: string) => void;
   fixing?: boolean;
   onSetSource?: (path: string) => void;
+  onRedownload?: (file: AuditResult) => void;
+  redownloading?: boolean;
 }) {
   return (
     <VStack gap={3}>
@@ -178,6 +182,10 @@ function AuditFailureContent({
         const canFix = f.status === 'misplaced' && !f.cached && onFix != null;
         // Unverifiable files have no inferred source — let the user supply one.
         const canSetSource = f.status === 'unverifiable' && onSetSource != null;
+        // Incomplete (partial) files can be re-fetched; the HF downloader
+        // recovers the existing file in place, so it's never deleted first.
+        const canRedownload =
+          f.status === 'incomplete' && f.hf != null && onRedownload != null;
         return (
           <VStack
             key={f.file}
@@ -235,6 +243,17 @@ function AuditFailureContent({
                 />
               </HStack>
             )}
+            {canRedownload && (
+              <HStack>
+                <Button
+                  label={redownloading ? 'Redownloading…' : 'Redownload'}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onRedownload?.(f)}
+                  isDisabled={redownloading}
+                />
+              </HStack>
+            )}
           </VStack>
         );
       })}
@@ -248,12 +267,16 @@ function AuditCell({
   onFix,
   fixing,
   onSetSource,
+  onRedownload,
+  redownloading,
 }: {
   audit: RowAudit;
   failures?: AuditResult[];
   onFix?: (path: string) => void;
   fixing?: boolean;
   onSetSource?: (path: string) => void;
+  onRedownload?: (file: AuditResult) => void;
+  redownloading?: boolean;
 }) {
   if (audit == null) return null;
   if (audit.kind === 'pending') {
@@ -281,6 +304,8 @@ function AuditCell({
           onFix={onFix}
           fixing={fixing}
           onSetSource={onSetSource}
+          onRedownload={onRedownload}
+          redownloading={redownloading}
         />
       }
     >
@@ -433,6 +458,8 @@ export function ModelsTableClient({
   onFixMisplaced,
   fixing = false,
   onSetSource,
+  onRedownload,
+  redownloading = false,
 }: {
   models: ModelRow[];
   peers: PeerConfig[];
@@ -447,6 +474,8 @@ export function ModelsTableClient({
   onFixMisplaced?: (paths: string[]) => void;
   fixing?: boolean;
   onSetSource?: (path: string) => void;
+  onRedownload?: (file: AuditResult) => void;
+  redownloading?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -706,6 +735,8 @@ export function ModelsTableClient({
                   }
                   fixing={fixing}
                   onSetSource={onSetSource}
+                  onRedownload={onRedownload}
+                  redownloading={redownloading}
                 />
               );
             },

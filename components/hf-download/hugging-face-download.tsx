@@ -1,6 +1,6 @@
 'use client';
 
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import * as stylex from '@stylexjs/stylex';
 import {Section} from '@astryxdesign/core/Section';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
@@ -8,12 +8,13 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Button} from '@astryxdesign/core/Button';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
-import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
-import {Dialog} from '@astryxdesign/core/Dialog';
-import {ProgressBar} from '@astryxdesign/core/ProgressBar';
+import {
+  DownloadModal,
+  useDownloadRunner,
+} from '@/components/hf-download/download-runner';
 
 type ParsedUrl = {
   repoId: string;
@@ -22,7 +23,6 @@ type ParsedUrl = {
   filename: string | null;
 };
 type HfFile = {path: string; size: number};
-type TermState = {lines: string[]; col: number};
 
 function parseHfUrl(url: string): ParsedUrl | null {
   const s = url.trim().replace(/\/+$/, ''); // strip trailing slashes
@@ -101,105 +101,6 @@ function computeDefaultSelection(
   return new Set(files.map((f) => f.path));
 }
 
-// Minimal terminal emulator: handles \r (go to column 0) and \n (new line).
-// Keeps lines as an array of strings so \r-based progress bars update in place.
-function applyChunk(state: TermState, chunk: string): TermState {
-  const lines = [...state.lines];
-  let col = state.col;
-  for (let i = 0; i < chunk.length; i++) {
-    const ch = chunk[i];
-    if (ch === '\r') {
-      if (chunk[i + 1] === '\n') {
-        lines.push('');
-        col = 0;
-        i++;
-      } else {
-        col = 0;
-      }
-    } else if (ch === '\n') {
-      lines.push('');
-      col = 0;
-    } else {
-      const li = lines.length - 1;
-      const line = lines[li];
-      if (col < line.length) {
-        lines[li] = line.slice(0, col) + ch + line.slice(col + 1);
-      } else {
-        lines[li] = line.padEnd(col, ' ') + ch;
-      }
-      col++;
-    }
-  }
-  return {lines, col};
-}
-
-type DownloadProgress = {
-  percent: number;
-  downloaded: string;
-  total: string;
-  speed: string | null;
-  eta: string | null;
-  filesDone: number;
-  filesTotal: number;
-};
-
-const SIZE_UNITS: Record<string, number> = {
-  B: 1,
-  KB: 1e3,
-  K: 1e3,
-  MB: 1e6,
-  M: 1e6,
-  GB: 1e9,
-  G: 1e9,
-  TB: 1e12,
-  T: 1e12,
-};
-
-function parseSize(s: string): number {
-  const m = s.match(/^([\d.]+)\s*([A-Za-z]+)$/);
-  if (!m) return 0;
-  return parseFloat(m[1]) * (SIZE_UNITS[m[2].toUpperCase()] ?? 1);
-}
-
-function parseProgress(lines: string[]): DownloadProgress | null {
-  let percent = 0;
-  let downloaded = '';
-  let total = '';
-  let speed: string | null = null;
-  let eta: string | null = null;
-  let filesDone = 0;
-  let filesTotal = 0;
-  let hasDownload = false;
-
-  for (const line of lines) {
-    // "Downloading ...:   5% 523M/9.97G [00:12<04:39, 33.8MB/s]"
-    const dl = line.match(
-      /Downloading[^:]*:\s+(\d+)%\s+([\d.]+\s*\S+)\/([\d.]+\s*\S+)\s+\[([^\]]*)\]/,
-    );
-    if (dl) {
-      hasDownload = true;
-      percent = parseInt(dl[1], 10);
-      downloaded = dl[2];
-      total = dl[3];
-      const meta = dl[4];
-      const speedMatch = meta.match(/([\d.]+\s*\S+\/s)/);
-      if (speedMatch) speed = speedMatch[1];
-      const etaMatch = meta.match(/<([\d:]+)/);
-      if (etaMatch) eta = etaMatch[1];
-    }
-
-    // "Fetching 1 files:   0% 0/1 [00:00<?, ?it/s]"
-    const ft = line.match(/Fetching\s+\d+\s+files?:\s+\d+%\s+(\d+)\/(\d+)/);
-    if (ft) {
-      filesDone = parseInt(ft[1], 10);
-      filesTotal = parseInt(ft[2], 10);
-    }
-  }
-
-  if (!hasDownload) return null;
-  return {percent, downloaded, total, speed, eta, filesDone, filesTotal};
-}
-
 function formatBytes(bytes: number): string {
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
@@ -219,15 +120,12 @@ export function HuggingFaceDownload({
   const [url, setUrl] = useState('');
   const [sendToCold, setSendToCold] = useState(false);
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
-  const [running, setRunning] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [term, setTerm] = useState<TermState | null>(null);
-  const [progress, setProgress] = useState<DownloadProgress | null>(null);
+  const {term, progress, running, start, cancel, reset} = useDownloadRunner();
   const [files, setFiles] = useState<HfFile[] | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
-  const abortRef = useRef<AbortController | null>(null);
 
   // Debounce so we don't hit the HF API on every keypress
   const [debouncedUrl, setDebouncedUrl] = useState('');
@@ -323,61 +221,22 @@ export function HuggingFaceDownload({
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const startDownload = async () => {
+  const startDownload = () => {
     if (!parsed || selectedFiles.length === 0 || running) return;
-    const abort = new AbortController();
-    abortRef.current = abort;
-    setRunning(true);
     setShowModal(true);
-    setTerm({lines: [''], col: 0});
-    setProgress(null);
-
-    try {
-      const res = await fetch('/api/v1/hf-download', {
-        method: 'POST',
-        signal: abort.signal,
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          repoId: parsed.repoId,
-          branch: parsed.branch,
-          filePaths: selectedFiles.map((f) => f.path),
-          sendToCold,
-          deleteAfterTransfer,
-        }),
-      });
-
-      if (!res.ok || !res.body) {
-        setTerm({lines: [`Error: ${res.statusText}`], col: 0});
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let state: TermState = {lines: [''], col: 0};
-
-      while (true) {
-        const {done, value} = await reader.read();
-        if (done) break;
-        state = applyChunk(state, decoder.decode(value, {stream: true}));
-        setTerm({...state});
-        const p = parseProgress(state.lines);
-        if (p) setProgress(p);
-      }
-    } catch (e) {
-      if (!(e instanceof DOMException && e.name === 'AbortError')) {
-        setTerm({lines: [`Error: ${String(e)}`], col: 0});
-      }
-    } finally {
-      abortRef.current = null;
-      setRunning(false);
-    }
+    start({
+      repoId: parsed.repoId,
+      branch: parsed.branch,
+      filePaths: selectedFiles.map((f) => f.path),
+      sendToCold,
+      deleteAfterTransfer,
+    });
   };
 
   const handleCloseModal = () => {
-    if (running) abortRef.current?.abort();
+    if (running) cancel();
     setShowModal(false);
-    setTerm(null);
-    setProgress(null);
+    reset();
   };
 
   const hasFiles = files !== null && files.length > 0;
@@ -492,61 +351,12 @@ export function HuggingFaceDownload({
       </VStack>
 
       {showModal && (
-        <Dialog isOpen onOpenChange={(open) => !open && handleCloseModal()}>
-          <VStack gap={4}>
-            <Heading level={3}>Downloading…</Heading>
-            {progress && (
-              <VStack gap={2}>
-                <ProgressBar
-                  label="Download"
-                  value={parseSize(progress.downloaded)}
-                  max={parseSize(progress.total)}
-                  hasValueLabel
-                  formatValueLabel={() => {
-                    const parts = [
-                      `${progress.downloaded} / ${progress.total}`,
-                    ];
-                    if (progress.speed) parts.push(progress.speed);
-                    if (progress.eta) parts.push(`${progress.eta} remaining`);
-                    return parts.join('  ·  ');
-                  }}
-                />
-                {progress.filesTotal > 1 && (
-                  <ProgressBar
-                    label="Files"
-                    value={progress.filesDone}
-                    max={progress.filesTotal}
-                    hasValueLabel
-                    formatValueLabel={(v, m) => `${v} / ${m}`}
-                  />
-                )}
-              </VStack>
-            )}
-            <CodeBlock
-              code={term?.lines.join('\n') || ' '}
-              language="plaintext"
-              hasCopyButton={false}
-              isWrapped
-              width="100%"
-              maxHeight={384}
-            />
-            <HStack gap={2} hAlign="end">
-              {running ? (
-                <Button
-                  label="Cancel"
-                  variant="destructive"
-                  onClick={handleCloseModal}
-                />
-              ) : (
-                <Button
-                  label="Close"
-                  variant="secondary"
-                  onClick={handleCloseModal}
-                />
-              )}
-            </HStack>
-          </VStack>
-        </Dialog>
+        <DownloadModal
+          term={term}
+          progress={progress}
+          running={running}
+          onClose={handleCloseModal}
+        />
       )}
     </Section>
   );

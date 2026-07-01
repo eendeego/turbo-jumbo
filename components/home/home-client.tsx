@@ -1,6 +1,6 @@
 'use client';
 
-import {useState, useMemo, useCallback, useEffect} from 'react';
+import {useState, useMemo, useCallback, useEffect, useRef} from 'react';
 import {useRouter} from 'next/navigation';
 import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
@@ -33,9 +33,26 @@ import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
 import {HuggingFaceDownload} from '@/components/hf-download/hugging-face-download';
 import {SetSourceModal} from '@/components/models/set-source-modal';
-import type {AuditResult, FixResult} from '@/lib/audit';
+import {
+  DownloadModal,
+  useDownloadRunner,
+} from '@/components/hf-download/download-runner';
+import type {AuditResult, FixResult, HfSummary} from '@/lib/audit';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
+
+// Derive the redownload target (repo, branch, in-repo path) from an audited
+// file's HF summary. The branch and in-repo path come from the file URL; the
+// repo from the summary directly.
+function fileRefFromSummary(
+  hf: HfSummary,
+): {repoId: string; branch: string; repoPath: string} | null {
+  const m = hf.fileUrl.match(
+    /^https?:\/\/huggingface\.co\/[^/]+\/[^/]+\/(?:blob|resolve)\/([^/]+)\/(.+)$/,
+  );
+  if (!m) return null;
+  return {repoId: hf.repoId, branch: m[1], repoPath: m[2]};
+}
 
 function selectedFileInfo(
   models: ModelRow[],
@@ -157,53 +174,58 @@ export function HomeClient({
         ? 'local'
         : null;
 
-  async function onAudit() {
-    if (!auditLocation) return;
-    const paths = Array.from(selected);
-    setAuditing(true);
-    setError(null);
-    // Accumulate across runs: keep prior verdicts and merge in the new paths,
-    // clearing only the in-flight paths so they show "Auditing…" as they stream.
-    setAuditedPaths((prev) => new Set([...prev, ...paths]));
-    setAuditResults((prev) => {
-      const next = new Map(prev);
-      for (const p of paths) next.delete(p);
-      return next;
-    });
-    try {
-      const res = await fetch('/api/v1/audit', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({location: auditLocation, files: paths}),
+  const runAudit = useCallback(
+    async (paths: string[]) => {
+      if (!auditLocation || paths.length === 0) return;
+      setAuditing(true);
+      setError(null);
+      // Accumulate across runs: keep prior verdicts and merge in the new paths,
+      // clearing only the in-flight paths so they show "Auditing…" as they
+      // stream.
+      setAuditedPaths((prev) => new Set([...prev, ...paths]));
+      setAuditResults((prev) => {
+        const next = new Map(prev);
+        for (const p of paths) next.delete(p);
+        return next;
       });
-      if (!res.ok || !res.body) {
-        throw new Error(`${res.status} ${res.statusText}`);
-      }
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      for (;;) {
-        const {done, value} = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, {stream: true});
-        const lines = buf.split('\n');
-        buf = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const result = JSON.parse(line) as AuditResult;
-          setAuditResults((prev) => {
-            const next = new Map(prev);
-            next.set(result.file, result);
-            return next;
-          });
+      try {
+        const res = await fetch('/api/v1/audit', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({location: auditLocation, files: paths}),
+        });
+        if (!res.ok || !res.body) {
+          throw new Error(`${res.status} ${res.statusText}`);
         }
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const {done, value} = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, {stream: true});
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const result = JSON.parse(line) as AuditResult;
+            setAuditResults((prev) => {
+              const next = new Map(prev);
+              next.set(result.file, result);
+              return next;
+            });
+          }
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setAuditing(false);
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setAuditing(false);
-    }
-  }
+    },
+    [auditLocation],
+  );
+
+  const onAudit = () => runAudit(Array.from(selected));
 
   // Re-fetch the table data after a mutation (e.g. copy) without a full
   // server round-trip / page reload.
@@ -278,6 +300,44 @@ export function HomeClient({
     setSourceError(null);
     setSourceTarget(path);
   }, []);
+
+  // Redownload an incomplete file: re-fetch from HF into local storage. The
+  // existing partial file is left in place so the HF downloader recovers it
+  // (never deleted, never sent to cold storage here).
+  const redownload = useDownloadRunner();
+  const [redownloadOpen, setRedownloadOpen] = useState(false);
+  const redownloadPath = useRef<string | null>(null);
+
+  const onRedownload = useCallback(
+    (file: AuditResult) => {
+      if (!file.hf) return;
+      const ref = fileRefFromSummary(file.hf);
+      if (!ref) {
+        setError(`Couldn't determine a download source for ${file.file}`);
+        return;
+      }
+      redownloadPath.current = file.hf.expectedPath; // where the file lands
+      setError(null);
+      setRedownloadOpen(true);
+      redownload.start({
+        repoId: ref.repoId,
+        branch: ref.branch,
+        filePaths: [ref.repoPath],
+      });
+    },
+    [redownload],
+  );
+
+  const closeRedownload = useCallback(() => {
+    if (redownload.running) redownload.cancel();
+    setRedownloadOpen(false);
+    redownload.reset();
+    const path = redownloadPath.current;
+    redownloadPath.current = null;
+    // Reflect the recovered file: refresh the listing and re-audit just it.
+    void refreshModels();
+    if (path && auditLocation === 'local') void runAudit([path]);
+  }, [redownload, auditLocation, runAudit]);
 
   // Resolve a manually-supplied HF URL, verify the file against it, and fold the
   // resulting verdict back into the audit state (same shape as a fresh audit).
@@ -559,6 +619,8 @@ export function HomeClient({
           onFixMisplaced={onFix}
           fixing={fixing}
           onSetSource={onSetSource}
+          onRedownload={auditLocation === 'local' ? onRedownload : undefined}
+          redownloading={redownload.running}
         />
         {error && <Banner status="error" title={`Error: ${error}`} />}
         <ActionBar
@@ -627,6 +689,15 @@ export function HomeClient({
               setSourceTarget(null);
               setSourceError(null);
             }}
+          />
+        )}
+        {redownloadOpen && (
+          <DownloadModal
+            title="Redownloading…"
+            term={redownload.term}
+            progress={redownload.progress}
+            running={redownload.running}
+            onClose={closeRedownload}
           />
         )}
       </VStack>
