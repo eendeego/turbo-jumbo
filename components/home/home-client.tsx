@@ -51,6 +51,19 @@ import type {DuplicateFixResult} from '@/lib/fix-duplicates';
 import {Log} from '@/components/log/log';
 import {ThemeToggle} from '@/components/theme/theme-toggle';
 
+// The location's last-known audit verdicts, derived server-side from the
+// `.tjmeta.json` sidecars — no hashing, no network beyond this call.
+async function fetchCachedResults(location: string): Promise<AuditResult[]> {
+  const res = await fetch('/api/v1/audit/cached', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({location}),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  const {results} = (await res.json()) as {results: AuditResult[]};
+  return results;
+}
+
 // Derive the redownload target (repo, branch, in-repo path) from an audited
 // file's HF summary. The branch and in-repo path come from the file URL; the
 // repo from the summary directly.
@@ -258,7 +271,42 @@ export function HomeClient({
     [auditLocation],
   );
 
-  const onAudit = () => runAudit(Array.from(selected));
+  // Fold cached verdicts into the audit state without clobbering fresh
+  // results — a fresh verdict is always at least as current as its sidecar.
+  const seedCachedResults = useCallback((results: AuditResult[]) => {
+    if (results.length === 0) return;
+    setAuditResults((prev) => {
+      const next = new Map(prev);
+      for (const r of results) if (!next.has(r.file)) next.set(r.file, r);
+      return next;
+    });
+    setAuditedPaths(
+      (prev) => new Set([...prev, ...results.map((r) => r.file)]),
+    );
+  }, []);
+
+  // With files selected, Audit runs a fresh audit of them; with none, it
+  // loads and renders the location's cached verdicts for every file.
+  const onAudit = () => {
+    if (selected.size > 0) {
+      void runAudit(Array.from(selected));
+    } else {
+      void loadCachedAudits();
+    }
+  };
+
+  async function loadCachedAudits() {
+    if (!auditLocation) return;
+    setAuditing(true);
+    setError(null);
+    try {
+      seedCachedResults(await fetchCachedResults(auditLocation));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAuditing(false);
+    }
+  }
 
   // Re-fetch the table data after a mutation (e.g. copy) without a full
   // server round-trip / page reload.
@@ -512,22 +560,8 @@ export function HomeClient({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/v1/audit/cached', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({location: auditLocation}),
-        });
-        if (!res.ok) return;
-        const {results} = (await res.json()) as {results: AuditResult[]};
-        if (cancelled || results.length === 0) return;
-        setAuditResults((prev) => {
-          const next = new Map(prev);
-          for (const r of results) if (!next.has(r.file)) next.set(r.file, r);
-          return next;
-        });
-        setAuditedPaths(
-          (prev) => new Set([...prev, ...results.map((r) => r.file)]),
-        );
+        const results = await fetchCachedResults(auditLocation);
+        if (!cancelled) seedCachedResults(results);
       } catch {
         /* best-effort pre-fill */
       }
@@ -535,7 +569,7 @@ export function HomeClient({
     return () => {
       cancelled = true;
     };
-  }, [auditLocation]);
+  }, [auditLocation, seedCachedResults]);
 
   const onToggleSelected = useCallback((paths: string[]) => {
     setSelected((prev) => {

@@ -110,8 +110,9 @@ export function ActionBar({
                 label={auditing ? 'Auditing…' : 'Audit'}
                 variant="secondary"
                 size="sm"
+                // Unlike the other actions, Audit works without a selection:
+                // it then just loads the location's cached (sidecar) verdicts.
                 isDisabled={
-                  noneSelected ||
                   auditing ||
                   copying ||
                   deleting ||
