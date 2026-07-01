@@ -1,4 +1,5 @@
 import {readFileMetaByPath} from '@/lib/model-sidecar';
+import {isPickOneBinRepo} from '@/lib/hf-download';
 import {existsSync, statSync} from 'fs';
 import nodePath from 'path';
 
@@ -49,6 +50,10 @@ async function repoTree(repoId: string): Promise<TreeFile[]> {
  * with the source. A checksum-less file (no LFS oid, e.g. index.json) is judged
  * by size alone — a size match is valid even though it can't be attested. No
  * live hashing — only the file size and any sidecar the download recorded.
+ *
+ * A pick-one `.bin` repo (ggml whisper.cpp-style, see `isPickOneBinRepo`) is
+ * treated like GGUF: only files present on disk are reported, never the repo's
+ * other un-downloaded variants as `missing`.
  */
 export async function repoFileStatuses(
   storageBase: string,
@@ -57,10 +62,15 @@ export async function repoFileStatuses(
   const base = nodePath.resolve(storageBase);
   const tree = await repoTree(repoId);
   const dir = nodePath.join(base, repoId);
+  // A pick-one .bin repo (ggml whisper.cpp-style) holds many independent models;
+  // like GGUF, an un-downloaded variant isn't "missing" — report only the files
+  // present on disk, not the whole repo.
+  const pickOne = isPickOneBinRepo(tree.map((f) => f.path));
   const out: RepoFile[] = [];
   for (const f of tree) {
     const full = nodePath.join(dir, f.path);
     if (!existsSync(full)) {
+      if (pickOne) continue;
       out.push({
         path: f.path,
         state: 'missing',

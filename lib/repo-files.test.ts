@@ -147,3 +147,22 @@ test('a size mismatch against HF is invalid regardless of any sidecar', async ()
   expect(out.find((f) => f.path === 'partial.bin')?.state).toBe('invalid');
   await fsp.rm(base, {recursive: true, force: true});
 });
+
+test('a pick-one ggml .bin repo reports only present files, never missing variants', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
+  const repoId = 'rf/whisper.cpp';
+  // The repo holds many ggml-*.bin models; only one is downloaded locally.
+  mockTree(repoId, [
+    {path: 'ggml-tiny.bin', size: 10},
+    {path: 'ggml-base.bin', size: 20},
+    {path: 'ggml-large-v3.bin', size: 30},
+  ]);
+  await writeFileOfSize(path.join(base, repoId, 'ggml-base.bin'), 20);
+
+  const out = await repoFileStatuses(base, repoId);
+  // Like GGUF: just the present variant, no "missing" rows for the others.
+  expect(out).toEqual([
+    {path: 'ggml-base.bin', state: 'present', size: 20, expectedSize: 20},
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
