@@ -25,7 +25,7 @@ import type {
   AuditStatus,
   UpdateResult,
 } from '@/lib/audit';
-import {modelDisplayName} from '@/lib/model-name';
+import {isMmprojFilename, modelDisplayName} from '@/lib/model-name';
 import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peer-paths';
 import {rowAudit, rowUpdates, type RowAudit} from '@/lib/row-audit';
 
@@ -608,11 +608,27 @@ export function augmentWithPeerOnlyQuants(
     presentShards: number;
     missingIndices: number[];
   };
+  const peerProjectors = new Map<string, ProjectorInfo[]>();
+  const addPeerProjector = (
+    modelName: string,
+    filename: string,
+    size: number,
+  ) => {
+    const list = peerProjectors.get(modelName) ?? [];
+    if (!list.some((p) => p.filename === filename)) list.push({filename, size});
+    peerProjectors.set(modelName, list);
+  };
+
   const peerOnly = new Map<string, PeerOnly>();
   for (const [, lo] of peerModels) {
     if (lo.type !== 'value') continue;
     for (const m of lo.value) {
       for (const f of m.files) {
+        const projBase = f.isSplit ? f.representativeFilename : f.filename;
+        if (isMmprojFilename(projBase)) {
+          addPeerProjector(m.name, projBase, f.isSplit ? f.totalSize : f.size);
+          continue;
+        }
         const key = `${m.name}::${f.quant}`;
         if (existingKeys.has(key) || peerOnly.has(key)) continue;
         peerOnly.set(key, {
@@ -631,7 +647,7 @@ export function augmentWithPeerOnlyQuants(
     }
   }
 
-  if (peerOnly.size === 0) return models;
+  if (peerOnly.size === 0 && peerProjectors.size === 0) return models;
 
   const byModel = new Map<string, ModelRow>();
   for (const m of models) byModel.set(m.name, {...m, quants: [...m.quants]});
@@ -668,6 +684,18 @@ export function augmentWithPeerOnlyQuants(
         noneInColdStorage: true,
       });
     }
+  }
+
+  // Fold peer projector files into each model's projector list (deduped by
+  // filename), so a projector that lives only on a peer still shows.
+  for (const [name, projs] of peerProjectors) {
+    const row = byModel.get(name);
+    if (!row) continue;
+    const merged = [...(row.projectors ?? [])];
+    for (const p of projs) {
+      if (!merged.some((x) => x.filename === p.filename)) merged.push(p);
+    }
+    row.projectors = merged;
   }
 
   // Recompute aggregates and ordering; mirrors the server-side aggregation
