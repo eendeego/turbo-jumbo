@@ -19,65 +19,9 @@ import {
 import {LemonadeBrowser} from '@/components/lemonade/lemonade-browser';
 import type {InventoryLocation} from '@/lib/lemonade';
 import {defaultDownloadSelection} from '@/lib/hf-download';
+import {parseHfUrl} from '@/lib/hf-url';
 
-type ParsedUrl = {
-  repoId: string;
-  branch: string;
-  folder: string | null;
-  filename: string | null;
-};
 type HfFile = {path: string; size: number};
-
-function parseHfUrl(url: string): ParsedUrl | null {
-  const s = url.trim().replace(/\/+$/, ''); // strip trailing slashes
-
-  // Full file URL: https://huggingface.co/owner/repo/blob/branch/path/to/file.gguf
-  const fileMatch = s.match(
-    /^https?:\/\/huggingface\.co\/([^/]+\/[^/]+)\/(blob|resolve)\/([^/]+)\/(.+)$/,
-  );
-  if (fileMatch) {
-    const repoId = fileMatch[1];
-    const branch = fileMatch[3];
-    const filePath = fileMatch[4];
-    const slashIdx = filePath.indexOf('/');
-    const folder = slashIdx !== -1 ? filePath.slice(0, slashIdx) : null;
-    const filename = filePath.split('/').pop()!;
-    return {repoId, branch, folder, filename};
-  }
-
-  // Repo URL with explicit branch: https://huggingface.co/owner/repo/blob/branch (no file)
-  const blobRootMatch = s.match(
-    /^https?:\/\/huggingface\.co\/([^/]+\/[^/]+)\/(?:blob|tree)\/([^/]+)$/,
-  );
-  if (blobRootMatch) {
-    return {
-      repoId: blobRootMatch[1],
-      branch: blobRootMatch[2],
-      folder: null,
-      filename: null,
-    };
-  }
-
-  // Repo URL: https://huggingface.co/owner/repo
-  const repoUrlMatch = s.match(
-    /^https?:\/\/huggingface\.co\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)$/,
-  );
-  if (repoUrlMatch) {
-    return {
-      repoId: repoUrlMatch[1],
-      branch: 'main',
-      folder: null,
-      filename: null,
-    };
-  }
-
-  // Bare owner/repo
-  if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(s)) {
-    return {repoId: s, branch: 'main', folder: null, filename: null};
-  }
-
-  return null;
-}
 
 // Given the filename from the URL, pick which files to pre-select.
 // - Shard file (e.g. model-00001-of-00004.gguf) → all sibling shards
