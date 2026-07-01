@@ -12,7 +12,10 @@ import type {Model} from '@/lib/models';
 import {AsyncState} from '@/lib/async-state';
 import {withPeerPaths} from '@/lib/peer-paths';
 import type {ModelRow} from '@/components/models/models-table-client';
-import {ModelsTableClient} from '@/components/models/models-table-client';
+import {
+  ModelsTableClient,
+  augmentWithPeerOnlyQuants,
+} from '@/components/models/models-table-client';
 import {
   LocationTabs,
   type LocationTab,
@@ -798,9 +801,16 @@ export function HomeClient({
     return withPeerPaths(models, lo.value);
   }, [models, peerConfigs, activeLocation, peerModels]);
 
+  // Selections can name peer-only quants (rows the table synthesizes), so the
+  // copy/delete modals must resolve against the same augmented view.
+  const augmentedModels = useMemo(
+    () => augmentWithPeerOnlyQuants(tableModels, seededPeerModels),
+    [tableModels, seededPeerModels],
+  );
+
   const fileInfo = useMemo(
-    () => selectedFileInfo(tableModels, selected),
-    [tableModels, selected],
+    () => selectedFileInfo(augmentedModels, selected),
+    [augmentedModels, selected],
   );
 
   return (
