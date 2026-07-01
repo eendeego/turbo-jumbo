@@ -5,7 +5,7 @@ import {useRouter} from 'next/navigation';
 import {locationHref} from '@/lib/locations';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
-import {Heading} from '@astryxdesign/core/Text';
+import {Heading, Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
@@ -53,6 +53,7 @@ import type {
   AuditStartEvent,
   FixResult,
   HfSummary,
+  UpdateResult,
 } from '@/lib/audit';
 import type {DuplicateFixResult} from '@/lib/fix-duplicates';
 import {Log} from '@/components/log/log';
@@ -154,6 +155,12 @@ export function HomeClient({
   // Files whose audit job has been picked up this run. In-flight paths absent
   // from this set are still queued (audits serialize on cold storage).
   const [auditStarted, setAuditStarted] = useState<Set<string>>(new Set());
+  // Per-file "newer version on HF" results for the current location, filled by
+  // the background update check after cached verdicts render. Keyed by path.
+  const [updateResults, setUpdateResults] = useState<Map<string, UpdateResult>>(
+    new Map(),
+  );
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [fixingDuplicate, setFixingDuplicate] = useState(false);
   // The file whose HF source is being set (relative path), plus the request
@@ -197,6 +204,8 @@ export function HomeClient({
     setAuditedPaths(new Set());
     setAuditProgress(new Map());
     setAuditStarted(new Set());
+    setUpdateResults(new Map());
+    setCheckingUpdates(false);
   }, []);
 
   // Clear any selection whenever the active tab (URL) or the underlying model
@@ -330,6 +339,32 @@ export function HomeClient({
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setAuditing(false);
+    }
+    // Cached verdicts are network-free; now check HF for newer versions in the
+    // background, updating rows as results stream in.
+    void checkUpdates();
+  }
+
+  // Network-only "is there a newer version on HF?" pass over the location's
+  // files. Streams per-file verdicts; only files behind their repo head are
+  // reported as updates. Failures are non-fatal — cached verdicts stay.
+  async function checkUpdates() {
+    if (!auditLocation) return;
+    setCheckingUpdates(true);
+    try {
+      const res = await fetch('/api/v1/audit/updates', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({location: auditLocation}),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      await readNdjson<UpdateResult>(res, (event) => {
+        setUpdateResults((prev) => new Map(prev).set(event.file, event));
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCheckingUpdates(false);
     }
   }
 
@@ -876,6 +911,9 @@ export function HomeClient({
             hfTokenSet={hfTokenSet}
           />
         )}
+        {checkingUpdates && (
+          <Text type="supporting">Checking Hugging Face for updates…</Text>
+        )}
         <ModelsTableClient
           models={tableModels}
           peers={peerConfigs}
@@ -889,6 +927,7 @@ export function HomeClient({
           auditing={auditing}
           auditProgress={auditProgress}
           auditStarted={auditStarted}
+          updateResults={updateResults}
           onClearAudit={resetAudit}
           onFixMisplaced={onFix}
           fixing={fixing}
