@@ -16,6 +16,52 @@ export interface LemonadeModel {
   sizeGb: number;
 }
 
+/**
+ * One member of an omni collection. Only `llamacpp` GGUF members are
+ * `downloadable` here (they join a `LemonadeModel` by `name`); image/audio/TTS
+ * members (sd-cpp, whispercpp, kokoro, …) are shown for context but this app
+ * doesn't store their multi-file layouts, so they carry only display fields.
+ */
+export interface LemonadeComponent {
+  name: string;
+  recipe: string;
+  modality: string; // display label: chat, vision, image, transcription, tts…
+  sizeGb: number;
+  downloadable: boolean;
+}
+
+/**
+ * An omni model (`recipe: "collection.omni"`): a bundle of component models
+ * rather than a single GGUF. Rendered as an expandable group; its downloadable
+ * members reuse the normal per-model download path.
+ */
+export interface OmniCollection {
+  name: string;
+  suggested: boolean;
+  sizeGb: number;
+  labels: string[];
+  components: LemonadeComponent[];
+}
+
+/**
+ * A `collection.omni` entry whose components live in a manifest JSON inside an
+ * HF repo (rather than inline in the catalog). The route fetches `{repo}.json`
+ * and resolves it with `collectionFromManifest`.
+ */
+export interface OmniManifestRef {
+  name: string;
+  repoId: string;
+  suggested: boolean;
+  sizeGb: number;
+  labels: string[];
+}
+
+export interface ParsedLemonade {
+  models: LemonadeModel[]; // llamacpp GGUF models, as before
+  collections: OmniCollection[]; // inline omni collections, fully resolved
+  manifestRefs: OmniManifestRef[]; // omni collections needing a manifest fetch
+}
+
 const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 /**
@@ -70,6 +116,149 @@ export function lemonadeGgufModels(catalog: unknown): LemonadeModel[] {
     });
   }
   return models;
+}
+
+// A display modality per recipe, for the omni component list. llamacpp is
+// split by its vision label; the rest map straight from their recipe.
+const RECIPE_MODALITY: Record<string, string> = {
+  'sd-cpp': 'image',
+  whispercpp: 'transcription',
+  moonshine: 'transcription',
+  kokoro: 'tts',
+  vllm: 'chat',
+  'ryzenai-llm': 'chat',
+};
+
+function componentModality(recipe: string, labels: string[]): string {
+  if (recipe === 'llamacpp')
+    return labels.includes('vision') ? 'vision' : 'chat';
+  return RECIPE_MODALITY[recipe] ?? recipe;
+}
+
+function readLabels(v: unknown): string[] {
+  return Array.isArray(v)
+    ? v.filter((l): l is string => typeof l === 'string')
+    : [];
+}
+
+// A collection's total size: its declared size when the catalog gives one,
+// else the sum of its components (the inline collections carry no size).
+function collectionSize(
+  declared: number,
+  components: LemonadeComponent[],
+): number {
+  return declared > 0
+    ? declared
+    : components.reduce((sum, c) => sum + c.sizeGb, 0);
+}
+
+// Build a component from a raw catalog or manifest entry. `downloadableNames`
+// is the set of llamacpp model names this app can actually fetch; a llamacpp
+// member is downloadable only when it resolves to one.
+function toComponent(
+  name: string,
+  raw: unknown,
+  downloadableNames: Set<string>,
+): LemonadeComponent {
+  const e =
+    raw && typeof raw === 'object'
+      ? (raw as {recipe?: unknown; size?: unknown; labels?: unknown})
+      : {};
+  const recipe = typeof e.recipe === 'string' ? e.recipe : 'unknown';
+  const labels = readLabels(e.labels);
+  return {
+    name,
+    recipe,
+    modality: componentModality(recipe, labels),
+    sizeGb: typeof e.size === 'number' ? e.size : 0,
+    downloadable: recipe === 'llamacpp' && downloadableNames.has(name),
+  };
+}
+
+/**
+ * Parse the Lemonade catalog into its llamacpp models, its inline omni
+ * collections (components resolved by catalog-name lookup), and references to
+ * the omni collections whose components live in a manifest repo — those are
+ * fetched and resolved separately with `collectionFromManifest`.
+ */
+export function parseLemonade(catalog: unknown): ParsedLemonade {
+  const models = lemonadeGgufModels(catalog);
+  const downloadableNames = new Set(models.map((m) => m.name));
+  const collections: OmniCollection[] = [];
+  const manifestRefs: OmniManifestRef[] = [];
+  if (catalog && typeof catalog === 'object' && !Array.isArray(catalog)) {
+    const map = catalog as Record<string, unknown>;
+    for (const [name, raw] of Object.entries(map)) {
+      if (!raw || typeof raw !== 'object') continue;
+      const e = raw as {
+        recipe?: unknown;
+        suggested?: unknown;
+        size?: unknown;
+        labels?: unknown;
+        components?: unknown;
+        checkpoint?: unknown;
+      };
+      if (e.recipe !== 'collection.omni') continue;
+      const suggested = e.suggested === true;
+      const sizeGb = typeof e.size === 'number' ? e.size : 0;
+      const labels = readLabels(e.labels);
+      if (Array.isArray(e.components)) {
+        const components = e.components
+          .filter((c): c is string => typeof c === 'string')
+          .map((cname) => toComponent(cname, map[cname], downloadableNames));
+        collections.push({
+          name,
+          suggested,
+          sizeGb: collectionSize(sizeGb, components),
+          labels,
+          components,
+        });
+      } else if (typeof e.checkpoint === 'string' && e.checkpoint) {
+        const parsed = parseCheckpoint(e.checkpoint);
+        if (parsed)
+          manifestRefs.push({
+            name,
+            repoId: parsed.repoId,
+            suggested,
+            sizeGb,
+            labels,
+          });
+      }
+    }
+  }
+  return {models, collections, manifestRefs};
+}
+
+/**
+ * Resolve a manifest-repo omni collection from its fetched `{repo}.json`, whose
+ * `models` array fully describes each component. Tolerant of malformed shapes —
+ * the manifest is fetched from a moving branch head — so unknown entries are
+ * skipped and a missing `models` array yields an empty (still-rendered) group.
+ */
+export function collectionFromManifest(
+  ref: {name: string; suggested: boolean; sizeGb: number; labels: string[]},
+  manifest: unknown,
+  downloadableNames: Set<string>,
+): OmniCollection {
+  const components: LemonadeComponent[] = [];
+  if (manifest && typeof manifest === 'object' && !Array.isArray(manifest)) {
+    const m = manifest as {models?: unknown};
+    if (Array.isArray(m.models)) {
+      for (const entry of m.models) {
+        if (!entry || typeof entry !== 'object') continue;
+        const cname = (entry as {model_name?: unknown}).model_name;
+        if (typeof cname !== 'string') continue;
+        components.push(toComponent(cname, entry, downloadableNames));
+      }
+    }
+  }
+  return {
+    name: ref.name,
+    suggested: ref.suggested,
+    sizeGb: collectionSize(ref.sizeGb, components),
+    labels: ref.labels,
+    components,
+  };
 }
 
 const isMmproj = (name: string) => name.toLowerCase().startsWith('mmproj');

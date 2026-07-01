@@ -1,11 +1,13 @@
 import {test, expect} from 'bun:test';
 import {
+  collectionFromManifest,
   lemonadeDownloadStatus,
   lemonadeGgufModels,
   lemonadeStatusTooltip,
   matchVariantFiles,
   missingVariantFiles,
   parseCheckpoint,
+  parseLemonade,
   type InventoryLocation,
   type LemonadeModel,
 } from '@/lib/lemonade';
@@ -92,6 +94,194 @@ test('lemonadeGgufModels skips malformed entries instead of failing', () => {
   ).toHaveLength(1);
   expect(lemonadeGgufModels(null)).toEqual([]);
   expect(lemonadeGgufModels([1, 2])).toEqual([]);
+});
+
+test('parseLemonade resolves inline omni collections and defers manifest ones', () => {
+  const catalog = {
+    'Qwen-LLM-GGUF': {
+      checkpoint: 'unsloth/Qwen-LLM-GGUF:Q4_K_M',
+      recipe: 'llamacpp',
+      suggested: true,
+      labels: ['vision'],
+      size: 4,
+    },
+    'SD-Turbo': {
+      checkpoint: 'stabilityai/sd-turbo:sd_turbo.safetensors',
+      recipe: 'sd-cpp',
+      labels: ['image'],
+      size: 5.21,
+    },
+    'Whisper-Tiny': {
+      checkpoints: {main: 'ggerganov/whisper.cpp:ggml-tiny.bin'},
+      recipe: 'whispercpp',
+      labels: ['transcription'],
+      size: 0.075,
+    },
+    'Lite Collection': {
+      checkpoint: '',
+      recipe: 'collection.omni',
+      suggested: false,
+      components: ['Qwen-LLM-GGUF', 'SD-Turbo', 'Whisper-Tiny'],
+    },
+    'LMX-Omni-Lite': {
+      checkpoint: 'lemonade-sdk/LMX-Omni-Lite',
+      recipe: 'collection.omni',
+      suggested: true,
+      size: 9.3,
+      labels: ['omni'],
+    },
+  };
+  const {models, collections, manifestRefs} = parseLemonade(catalog);
+
+  // The llamacpp model is still parsed exactly as lemonadeGgufModels does.
+  expect(models.map((m) => m.name)).toEqual(['Qwen-LLM-GGUF']);
+
+  // The inline collection resolves its components against the catalog: the
+  // llamacpp one is downloadable, the image/audio ones are not.
+  expect(collections).toHaveLength(1);
+  expect(collections[0].name).toBe('Lite Collection');
+  expect(collections[0].components).toEqual([
+    {
+      name: 'Qwen-LLM-GGUF',
+      recipe: 'llamacpp',
+      modality: 'vision',
+      sizeGb: 4,
+      downloadable: true,
+    },
+    {
+      name: 'SD-Turbo',
+      recipe: 'sd-cpp',
+      modality: 'image',
+      sizeGb: 5.21,
+      downloadable: false,
+    },
+    {
+      name: 'Whisper-Tiny',
+      recipe: 'whispercpp',
+      modality: 'transcription',
+      sizeGb: 0.075,
+      downloadable: false,
+    },
+  ]);
+
+  // The manifest-repo omni is deferred: it needs its {name}.json fetched.
+  expect(manifestRefs).toEqual([
+    {
+      name: 'LMX-Omni-Lite',
+      repoId: 'lemonade-sdk/LMX-Omni-Lite',
+      suggested: true,
+      sizeGb: 9.3,
+      labels: ['omni'],
+    },
+  ]);
+});
+
+test('parseLemonade marks a component downloadable only when it is a known gguf model', () => {
+  const {collections} = parseLemonade({
+    'Good-GGUF': {
+      checkpoint: 'o/Good-GGUF:Q4_K_M',
+      recipe: 'llamacpp',
+      size: 1,
+    },
+    'Bad-GGUF': {checkpoint: 'not-a-repo', recipe: 'llamacpp', size: 1},
+    Combo: {
+      checkpoint: '',
+      recipe: 'collection.omni',
+      components: ['Good-GGUF', 'Bad-GGUF', 'Ghost'],
+    },
+  });
+  const byName = Object.fromEntries(
+    collections[0].components.map((c) => [c.name, c]),
+  );
+  expect(byName['Good-GGUF'].downloadable).toBe(true);
+  // llamacpp recipe, but its checkpoint doesn't parse, so it isn't a real model.
+  expect(byName['Bad-GGUF'].downloadable).toBe(false);
+  // Not in the catalog at all.
+  expect(byName['Ghost']).toEqual({
+    name: 'Ghost',
+    recipe: 'unknown',
+    modality: 'unknown',
+    sizeGb: 0,
+    downloadable: false,
+  });
+});
+
+test('parseLemonade sums component sizes when an inline collection declares none', () => {
+  const {collections} = parseLemonade({
+    A: {checkpoint: 'o/A-GGUF:Q4_K_M', recipe: 'llamacpp', size: 2},
+    B: {checkpoint: 'o/b:f.safetensors', recipe: 'sd-cpp', size: 3},
+    Combo: {checkpoint: '', recipe: 'collection.omni', components: ['A', 'B']},
+  });
+  expect(collections[0].sizeGb).toBe(5);
+});
+
+test('collectionFromManifest keeps the declared collection size over the sum', () => {
+  const ref = {name: 'X', suggested: false, sizeGb: 9.3, labels: []};
+  const manifest = {
+    models: [
+      {model_name: 'A', recipe: 'llamacpp', size: 2},
+      {model_name: 'B', recipe: 'sd-cpp', size: 3},
+    ],
+  };
+  expect(collectionFromManifest(ref, manifest, new Set()).sizeGb).toBe(9.3);
+});
+
+test('collectionFromManifest builds components from a fetched manifest', () => {
+  const manifest = {
+    model_name: 'user.LMX-Omni-Lite',
+    recipe: 'collection.omni',
+    components: ['Qwen-LLM-GGUF', 'SD-Turbo'],
+    models: [
+      {
+        model_name: 'Qwen-LLM-GGUF',
+        recipe: 'llamacpp',
+        labels: ['vision'],
+        size: 4,
+        checkpoints: {main: 'unsloth/Qwen-LLM-GGUF:Q4_K_M'},
+      },
+      {
+        model_name: 'SD-Turbo',
+        recipe: 'sd-cpp',
+        labels: ['image'],
+        size: 5.21,
+        checkpoints: {main: 'stabilityai/sd-turbo:sd_turbo.safetensors'},
+      },
+    ],
+  };
+  const ref = {name: 'LMX-Omni-Lite', suggested: true, sizeGb: 9.3, labels: []};
+  expect(
+    collectionFromManifest(ref, manifest, new Set(['Qwen-LLM-GGUF'])),
+  ).toEqual({
+    name: 'LMX-Omni-Lite',
+    suggested: true,
+    sizeGb: 9.3,
+    labels: [],
+    components: [
+      {
+        name: 'Qwen-LLM-GGUF',
+        recipe: 'llamacpp',
+        modality: 'vision',
+        sizeGb: 4,
+        downloadable: true,
+      },
+      {
+        name: 'SD-Turbo',
+        recipe: 'sd-cpp',
+        modality: 'image',
+        sizeGb: 5.21,
+        downloadable: false,
+      },
+    ],
+  });
+});
+
+test('collectionFromManifest tolerates a missing or malformed models array', () => {
+  const ref = {name: 'X', suggested: false, sizeGb: 0, labels: []};
+  expect(collectionFromManifest(ref, {}, new Set()).components).toEqual([]);
+  expect(collectionFromManifest(ref, null, new Set()).components).toEqual([]);
+  expect(
+    collectionFromManifest(ref, {models: [42, {}, null]}, new Set()).components,
+  ).toEqual([]);
 });
 
 const files = [
