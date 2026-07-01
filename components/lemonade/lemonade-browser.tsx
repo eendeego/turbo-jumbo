@@ -13,8 +13,10 @@ import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {Link} from '@astryxdesign/core/Link';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Icon} from '@astryxdesign/core/Icon';
+import {Banner} from '@astryxdesign/core/Banner';
 import {DownloadModal} from '@/components/hf-download/download-runner';
 import type {DownloadTarget} from '@/lib/download-target';
+import {diskSpaceWarnings, type DownloadDiskUsage} from '@/lib/disk-space';
 import type {Model} from '@/lib/models';
 import {
   catalogSection,
@@ -141,6 +143,9 @@ export function LemonadeBrowser({
   const [selection, setSelection] = useState<Selection | null>(null);
   const [sendToCold, setSendToCold] = useState(false);
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
+  // Free space at the download target (models dir + cold storage), fetched once,
+  // to warn before a transfer that wouldn't fit. Null while unknown — no warning.
+  const [disk, setDisk] = useState<DownloadDiskUsage | null>(null);
   const {
     resolving,
     resolveError,
@@ -160,6 +165,22 @@ export function LemonadeBrowser({
     deleteAfterTransfer,
     onDownloaded,
   });
+
+  // Read free space at the target once (best-effort: stay silent if it fails).
+  useEffect(() => {
+    let cancelled = false;
+    fetch(target.diskUsageUrl)
+      .then((r) => (r.ok ? (r.json() as Promise<DownloadDiskUsage>) : null))
+      .then((d) => {
+        if (!cancelled && d) setDisk(d);
+      })
+      .catch(() => {
+        /* unreadable disk: no space warning */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [target.diskUsageUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -299,6 +320,18 @@ export function LemonadeBrowser({
 
   const selectedKey = selection ? selectionKey(selection) : null;
   const selLabel = selection ? selectionLabel(selection) : null;
+  // The catalog declares sizes in decimal GB; convert to bytes to compare with
+  // statfs. This is the selection's full size — a conservative estimate, since
+  // files already present at the target are skipped at download time.
+  const neededBytes = (selLabel?.sizeGb ?? 0) * 1e9;
+  const spaceWarnings = useMemo(
+    () =>
+      disk
+        ? diskSpaceWarnings(disk, neededBytes, sendToCold, deleteAfterTransfer)
+        : [],
+    [disk, neededBytes, sendToCold, deleteAfterTransfer],
+  );
+  const notEnoughSpace = spaceWarnings.length > 0;
 
   if (showTerminal) {
     return (
@@ -568,6 +601,12 @@ export function LemonadeBrowser({
           </VStack>
         )}
       </VStack>
+      {notEnoughSpace && (
+        <Banner
+          status="error"
+          title={`Not enough disk space — ${spaceWarnings.join('; ')}.`}
+        />
+      )}
       <HStack gap={2} hAlign="between" vAlign="center">
         <Text type="supporting">
           {selLabel

@@ -1,19 +1,7 @@
 import {statfs, stat} from 'fs/promises';
+import type {DiskUsage, DownloadDiskUsage} from '@/lib/disk-space';
 
-export interface DiskUsage {
-  free: number; // bytes available to an unprivileged process
-  total: number; // total bytes on the filesystem
-}
-
-// Free/total bytes for both filesystems a download can touch: the models
-// directory (where it lands) and cold storage (where the optional copy goes).
-// `sameDevice` flags when they share one filesystem, so the caller knows their
-// free space is shared rather than additive.
-export interface DownloadDiskUsage {
-  models: DiskUsage;
-  cold: DiskUsage;
-  sameDevice: boolean;
-}
+export type {DiskUsage, DownloadDiskUsage} from '@/lib/disk-space';
 
 // Free/total bytes of the filesystem holding `path`. `bavail` (not `bfree`) is
 // the space actually usable, matching what the download will be allowed to

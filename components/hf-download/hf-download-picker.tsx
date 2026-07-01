@@ -15,18 +15,15 @@ import {
 } from '@/components/hf-download/download-runner';
 import {copyToClipboard} from '@/lib/clipboard';
 import type {DownloadTarget} from '@/lib/download-target';
-import type {DownloadDiskUsage} from '@/lib/disk-usage';
+import {
+  formatBytes,
+  diskSpaceWarnings,
+  type DownloadDiskUsage,
+} from '@/lib/disk-space';
 import {defaultDownloadSelection} from '@/lib/hf-download';
 import {parseHfUrl} from '@/lib/hf-url';
 
 type HfFile = {path: string; size: number};
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  return `${(bytes / 1e3).toFixed(1)} KB`;
-}
 
 /**
  * The Hugging Face download picker, inlined as a route's body (no dialog
@@ -150,32 +147,13 @@ export function HfDownloadPicker({
     [files, selectedPaths],
   );
   const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0);
-  // Per-filesystem shortfalls for the planned transfer. The download always
-  // writes the files into the models dir; "Copy to cold storage" adds a copy on
-  // the cold filesystem (and "delete after transfer" removes the local copy
-  // afterwards). When both live on one filesystem their free space is shared, so
-  // a kept copy needs room for two and a moved copy for one.
-  const spaceWarnings = useMemo<string[]>(() => {
-    if (!disk || selectedFiles.length === 0) return [];
-    const fmt = formatBytes;
-    if (disk.sameDevice) {
-      const need =
-        sendToCold && !deleteAfterTransfer ? totalSize * 2 : totalSize;
-      return need > disk.models.free
-        ? [`needs ${fmt(need)} but only ${fmt(disk.models.free)} is free`]
-        : [];
-    }
-    const out: string[] = [];
-    if (totalSize > disk.models.free)
-      out.push(
-        `local storage needs ${fmt(totalSize)} but only ${fmt(disk.models.free)} is free`,
-      );
-    if (sendToCold && totalSize > disk.cold.free)
-      out.push(
-        `cold storage needs ${fmt(totalSize)} but only ${fmt(disk.cold.free)} is free`,
-      );
-    return out;
-  }, [disk, selectedFiles.length, totalSize, sendToCold, deleteAfterTransfer]);
+  const spaceWarnings = useMemo(
+    () =>
+      disk
+        ? diskSpaceWarnings(disk, totalSize, sendToCold, deleteAfterTransfer)
+        : [],
+    [disk, totalSize, sendToCold, deleteAfterTransfer],
+  );
   const notEnoughSpace = spaceWarnings.length > 0;
 
   // The picker shows the rows matching the filter; selection is by path, so
