@@ -11,6 +11,7 @@ import {Spinner} from '@astryxdesign/core/Spinner';
 import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/model-types';
 import {modelDisplayName} from '@/lib/model-name';
+import {allFilesPresent} from '@/lib/peer-paths';
 import type {FileInfo} from '@/components/models/delete-modal';
 
 export interface CopyDestinations {
@@ -24,22 +25,6 @@ interface CopyModalProps {
   from: string; // "cold-storage" | peer address
   onCopy: (destinations: CopyDestinations) => void;
   onCancel: () => void;
-}
-
-function allPresent(files: FileInfo[], destModels: Model[]): boolean {
-  const destFilenames = new Set<string>();
-  for (const model of destModels) {
-    for (const file of model.files) {
-      if (file.isSplit) {
-        for (const shard of file.files) {
-          destFilenames.add(shard.path.split('/').pop() ?? shard.path);
-        }
-      } else {
-        destFilenames.add(file.filename);
-      }
-    }
-  }
-  return files.every((f) => destFilenames.has(f.filename));
 }
 
 export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
@@ -79,7 +64,7 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
   // The local peer is just another destination now; only exclude the source.
   const availablePeers = (peers ?? []).filter((p) => p.address !== from);
   const coldAlreadyPresent =
-    coldModels !== null && allPresent(files, coldModels);
+    coldModels !== null && allFilesPresent(files, coldModels);
   const canCopy = toColdStorage || selectedPeers.size > 0;
 
   function togglePeer(addr: string) {
@@ -151,7 +136,7 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
             availablePeers.map((peer) => {
               const peerModels = peerModelsMap.get(peer.address);
               const alreadyPresent =
-                peerModels !== undefined && allPresent(files, peerModels);
+                peerModels !== undefined && allFilesPresent(files, peerModels);
               const note = peer.isLocal
                 ? alreadyPresent
                   ? 'local · already present'

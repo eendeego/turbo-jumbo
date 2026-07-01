@@ -1,5 +1,10 @@
 import {test, expect} from 'bun:test';
-import {fileJoinKey, peerFileKeys, withPeerPaths} from '@/lib/peer-paths';
+import {
+  allFilesPresent,
+  fileJoinKey,
+  peerFileKeys,
+  withPeerPaths,
+} from '@/lib/peer-paths';
 import type {Model} from '@/lib/models';
 import type {
   ModelRow,
@@ -359,4 +364,60 @@ test('merges paths when the peer has duplicate copies of a quant', () => {
     'LFM2-1.2B-Q6_K.gguf',
     'old/LFM2-1.2B-Q6_K.gguf',
   ]);
+});
+
+function file(filename: string, p = filename): Model['files'][number] {
+  return {
+    isSplit: false,
+    filename,
+    path: p,
+    quant: 'F16',
+    size: 100,
+    missing: false,
+  };
+}
+
+test("allFilesPresent does not match a projector against another model's mmproj", () => {
+  // Selecting model A's projector while the destination only holds model B's
+  // same-named projector must report "not present" — the generic basename
+  // collides, so the join key has to be qualified by model.
+  const dest: Model[] = [
+    {
+      name: 'unsloth/Model-B-GGUF',
+      files: [file('mmproj-F16.gguf', 'unsloth/Model-B-GGUF/mmproj-F16.gguf')],
+    },
+  ];
+  const selected = [
+    {model: 'unsloth/Model-A-GGUF', filename: 'mmproj-F16.gguf'},
+  ];
+  expect(allFilesPresent(selected, dest)).toBe(false);
+});
+
+test("allFilesPresent matches a projector against the same model's mmproj", () => {
+  const dest: Model[] = [
+    {
+      name: 'unsloth/Model-A-GGUF',
+      files: [file('mmproj-F16.gguf', 'unsloth/Model-A-GGUF/mmproj-F16.gguf')],
+    },
+  ];
+  const selected = [
+    {model: 'unsloth/Model-A-GGUF', filename: 'mmproj-F16.gguf'},
+  ];
+  expect(allFilesPresent(selected, dest)).toBe(true);
+});
+
+test('allFilesPresent matches a specific gguf across differently-named hosts', () => {
+  // A specific (non-generic) GGUF basename identifies its model, so it joins on
+  // the basename alone — presence holds even when the hosts name the model
+  // differently.
+  const dest: Model[] = [
+    {
+      name: 'unsloth/Jan-nano-GGUF',
+      files: [
+        file('Jan-nano-Q6_K.gguf', 'unsloth/Jan-nano-GGUF/Jan-nano-Q6_K.gguf'),
+      ],
+    },
+  ];
+  const selected = [{model: 'Jan-nano', filename: 'Jan-nano-Q6_K.gguf'}];
+  expect(allFilesPresent(selected, dest)).toBe(true);
 });

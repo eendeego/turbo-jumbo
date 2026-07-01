@@ -45,6 +45,20 @@ export function peerFileKeys(models: Model[]): Set<string> {
 }
 
 /**
+ * Whether every selected file already exists in `destModels`. Joins on
+ * `fileJoinKey`, so generic and mmproj basenames are qualified by model — a
+ * destination holding a different model's `mmproj-F16.gguf` doesn't count this
+ * model's projector as already present. Gates a copy destination checkbox.
+ */
+export function allFilesPresent(
+  files: Array<{model: string; filename: string}>,
+  destModels: Model[],
+): boolean {
+  const destKeys = peerFileKeys(destModels);
+  return files.every((f) => destKeys.has(fileJoinKey(f.model, f.filename)));
+}
+
+/**
  * Replace each quant's paths with the peer's own paths for that quant. File
  * operations on a peer tab (audit, copy, delete) resolve paths on the peer,
  * whose storage layout can differ from the local one — the same file can sit
