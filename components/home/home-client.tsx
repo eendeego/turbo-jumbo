@@ -15,7 +15,6 @@ import {
 } from '@/components/models/models-table-client';
 import {type LocationTab} from '@/components/models/location-tabs';
 import {ActionBar} from '@/components/models/action-bar';
-import {readNdjson} from '@/lib/ndjson';
 import {
   DeleteModal,
   anyMissingFromColdStorage,
@@ -26,39 +25,19 @@ import {ConflictsModal} from '@/components/models/conflicts-modal';
 import {useInventoryLocations} from '@/components/models/use-inventory-locations';
 import {useCopyWorkflow} from '@/components/models/use-copy-workflow';
 import {useDeleteWorkflow} from '@/components/models/use-delete-workflow';
+import {useAuditWorkflow} from '@/components/models/use-audit-workflow';
 import {SetSourceModal} from '@/components/models/set-source-modal';
 import {RevisionsModal} from '@/components/models/revisions-modal';
 import {
   DownloadModal,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
-import type {
-  AuditProgressEvent,
-  AuditResult,
-  AuditStartEvent,
-  FixResult,
-  HfSummary,
-  UpdateResult,
-} from '@/lib/audit';
-import type {DuplicateFixResult} from '@/lib/fix-duplicates';
+import type {AuditResult, HfSummary} from '@/lib/audit';
 import {useConsole} from '@/components/chrome/console-context';
 
 // A stable empty set, so locations with no incomplete repos don't hand the
 // table a fresh reference each render.
 const EMPTY_SET: Set<string> = new Set();
-
-// The location's last-known audit verdicts, derived server-side from the
-// `.tjmeta.json` sidecars — no hashing, no network beyond this call.
-async function fetchCachedResults(location: string): Promise<AuditResult[]> {
-  const res = await fetch('/api/v1/audit/cached', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({location}),
-  });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  const {results} = (await res.json()) as {results: AuditResult[]};
-  return results;
-}
 
 // Derive the redownload target (repo, branch, in-repo path) from an audited
 // file's HF summary. The branch and in-repo path come from the file URL; the
@@ -199,35 +178,6 @@ export function HomeClient({
     setInvalidByPeer(new Map(entries));
   }, [peerConfigs]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [auditResults, setAuditResults] = useState<Map<string, AuditResult>>(
-    new Map(),
-  );
-  const [auditedPaths, setAuditedPaths] = useState<Set<string>>(new Set());
-  const [auditing, setAuditing] = useState(false);
-  // Per-file SHA256 hashing progress for the in-flight audit run, keyed by
-  // path; entries drop as verdicts land and the map clears when the run ends.
-  const [auditProgress, setAuditProgress] = useState<
-    Map<string, AuditProgressEvent>
-  >(new Map());
-  // Files whose audit job has been picked up this run. In-flight paths absent
-  // from this set are still queued (audits serialize on cold storage).
-  const [auditStarted, setAuditStarted] = useState<Set<string>>(new Set());
-  // Per-file "newer version on HF" results for the current location, filled by
-  // the background update check after cached verdicts render. Keyed by path.
-  const [updateResults, setUpdateResults] = useState<Map<string, UpdateResult>>(
-    new Map(),
-  );
-  const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [fixing, setFixing] = useState(false);
-  const [fixingDuplicate, setFixingDuplicate] = useState(false);
-  // The file whose HF source is being set (relative path), plus the request
-  // state for the modal.
-  const [sourceTarget, setSourceTarget] = useState<string | null>(null);
-  const [settingSource, setSettingSource] = useState(false);
-  // SHA256 progress of the verification running in the Set source modal.
-  const [sourceProgress, setSourceProgress] =
-    useState<AuditProgressEvent | null>(null);
-  const [sourceError, setSourceError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The global console (logs) lives in the layout shell; read its open state so
   // the action bar's Console button can toggle it.
@@ -243,14 +193,49 @@ export function HomeClient({
     [peerConfigs],
   );
 
-  const resetAudit = useCallback(() => {
-    setAuditResults(new Map());
-    setAuditedPaths(new Set());
-    setAuditProgress(new Map());
-    setAuditStarted(new Set());
-    setUpdateResults(new Map());
-    setCheckingUpdates(false);
-  }, []);
+  // Where audit requests go: this host's storage ('local'/'cold-storage') or
+  // a remote peer's address, which the server proxies to that peer. Only the
+  // aggregate view can't be audited.
+  const auditLocation: string | null =
+    activeLocation === 'all'
+      ? null
+      : activeLocation === localPeerAddress
+        ? 'local'
+        : activeLocation;
+
+  // The audit workflow (run/cached/update, the misplaced + duplicate fixes,
+  // and the set-source flow) lives in its own hook; it owns the audit-result
+  // state and touches the shared selection / models refresh / error.
+  const {
+    auditResults,
+    auditedPaths,
+    auditing,
+    auditProgress,
+    auditStarted,
+    updateResults,
+    checkingUpdates,
+    fixing,
+    fixingDuplicate,
+    sourceTarget,
+    settingSource,
+    sourceError,
+    sourceProgress,
+    resetAudit,
+    runAudit,
+    onAudit,
+    onFix,
+    onFixDuplicate,
+    onSetSource,
+    submitSource,
+    misplacedPaths,
+    cancelSetSource,
+  } = useAuditWorkflow({
+    auditLocation,
+    selected,
+    setSelected,
+    refreshModels,
+    setError,
+  });
 
   // Clear any selection whenever the active tab (URL) or the underlying model
   // data changes, using a render-phase reset rather than an effect.
@@ -275,297 +260,12 @@ export function HomeClient({
     })();
   }, [refreshInvalid]);
 
-  // Where audit requests go: this host's storage ('local'/'cold-storage') or
-  // a remote peer's address, which the server proxies to that peer. Only the
-  // aggregate view can't be audited.
-  const auditLocation: string | null =
-    activeLocation === 'all'
-      ? null
-      : activeLocation === localPeerAddress
-        ? 'local'
-        : activeLocation;
-
-  const runAudit = useCallback(
-    async (paths: string[]) => {
-      if (!auditLocation || paths.length === 0) return;
-      setAuditing(true);
-      setError(null);
-      // Show the location's full cached state up front: every file's
-      // last-known (sidecar) verdict renders before any hashing starts, and
-      // the submitted paths revert from fresh to cached — the run's live
-      // signals then override them row by row (see rowAudit). When the cached
-      // fetch fails, the submitted paths just show pending, as before.
-      let cached: AuditResult[] = [];
-      try {
-        cached = await fetchCachedResults(auditLocation);
-      } catch {
-        /* best-effort pre-seed */
-      }
-      const cachedByFile = new Map(cached.map((r) => [r.file, r]));
-      setAuditedPaths(
-        (prev) => new Set([...prev, ...paths, ...cachedByFile.keys()]),
-      );
-      setAuditResults((prev) => {
-        const next = new Map(prev);
-        for (const p of paths) {
-          const c = cachedByFile.get(p);
-          if (c) next.set(p, c);
-          else next.delete(p);
-        }
-        for (const r of cached) if (!next.has(r.file)) next.set(r.file, r);
-        return next;
-      });
-      // Everything submitted starts out queued, until its start event arrives.
-      setAuditStarted(new Set());
-      try {
-        const res = await fetch('/api/v1/audit', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({location: auditLocation, files: paths}),
-        });
-        if (!res.ok || !res.body) {
-          throw new Error(`${res.status} ${res.statusText}`);
-        }
-        await readNdjson<AuditResult | AuditProgressEvent | AuditStartEvent>(
-          res,
-          (event) => {
-            if ('status' in event) {
-              setAuditResults((prev) => {
-                const next = new Map(prev);
-                next.set(event.file, event);
-                return next;
-              });
-              // Register streamed verdicts whose path wasn't in the selection
-              // (e.g. a synthetic missing-mmproj verdict), so rowAudit — which
-              // filters by auditedPaths — picks them up.
-              setAuditedPaths((prev) =>
-                prev.has(event.file) ? prev : new Set(prev).add(event.file),
-              );
-              // The verdict supersedes any hashing progress for the file.
-              setAuditProgress((prev) => {
-                if (!prev.has(event.file)) return prev;
-                const next = new Map(prev);
-                next.delete(event.file);
-                return next;
-              });
-            } else if ('hashedBytes' in event) {
-              setAuditProgress((prev) => new Map(prev).set(event.file, event));
-            } else if ('started' in event) {
-              setAuditStarted((prev) => new Set(prev).add(event.file));
-            }
-          },
-        );
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setAuditing(false);
-        setAuditProgress(new Map());
-        setAuditStarted(new Set());
-      }
-    },
-    [auditLocation],
-  );
-
-  // Fold cached verdicts into the audit state without clobbering fresh
-  // results — a fresh verdict is always at least as current as its sidecar.
-  const seedCachedResults = useCallback((results: AuditResult[]) => {
-    if (results.length === 0) return;
-    setAuditResults((prev) => {
-      const next = new Map(prev);
-      for (const r of results) if (!next.has(r.file)) next.set(r.file, r);
-      return next;
-    });
-    setAuditedPaths(
-      (prev) => new Set([...prev, ...results.map((r) => r.file)]),
-    );
-  }, []);
-
-  // With files selected, Audit runs a fresh audit of them; with none, it
-  // loads and renders the location's cached verdicts for every file.
-  const onAudit = () => {
-    if (selected.size > 0) {
-      void runAudit(Array.from(selected));
-    } else {
-      void loadCachedAudits();
-    }
-  };
-
-  async function loadCachedAudits() {
-    if (!auditLocation) return;
-    setAuditing(true);
-    setError(null);
-    try {
-      seedCachedResults(await fetchCachedResults(auditLocation));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setAuditing(false);
-    }
-    // Cached verdicts are network-free; now check HF for newer versions in the
-    // background, updating rows as results stream in.
-    void checkUpdates();
-  }
-
-  // Network-only "is there a newer version on HF?" pass over the location's
-  // files. Streams per-file verdicts; only files behind their repo head are
-  // reported as updates. Failures are non-fatal — cached verdicts stay.
-  async function checkUpdates() {
-    if (!auditLocation) return;
-    setCheckingUpdates(true);
-    try {
-      const res = await fetch('/api/v1/audit/updates', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({location: auditLocation}),
-      });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      await readNdjson<UpdateResult>(res, (event) => {
-        setUpdateResults((prev) => new Map(prev).set(event.file, event));
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCheckingUpdates(false);
-    }
-  }
-
   // Re-fetch the table data after a mutation (e.g. copy) without a full
   // server round-trip / page reload.
   async function refreshModels() {
     const res = await fetch('/api/v1/models-table');
     if (res.ok) setModels(await res.json());
   }
-
-  // Relocate misplaced files into <repoId>/<repoPath>. The moved files keep
-  // their verified size/sha, so we mark them passing and remap state to the new
-  // paths in place rather than re-hashing.
-  async function onFix(paths: string[]) {
-    if (!auditLocation || paths.length === 0) return;
-    setFixing(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/v1/audit/fix', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({location: auditLocation, files: paths}),
-      });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const {results} = (await res.json()) as {results: FixResult[]};
-
-      const moved = results.filter(
-        (r): r is FixResult & {to: string} => r.status === 'moved' && !!r.to,
-      );
-      if (moved.length > 0) {
-        setAuditResults((prev) => {
-          const next = new Map(prev);
-          for (const m of moved) {
-            next.delete(m.file);
-            next.set(m.to, {file: m.to, status: 'pass'});
-          }
-          return next;
-        });
-        setAuditedPaths((prev) => {
-          const next = new Set(prev);
-          for (const m of moved) {
-            next.delete(m.file);
-            next.add(m.to);
-          }
-          return next;
-        });
-        setSelected((prev) => {
-          const next = new Set(prev);
-          for (const m of moved) {
-            if (next.delete(m.file)) next.add(m.to);
-          }
-          return next;
-        });
-        await refreshModels();
-      }
-
-      const failed = results.filter((r) => r.status === 'error');
-      if (failed.length > 0) {
-        setError(
-          `Fix failed for ${failed.length} file(s): ${failed
-            .map((f) => `${f.file} (${f.message})`)
-            .join('; ')}`,
-        );
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setFixing(false);
-    }
-  }
-
-  // Resolve duplicate groups server-side (see /api/v1/audit/fix-duplicate):
-  // losers are deleted, the surviving copy — just re-verified by hash — ends
-  // at its expected path, so it's marked passing at its new location.
-  async function onFixDuplicate(paths: string[]) {
-    if (!auditLocation || paths.length === 0) return;
-    setFixingDuplicate(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/v1/audit/fix-duplicate', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({location: auditLocation, files: paths}),
-      });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const {results} = (await res.json()) as {results: DuplicateFixResult[]};
-
-      const deleted = results.filter((r) => r.status === 'deleted');
-      const kept = results.filter((r) => r.status === 'kept');
-      if (deleted.length > 0 || kept.length > 0) {
-        setAuditResults((prev) => {
-          const next = new Map(prev);
-          for (const d of deleted) next.delete(d.file);
-          for (const k of kept) {
-            next.delete(k.file);
-            const at = k.to ?? k.file;
-            next.set(at, {file: at, status: 'pass'});
-          }
-          return next;
-        });
-        setAuditedPaths((prev) => {
-          const next = new Set(prev);
-          for (const d of deleted) next.delete(d.file);
-          for (const k of kept) {
-            next.delete(k.file);
-            next.add(k.to ?? k.file);
-          }
-          return next;
-        });
-        setSelected((prev) => {
-          const next = new Set(prev);
-          for (const d of deleted) next.delete(d.file);
-          for (const k of kept) {
-            if (next.delete(k.file)) next.add(k.to ?? k.file);
-          }
-          return next;
-        });
-        await refreshModels();
-      }
-
-      const failed = results.filter((r) => r.status === 'error');
-      if (failed.length > 0) {
-        setError(
-          `Duplicate fix failed for ${failed.length} file(s): ${failed
-            .map((f) => `${f.file} (${f.message})`)
-            .join(', ')}`,
-        );
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setFixingDuplicate(false);
-    }
-  }
-
-  // Open the "set source" modal for an unverifiable file.
-  const onSetSource = useCallback((path: string) => {
-    setSourceError(null);
-    setSourceTarget(path);
-  }, []);
 
   // The audit failure whose checked revisions are shown in a modal, if any.
   const [revisionsFile, setRevisionsFile] = useState<AuditResult | null>(null);
@@ -612,7 +312,10 @@ export function HomeClient({
     [redownload],
   );
 
-  const closeRedownload = useCallback(() => {
+  // Not a useCallback: it closes over runAudit (from the audit hook), whose
+  // identity the React Compiler can't reconcile with a manual deps array — so
+  // let the compiler memoize it instead.
+  const closeRedownload = () => {
     if (redownload.running) redownload.cancel();
     setRedownloadOpen(false);
     redownload.reset();
@@ -624,84 +327,7 @@ export function HomeClient({
     void refreshInvalid();
     void refreshIncomplete();
     if (path && auditLocation === 'local') void runAudit([path]);
-  }, [redownload, auditLocation, runAudit, refreshInvalid, refreshIncomplete]);
-
-  // Resolve a manually-supplied HF URL, verify the file against it, and fold the
-  // resulting verdict back into the audit state (same shape as a fresh audit).
-  // Resolution errors come back as plain JSON; once verification starts the
-  // response streams hashing progress (shown in the modal), then the verdict.
-  async function submitSource(url: string) {
-    if (!auditLocation || !sourceTarget) return;
-    setSettingSource(true);
-    setSourceError(null);
-    try {
-      const res = await fetch('/api/v1/audit/set-source', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          location: auditLocation,
-          file: sourceTarget,
-          url,
-        }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        setSourceError(data?.error ?? `${res.status} ${res.statusText}`);
-        return;
-      }
-      // Held in an object property: TS doesn't track assignments made inside
-      // the callback, so a plain `let` would narrow to null at the read below.
-      const got: {verdict: AuditResult | null} = {verdict: null};
-      await readNdjson<AuditResult | AuditProgressEvent>(res, (event) => {
-        if ('status' in event) got.verdict = event;
-        else if ('hashedBytes' in event) setSourceProgress(event);
-      });
-      const result = got.verdict;
-      if (!result) {
-        setSourceError('verification ended without a verdict');
-        return;
-      }
-      setAuditedPaths((prev) => new Set(prev).add(result.file));
-      setAuditResults((prev) => new Map(prev).set(result.file, result));
-      setSourceTarget(null);
-    } catch (e) {
-      setSourceError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSettingSource(false);
-      setSourceProgress(null);
-    }
-  }
-
-  // Only freshly-audited misplaced files are fixable; cached verdicts are
-  // tentative until re-audited.
-  const misplacedPaths = useMemo(
-    () =>
-      [...auditResults.values()]
-        .filter((r) => r.status === 'misplaced' && !r.cached)
-        .map((r) => r.file),
-    [auditResults],
-  );
-
-  // Pre-fill the Audit column from sidecar metadata so the last-known verdicts
-  // show (toned down) before a fresh run. Seeds without clobbering fresh
-  // results, and reloads when switching to a different local/cold tab.
-  useEffect(() => {
-    if (!auditLocation) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const results = await fetchCachedResults(auditLocation);
-        if (!cancelled) seedCachedResults(results);
-      } catch {
-        /* best-effort pre-fill */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [auditLocation, seedCachedResults]);
+  };
 
   const onToggleSelected = useCallback((paths: string[]) => {
     setSelected((prev) => {
@@ -922,10 +548,7 @@ export function HomeClient({
           error={sourceError}
           progress={sourceProgress}
           onSubmit={submitSource}
-          onCancel={() => {
-            setSourceTarget(null);
-            setSourceError(null);
-          }}
+          onCancel={cancelSetSource}
         />
       )}
       {revisionsFile && (
