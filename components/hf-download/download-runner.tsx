@@ -7,6 +7,7 @@ import {Heading} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
+import {Banner} from '@astryxdesign/core/Banner';
 
 export type TermState = {lines: string[]; col: number};
 
@@ -218,6 +219,7 @@ export function DownloadModal({
   progress,
   running,
   command,
+  hfTokenSet = true,
   onClose,
 }: {
   title?: string;
@@ -225,6 +227,7 @@ export function DownloadModal({
   progress: DownloadProgress | null;
   running: boolean;
   command?: string;
+  hfTokenSet?: boolean;
   onClose: () => void;
 }) {
   const [showCommand, setShowCommand] = useState(false);
@@ -233,6 +236,12 @@ export function DownloadModal({
     <Dialog isOpen onOpenChange={(open) => !open && onClose()} purpose="form">
       <VStack gap={4}>
         <Heading level={3}>{title}</Heading>
+        {!hfTokenSet && (
+          <Banner
+            status="warning"
+            title="HF_TOKEN is not set — gated or private repositories may fail to download."
+          />
+        )}
         {progress && (
           <VStack gap={2}>
             <ProgressBar

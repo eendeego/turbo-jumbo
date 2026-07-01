@@ -91,6 +91,7 @@ export function HomeClient({
   activeLocation,
   coldModels,
   localModelsPath,
+  hfTokenSet,
   logLevel,
   modelsTableData,
   peerConfigs,
@@ -100,6 +101,7 @@ export function HomeClient({
   activeLocation: string;
   coldModels: Model[];
   localModelsPath: string | null;
+  hfTokenSet: boolean;
   logLevel: string;
   modelsTableData: ModelRow[];
   peerConfigs: PeerConfig[];
@@ -611,7 +613,10 @@ export function HomeClient({
           onLocationChange={handleLocationChange}
         />
         {localModelsPath && activeLocation !== 'cold-storage' && (
-          <HuggingFaceDownload localModelsPath={localModelsPath} />
+          <HuggingFaceDownload
+            localModelsPath={localModelsPath}
+            hfTokenSet={hfTokenSet}
+          />
         )}
         <ModelsTableClient
           models={models}
@@ -706,6 +711,7 @@ export function HomeClient({
             progress={redownload.progress}
             running={redownload.running}
             command={redownloadCommand ?? undefined}
+            hfTokenSet={hfTokenSet}
             onClose={closeRedownload}
           />
         )}

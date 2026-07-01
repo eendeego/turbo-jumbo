@@ -116,8 +116,10 @@ const styles = stylex.create({
 
 export function HuggingFaceDownload({
   localModelsPath,
+  hfTokenSet,
 }: {
   localModelsPath: string;
+  hfTokenSet: boolean;
 }) {
   const [url, setUrl] = useState('');
   const [sendToCold, setSendToCold] = useState(false);
@@ -361,6 +363,7 @@ export function HuggingFaceDownload({
           term={term}
           progress={progress}
           running={running}
+          hfTokenSet={hfTokenSet}
           onClose={handleCloseModal}
         />
       )}
