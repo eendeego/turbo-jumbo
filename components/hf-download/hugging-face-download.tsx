@@ -16,6 +16,7 @@ import {
   copyToClipboard,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
+import {LemonadeBrowser} from '@/components/lemonade/lemonade-browser';
 
 type ParsedUrl = {
   repoId: string;
@@ -125,6 +126,7 @@ export function HuggingFaceDownload({
   hfTokenSet: boolean;
 }) {
   const [url, setUrl] = useState('');
+  const [showLemonade, setShowLemonade] = useState(false);
   const [sendToCold, setSendToCold] = useState(false);
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
@@ -277,18 +279,37 @@ export function HuggingFaceDownload({
     <Section>
       <VStack gap={3}>
         <Heading level={2}>Download model</Heading>
-        <TextInput
-          label="Hugging Face URL"
-          value={url}
-          onChange={setUrl}
-          placeholder="https://huggingface.co/org/repo/blob/main/quant-folder/file.gguf"
-          status={
-            isInvalid
-              ? {type: 'error', message: 'Not a valid Hugging Face file URL.'}
-              : undefined
-          }
-        />
+        <HStack gap={2} vAlign="end">
+          <StackItem size="fill">
+            <TextInput
+              label="Hugging Face URL"
+              value={url}
+              onChange={setUrl}
+              placeholder="https://huggingface.co/org/repo/blob/main/quant-folder/file.gguf"
+              status={
+                isInvalid
+                  ? {
+                      type: 'error',
+                      message: 'Not a valid Hugging Face file URL.',
+                    }
+                  : undefined
+              }
+            />
+          </StackItem>
+          <Button
+            label="Browse Lemonade models…"
+            variant="secondary"
+            onClick={() => setShowLemonade(true)}
+          />
+        </HStack>
       </VStack>
+
+      {showLemonade && (
+        <LemonadeBrowser
+          hfTokenSet={hfTokenSet}
+          onClose={() => setShowLemonade(false)}
+        />
+      )}
 
       {showTerminal ? (
         <DownloadModal
