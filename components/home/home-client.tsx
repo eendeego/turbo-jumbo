@@ -627,16 +627,33 @@ export function HomeClient({
     [redownload],
   );
 
+  // Download a whole-repo model's invalid + missing files (from the audit
+  // hovercard). Reuses the redownload runner/modal; the HF downloader overwrites
+  // an invalid copy in place and fills in any missing file.
+  const onDownloadRepoFiles = useCallback(
+    (repoId: string, repoPaths: string[]) => {
+      if (repoPaths.length === 0) return;
+      redownloadPath.current = null; // multi-file: refresh-all on close, no single re-audit
+      setError(null);
+      setRedownloadOpen(true);
+      redownload.start({repoId, branch: 'main', filePaths: repoPaths});
+    },
+    [redownload],
+  );
+
   const closeRedownload = useCallback(() => {
     if (redownload.running) redownload.cancel();
     setRedownloadOpen(false);
     redownload.reset();
     const path = redownloadPath.current;
     redownloadPath.current = null;
-    // Reflect the recovered file: refresh the listing and re-audit just it.
+    // Reflect the recovered file(s): refresh the listing, the invalid/incomplete
+    // flags, and re-audit a single recovered file when we know which it was.
     void refreshModels();
+    void refreshInvalid();
+    void refreshIncomplete();
     if (path && auditLocation === 'local') void runAudit([path]);
-  }, [redownload, auditLocation, runAudit]);
+  }, [redownload, auditLocation, runAudit, refreshInvalid, refreshIncomplete]);
 
   // Resolve a manually-supplied HF URL, verify the file against it, and fold the
   // resulting verdict back into the audit state (same shape as a fresh audit).
@@ -1057,6 +1074,9 @@ export function HomeClient({
           fixing={fixing}
           onSetSource={onSetSource}
           onRedownload={auditLocation === 'local' ? onRedownload : undefined}
+          onDownloadRepoFiles={
+            auditLocation === 'local' ? onDownloadRepoFiles : undefined
+          }
           onShowRevisions={setRevisionsFile}
           redownloading={redownload.running}
           onFixColdIncomplete={

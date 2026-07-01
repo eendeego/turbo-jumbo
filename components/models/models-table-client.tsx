@@ -96,6 +96,9 @@ interface DisplayRow extends Record<string, unknown> {
   isProjector?: boolean;
   // Set on a whole-repo model's per-file child rows (present/missing/invalid).
   fileState?: RepoFileState;
+  // Set on a whole-repo model row (depth 0): its invalid + missing files, for
+  // the audit hovercard's "why" list and the download action.
+  repoIssues?: RepoFile[];
 }
 
 // A whole-repo (non-GGUF) model — ONNX/safetensors/etc. Its expansion lists the
@@ -354,10 +357,25 @@ function UpdateBadge({updates}: {updates: UpdateResult[]}) {
   );
 }
 
+// Why a whole-repo model's file is flagged, for the invalid audit hovercard.
+// A size that differs from Hugging Face is a truncated/corrupt copy; a size that
+// matches but is still invalid means the sidecar can't attest it (no checksum).
+function repoIssueReason(f: RepoFile): string {
+  if (f.state === 'missing')
+    return `missing — expected ${formatSize(f.expectedSize)}`;
+  if (f.size != null && f.size !== f.expectedSize)
+    return `wrong size — ${formatSize(f.size)}, expected ${formatSize(f.expectedSize)}`;
+  return "source can't be verified";
+}
+
 function AuditCell({
   audit,
   failures,
   invalid = false,
+  repoIssues,
+  repoId,
+  onDownloadFiles,
+  downloadingFiles,
   onFix,
   fixing,
   onSetSource,
@@ -372,6 +390,11 @@ function AuditCell({
   // The model has a local file that audits invalid (depth-0 rows). Its weights
   // can still pass, so a Pass verdict would be misleading — show Invalid instead.
   invalid?: boolean;
+  // The model's invalid + missing files, named in the hovercard and downloaded.
+  repoIssues?: RepoFile[];
+  repoId?: string;
+  onDownloadFiles?: (repoId: string, repoPaths: string[]) => void;
+  downloadingFiles?: boolean;
   onFix?: (path: string) => void;
   fixing?: boolean;
   onSetSource?: (path: string) => void;
@@ -402,13 +425,56 @@ function AuditCell({
   // weight passes (the invalid file — e.g. a bad index.json — isn't a weight, so
   // it never enters the audited paths). Expand the row to see which file.
   if (invalid && audit.status === 'pass') {
+    const token = (
+      <Badge
+        label="Invalid"
+        variant="error"
+        xstyle={audit.cached ? styles.dimmed : undefined}
+      />
+    );
+    const issues = repoIssues ?? [];
+    // Detail not fetched yet: still don't claim Pass, just no hovercard.
+    if (issues.length === 0) {
+      return (
+        <HoverCard content="Invalid — a local file doesn't match its Hugging Face source.">
+          {token}
+        </HoverCard>
+      );
+    }
+    const downloadPaths = issues.map((f) => f.path);
     return (
-      <HoverCard content="Invalid — a local file's size or checksum doesn't match its source. Expand to see which file.">
-        <Badge
-          label="Invalid"
-          variant="error"
-          xstyle={audit.cached ? styles.dimmed : undefined}
-        />
+      <HoverCard
+        placement="above"
+        content={
+          <VStack gap={2}>
+            <Text type="supporting">
+              These files don&apos;t match Hugging Face:
+            </Text>
+            {issues.map((f) => (
+              <VStack key={f.path} gap={0}>
+                <Text type="body">{f.path}</Text>
+                <HStack gap={2} vAlign="center">
+                  <Badge
+                    label={f.state === 'missing' ? 'missing' : 'invalid'}
+                    variant="error"
+                  />
+                  <Text type="supporting">{repoIssueReason(f)}</Text>
+                </HStack>
+              </VStack>
+            ))}
+            {onDownloadFiles && repoId && downloadPaths.length > 0 && (
+              <Button
+                label={downloadingFiles ? 'Downloading…' : 'Download files'}
+                variant="ghost"
+                size="sm"
+                isDisabled={downloadingFiles}
+                onClick={() => onDownloadFiles(repoId, downloadPaths)}
+              />
+            )}
+          </VStack>
+        }
+      >
+        {token}
       </HoverCard>
     );
   }
@@ -849,6 +915,7 @@ export function ModelsTableClient({
   onSetSource,
   onRedownload,
   redownloading = false,
+  onDownloadRepoFiles,
   onShowRevisions,
   onFixColdIncomplete,
   coldFixing = false,
@@ -878,6 +945,8 @@ export function ModelsTableClient({
   onSetSource?: (path: string) => void;
   onRedownload?: (file: AuditResult) => void;
   redownloading?: boolean;
+  // Download a whole-repo model's invalid + missing files (from its hovercard).
+  onDownloadRepoFiles?: (repoId: string, repoPaths: string[]) => void;
   onShowRevisions?: (file: AuditResult) => void;
   onFixColdIncomplete?: (paths: string[]) => void;
   coldFixing?: boolean;
@@ -903,15 +972,19 @@ export function ModelsTableClient({
     });
   }, []);
 
-  // Fetch the file list for whole-repo models as they're expanded, against the
-  // active location (the local store, or a peer proxied to its own endpoint).
+  // Fetch the file list for whole-repo models when they're expanded — and
+  // eagerly for any flagged invalid, so the audit hovercard can name the bad
+  // files without an expansion. Against the active location (the local store, or
+  // a peer proxied to its own endpoint).
   useEffect(() => {
     const peer = peers.find((p) => p.address === activeLocation);
     const urlFor = (repoId: string) =>
       peer
         ? `/api/v1/peers/${encodeURIComponent(peer.name)}/repo-files?repoId=${encodeURIComponent(repoId)}`
         : `/api/v1/local-models/repo-files?repoId=${encodeURIComponent(repoId)}`;
-    for (const name of expanded) {
+    const wanted = new Set<string>(expanded);
+    for (const name of invalidRepos ?? []) wanted.add(name);
+    for (const name of wanted) {
       const key = `${activeLocation}::${name}`;
       if (repoFiles.has(key) || inFlight.current.has(key)) continue;
       const m = models.find((mm) => mm.name === name);
@@ -930,7 +1003,7 @@ export function ModelsTableClient({
         setRepoFiles((prev) => new Map(prev).set(key, files));
       })();
     }
-  }, [expanded, models, peers, activeLocation, repoFiles]);
+  }, [expanded, models, peers, activeLocation, repoFiles, invalidRepos]);
 
   // Build lookup: peerAddress -> Set<file basename>. Files are matched across
   // hosts by basename because model names are derived per host and can
@@ -1110,6 +1183,14 @@ export function ModelsTableClient({
       const maxSize =
         effectiveQuantSizes.length > 0 ? Math.max(...effectiveQuantSizes) : 0;
 
+      // A whole-repo model's invalid + missing files (when its repo-file list
+      // has been fetched), for the audit hovercard's "why" and download action.
+      const repoIssues = isWholeRepoModel(m)
+        ? repoFiles
+            .get(`${activeLocation}::${m.name}`)
+            ?.filter((f) => f.state === 'invalid' || f.state === 'missing')
+        : undefined;
+
       out.push({
         key: m.name,
         label: m.name,
@@ -1132,6 +1213,7 @@ export function ModelsTableClient({
         sizeMismatch: anyQuantMismatch,
         sizeBreakdown: null,
         undersizedLocations: new Set<string>(),
+        ...(repoIssues && repoIssues.length > 0 ? {repoIssues} : {}),
       });
       if (!expanded.has(m.name)) continue;
       if (isWholeRepoModel(m)) {
@@ -1454,6 +1536,10 @@ export function ModelsTableClient({
                       item.depth === 0 &&
                       (invalidRepos?.has(item.parentName) ?? false)
                     }
+                    repoIssues={item.repoIssues}
+                    repoId={item.parentName}
+                    onDownloadFiles={onDownloadRepoFiles}
+                    downloadingFiles={redownloading}
                     onFix={
                       onFixMisplaced
                         ? (path) => onFixMisplaced([path])
