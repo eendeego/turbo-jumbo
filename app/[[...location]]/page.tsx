@@ -77,7 +77,6 @@ export default async function Home({
       coldModels={coldModels}
       localModelsPath={localModelsDir ?? null}
       hfTokenSet={!!process.env.HF_TOKEN}
-      logLevel={config.log_level ?? 'info'}
       modelsTableData={modelsTableData}
       peerConfigs={peerConfigs}
       localPeerAddress={localPeer?.address ?? null}

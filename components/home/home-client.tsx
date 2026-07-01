@@ -2,16 +2,10 @@
 
 import {useState, useMemo, useCallback, useEffect, useRef} from 'react';
 import {useRouter} from 'next/navigation';
-import {locationHref} from '@/lib/locations';
-import {AppShell} from '@astryxdesign/core/AppShell';
 import {Layout, LayoutContent, LayoutFooter} from '@astryxdesign/core/Layout';
-import {TopNav, TopNavHeading} from '@astryxdesign/core/TopNav';
-import {NavIcon} from '@astryxdesign/core/NavIcon';
-import {VStack, HStack} from '@astryxdesign/core/Stack';
+import {VStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
-import {Button} from '@astryxdesign/core/Button';
-import {CubeIcon} from '@heroicons/react/24/outline';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {withPeerPaths} from '@/lib/peer-paths';
@@ -20,10 +14,7 @@ import {
   ModelsTableClient,
   augmentWithPeerOnlyQuants,
 } from '@/components/models/models-table-client';
-import {
-  LocationTabs,
-  type LocationTab,
-} from '@/components/models/location-tabs';
+import {type LocationTab} from '@/components/models/location-tabs';
 import {ActionBar} from '@/components/models/action-bar';
 import {
   buildFileSizes,
@@ -42,10 +33,8 @@ import {
   type ConflictItem,
 } from '@/components/models/conflicts-modal';
 import {useInventoryLocations} from '@/components/models/use-inventory-locations';
-import {AddModelMenu} from '@/components/models/add-model-menu';
 import {SetSourceModal} from '@/components/models/set-source-modal';
 import {RevisionsModal} from '@/components/models/revisions-modal';
-import {LemonadeSyncModal} from '@/components/lemonade/lemonade-sync-modal';
 import {
   DownloadModal,
   useDownloadRunner,
@@ -59,8 +48,7 @@ import type {
   UpdateResult,
 } from '@/lib/audit';
 import type {DuplicateFixResult} from '@/lib/fix-duplicates';
-import {Log} from '@/components/log/log';
-import {ThemeToggle} from '@/components/theme/theme-toggle';
+import {useConsole} from '@/components/chrome/console-context';
 
 // A stable empty set, so locations with no incomplete repos don't hand the
 // table a fresh reference each render.
@@ -129,7 +117,6 @@ export function HomeClient({
   coldModels,
   localModelsPath,
   hfTokenSet,
-  logLevel,
   modelsTableData,
   peerConfigs,
   localPeerAddress,
@@ -139,7 +126,6 @@ export function HomeClient({
   coldModels: Model[];
   localModelsPath: string | null;
   hfTokenSet: boolean;
-  logLevel: string;
   modelsTableData: ModelRow[];
   peerConfigs: PeerConfig[];
   localPeerAddress: string | null;
@@ -260,13 +246,9 @@ export function HomeClient({
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // The "Consolidate with Lemonade" modal (dedupe/move/link models so one copy
-  // on disk is shared between Turbo Jumbo and Lemonade).
-  const [syncOpen, setSyncOpen] = useState(false);
-  // The bottom console panel (logs); toggled from the action bar's Console
-  // button or the ~ key.
-  const [consoleOpen, setConsoleOpen] = useState(false);
-  const toggleConsole = useCallback(() => setConsoleOpen((o) => !o), []);
+  // The global console (logs) lives in the layout shell; read its open state so
+  // the action bar's Console button can toggle it.
+  const {open: consoleOpen, toggle: toggleConsole} = useConsole();
 
   const locations: LocationTab[] = useMemo(
     () =>
@@ -276,13 +258,6 @@ export function HomeClient({
         isLocal: p.isLocal ?? false,
       })),
     [peerConfigs],
-  );
-
-  const handleLocationChange = useCallback(
-    (id: string) => {
-      router.push(locationHref(id, peerConfigs));
-    },
-    [router, peerConfigs],
   );
 
   const resetAudit = useCallback(() => {
@@ -1012,11 +987,6 @@ export function HomeClient({
     [augmentedModels, selected],
   );
 
-  // Downloads run only on the local machine, so the Add model menu is enabled
-  // on the local peer and the All tab, but not on a remote peer's tab.
-  const isLocal = activeLocation === localPeerAddress;
-  const canDownloadLocally = activeLocation === 'all' || isLocal;
-
   // Incomplete repos for the table's current view: a single location's set, or
   // the union across all of them on the All tab.
   const activeIncomplete = useMemo(() => {
@@ -1041,48 +1011,7 @@ export function HomeClient({
   }, [invalidByPeer, activeLocation]);
 
   return (
-    <AppShell
-      contentPadding={0}
-      topNav={
-        <TopNav
-          label="Main navigation"
-          heading={
-            <TopNavHeading
-              heading="Turbo Jumbo"
-              logo={
-                <NavIcon icon={<CubeIcon style={{width: 16, height: 16}} />} />
-              }
-            />
-          }
-          centerContent={
-            <LocationTabs
-              locations={locations}
-              activeLocation={activeLocation}
-              onLocationChange={handleLocationChange}
-            />
-          }
-          endContent={
-            <HStack gap={2} vAlign="center">
-              {localModelsPath && canDownloadLocally && (
-                <>
-                  <Button
-                    label="Consolidate with Lemonade…"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setSyncOpen(true)}
-                  />
-                  <AddModelMenu
-                    activeLocation={activeLocation}
-                    peerConfigs={peerConfigs}
-                  />
-                </>
-              )}
-              <ThemeToggle />
-            </HStack>
-          }
-        />
-      }
-    >
+    <>
       <Layout
         height="fill"
         content={
@@ -1215,16 +1144,6 @@ export function HomeClient({
           onClose={() => setRevisionsFile(null)}
         />
       )}
-      {syncOpen && (
-        <LemonadeSyncModal
-          onClose={() => setSyncOpen(false)}
-          onSynced={() => {
-            void refreshModels();
-            void refreshInvalid();
-            void refreshIncomplete();
-          }}
-        />
-      )}
       {redownloadOpen && (
         <DownloadModal
           title="Redownloading…"
@@ -1236,8 +1155,6 @@ export function HomeClient({
           onClose={closeRedownload}
         />
       )}
-
-      <Log logLevel={logLevel} open={consoleOpen} onToggle={toggleConsole} />
-    </AppShell>
+    </>
   );
 }
