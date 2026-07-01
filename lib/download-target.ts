@@ -4,6 +4,9 @@ import type {Peer} from '@/lib/config';
 export interface DownloadTarget {
   url: string;
   displayPath: string;
+  // Endpoint reporting free/total disk bytes at the target, to warn before a
+  // download that wouldn't fit.
+  diskUsageUrl: string;
 }
 
 function joinPath(base: string, sub: string): string {
@@ -27,10 +30,16 @@ export function downloadTarget(
 ): DownloadTarget {
   const peer = peers.find((p) => p.address === activeLocation);
   if (activeLocation === ALL_LOCATION || !peer || peer.isLocal) {
-    return {url: '/api/v1/hf-download', displayPath: localModelsPath};
+    return {
+      url: '/api/v1/hf-download',
+      displayPath: localModelsPath,
+      diskUsageUrl: '/api/v1/disk-usage',
+    };
   }
+  const name = encodeURIComponent(peer.name);
   return {
-    url: `/api/v1/peers/${encodeURIComponent(peer.name)}/hf-download`,
+    url: `/api/v1/peers/${name}/hf-download`,
     displayPath: peerModelsDir(peer) ?? `${peer.name} models directory`,
+    diskUsageUrl: `/api/v1/peers/${name}/disk-usage`,
   };
 }

@@ -20,6 +20,7 @@ test('All tab targets the local download endpoint', () => {
   expect(downloadTarget('all', peers, '/local/models')).toEqual({
     url: '/api/v1/hf-download',
     displayPath: '/local/models',
+    diskUsageUrl: '/api/v1/disk-usage',
   });
 });
 
@@ -27,6 +28,7 @@ test('local peer targets the local download endpoint', () => {
   expect(downloadTarget('192.0.2.1:3000', peers, '/local/models')).toEqual({
     url: '/api/v1/hf-download',
     displayPath: '/local/models',
+    diskUsageUrl: '/api/v1/disk-usage',
   });
 });
 
@@ -34,6 +36,7 @@ test('remote peer targets its proxy and resolved models dir', () => {
   expect(downloadTarget('192.0.2.2:3000', peers, '/local/models')).toEqual({
     url: '/api/v1/peers/box-b/hf-download',
     displayPath: '/mnt/b/turbo-jumbo',
+    diskUsageUrl: '/api/v1/peers/box-b/disk-usage',
   });
 });
 
@@ -41,6 +44,7 @@ test('remote peer without base_path falls back to a placeholder path', () => {
   expect(downloadTarget('192.0.2.3:3000', peers, '/local/models')).toEqual({
     url: '/api/v1/peers/box-c/hf-download',
     displayPath: 'box-c models directory',
+    diskUsageUrl: '/api/v1/peers/box-c/disk-usage',
   });
 });
 

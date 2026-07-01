@@ -7,6 +7,7 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Button} from '@astryxdesign/core/Button';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {List, ListItem} from '@astryxdesign/core/List';
+import {Banner} from '@astryxdesign/core/Banner';
 import {
   DownloadModal,
   buildHfCommand,
@@ -44,6 +45,9 @@ export function HfDownloadPicker({
   const [sendToCold, setSendToCold] = useState(false);
   const [deleteAfterTransfer, setDeleteAfterTransfer] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
+  // Free bytes at the download target, fetched once, to warn before a transfer
+  // that wouldn't fit. Null while unknown (loading or unreadable) — no warning.
+  const [freeBytes, setFreeBytes] = useState<number | null>(null);
   const {
     term,
     progress,
@@ -65,6 +69,22 @@ export function HfDownloadPicker({
     const t = setTimeout(() => setDebouncedUrl(url), 400);
     return () => clearTimeout(t);
   }, [url]);
+
+  // Read free space at the target once (best-effort: stay silent if it fails).
+  useEffect(() => {
+    let cancelled = false;
+    fetch(target.diskUsageUrl)
+      .then((r) => (r.ok ? (r.json() as Promise<{free: number}>) : null))
+      .then((d) => {
+        if (!cancelled && d) setFreeBytes(d.free);
+      })
+      .catch(() => {
+        /* unreadable disk: no space warning */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [target.diskUsageUrl]);
 
   const parsed = useMemo(
     () => (debouncedUrl.trim() ? parseHfUrl(debouncedUrl.trim()) : null),
@@ -128,6 +148,8 @@ export function HfDownloadPicker({
     [files, selectedPaths],
   );
   const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0);
+  const notEnoughSpace =
+    freeBytes != null && selectedFiles.length > 0 && totalSize > freeBytes;
 
   // The picker shows the rows matching the filter; selection is by path, so
   // files selected and then filtered out of view stay selected (the footer
@@ -294,6 +316,12 @@ export function HfDownloadPicker({
           </VStack>
         )}
       </VStack>
+      {hasFiles && notEnoughSpace && (
+        <Banner
+          status="error"
+          title={`Not enough disk space: ${formatBytes(totalSize)} selected but only ${formatBytes(freeBytes!)} free at ${target.displayPath}.`}
+        />
+      )}
       {hasFiles && (
         <HStack gap={2} hAlign="between" vAlign="center">
           <Text type="supporting">
