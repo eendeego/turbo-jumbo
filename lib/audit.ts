@@ -86,8 +86,9 @@ export interface AuditStartEvent {
 
 /**
  * A newer-version check result for one file, streamed by the updates endpoint.
- * `status` is the verdict; the `latest*` fields describe the repo's current
- * head revision and are present only when `status === 'update'`.
+ * `status` is the verdict; the `latest*` fields (the repo's current head
+ * revision) and `localCommitDate` (the local file's recorded source-commit
+ * date) are present only when `status === 'update'`.
  */
 export interface UpdateResult {
   file: string; // path relative to the storage root
@@ -95,6 +96,7 @@ export interface UpdateResult {
   latestCommit?: string; // head commit SHA
   latestCommitDate?: string; // ISO 8601
   latestCommitUrl?: string; // blob page pinned to the head commit
+  localCommitDate?: string; // ISO 8601 — recorded source-commit date of the local file
 }
 
 /**
@@ -143,6 +145,7 @@ export async function auditFileUpdate(
     latestCommit: head.commit,
     ...(head.commitDate ? {latestCommitDate: head.commitDate} : {}),
     latestCommitUrl: `https://huggingface.co/${ref.repoId}/blob/${head.commit}/${ref.repoPath}`,
+    ...(meta.sourceCommitDate ? {localCommitDate: meta.sourceCommitDate} : {}),
   };
 }
 
