@@ -12,7 +12,11 @@ import {parseHubCachePath} from '@/lib/hf-cache';
 import {readSafetensorsDtype} from '@/lib/safetensors';
 import {isMmprojFilename, repoIdFromModelUrl} from '@/lib/model-name';
 import {MODEL_SIDECAR_NAME} from '@/lib/model-sidecar';
-import {WEIGHT_EXT_RE, isWeightFile} from '@/lib/weight-files';
+import {
+  WEIGHT_EXT_RE,
+  ggmlModelVariant,
+  isWeightFile,
+} from '@/lib/weight-files';
 
 // Re-exported so existing `@/lib/models` importers keep working.
 export {isWeightFile};
@@ -126,8 +130,8 @@ function weightLabel(
   filename: string,
   quant: string,
 ): string {
-  const ggml = filename.match(/^ggml-(.+)\.bin$/i);
-  if (ggml) return ggml[1];
+  const ggmlVariant = ggmlModelVariant(filename);
+  if (ggmlVariant) return ggmlVariant;
   if (quant !== 'unknown') return quant;
   if (/\.safetensors$/i.test(filename)) {
     return readSafetensorsDtype(fullPath) ?? 'safetensors';

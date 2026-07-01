@@ -27,6 +27,7 @@ import type {
   UpdateResult,
 } from '@/lib/audit';
 import {isMmprojFilename, modelDisplayName} from '@/lib/model-name';
+import {ggmlModelVariant} from '@/lib/weight-files';
 import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peer-paths';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
 import {rowAudit, rowUpdates, type RowAudit} from '@/lib/row-audit';
@@ -148,7 +149,13 @@ function isWholeRepoModel(m: ModelRow): boolean {
     m.quants.every((q) => {
       const f = (q.filename ?? q.displayName ?? '').toLowerCase();
       return f !== '' && !f.endsWith('.gguf');
-    })
+    }) &&
+    // A repo of standalone ggml-*.bin models is a collection of single-file
+    // variants — each selectable and copyable like a GGUF quant — not one
+    // whole-repo model spread across many files.
+    !m.quants.every(
+      (q) => ggmlModelVariant(q.filename ?? q.displayName ?? '') !== null,
+    )
   );
 }
 
