@@ -119,6 +119,56 @@ test('a quant whose cold and peer copies disagree is flagged as a size mismatch'
   expect(quantRow.undersizedLocations.has('192.0.2.2:3000')).toBe(true);
 });
 
+test('a quant whose cold copy is smaller than a peer copy is flagged coldIncomplete', () => {
+  // Cold holds a truncated copy (50); a peer holds the complete one (100). The
+  // row built from cold would call itself complete, so the peer's larger size is
+  // what reveals the cold backup is incomplete.
+  const q = quant({
+    label: 'Q4',
+    size: 50,
+    coldTotalSize: 50,
+    inColdStorage: true,
+    coldSize: 50,
+    coldComplete: true,
+  });
+  const rows = buildDisplayRows({
+    ...noPeers,
+    expanded: new Set(['org/repo']),
+    peerQuantSizes: new Map([
+      ['org/repo::Q4.gguf', [{address: '192.0.2.2:3000', size: 100}]],
+    ]),
+    peerNameByAddr: new Map([['192.0.2.2:3000', 'my-server']]),
+    models: [model({name: 'org/repo', quants: [q]})],
+  });
+  const modelRow = rows.find((r) => r.depth === 0)!;
+  const quantRow = rows.find((r) => r.depth === 1)!;
+  expect(quantRow.undersizedLocations.has('cold-storage')).toBe(true);
+  expect(quantRow.coldIncomplete).toBe(true);
+  expect(modelRow.coldIncomplete).toBe(true);
+});
+
+test('a quant whose cold copy matches the largest copy is not coldIncomplete', () => {
+  const q = quant({
+    label: 'Q4',
+    size: 100,
+    coldTotalSize: 100,
+    inColdStorage: true,
+    coldSize: 100,
+    coldComplete: true,
+  });
+  const rows = buildDisplayRows({
+    ...noPeers,
+    expanded: new Set(['org/repo']),
+    peerQuantSizes: new Map([
+      ['org/repo::Q4.gguf', [{address: '192.0.2.2:3000', size: 100}]],
+    ]),
+    peerNameByAddr: new Map([['192.0.2.2:3000', 'my-server']]),
+    models: [model({name: 'org/repo', quants: [q]})],
+  });
+  expect(rows.find((r) => r.depth === 1)!.coldIncomplete).toBe(false);
+  expect(rows.find((r) => r.depth === 0)!.coldIncomplete).toBe(false);
+});
+
 function peerModel(name: string, files: Model['files']): Model {
   return {name, files};
 }

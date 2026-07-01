@@ -83,6 +83,11 @@ export interface DisplayRow extends Record<string, unknown> {
   // so its warning icon shows a hovercard like the per-quant rows do.
   sizeBreakdownGroups?: SizeBreakdownGroup[];
   undersizedLocations: Set<string>;
+  // The cold-storage copy of this row's file(s) exists but is smaller than the
+  // largest known copy — an incomplete backup. Set on quant and model rows so
+  // the Audit column can fail it even on a tab whose own copy verifies (a peer
+  // holding the complete file still leaves the cold backup broken).
+  coldIncomplete: boolean;
   isProjector?: boolean;
   // Precisions present for a diffusers component variant row (e.g. ['fp16']).
   precisions?: string[];
@@ -461,6 +466,9 @@ export function buildDisplayRows(args: {
         ? {sizeBreakdownGroups: mismatchGroups}
         : {}),
       undersizedLocations: new Set<string>(),
+      coldIncomplete: [...quantInfo.values()].some((qi) =>
+        qi.undersized.has('cold-storage'),
+      ),
       ...(repoIssues && repoIssues.length > 0 ? {repoIssues} : {}),
       ...(orgSuffix ? {orgSuffix} : {}),
     });
@@ -491,6 +499,7 @@ export function buildDisplayRows(args: {
           sizeMismatch: false,
           sizeBreakdown: null,
           undersizedLocations: new Set<string>(),
+          coldIncomplete: false,
           fileState: f.state,
         });
       }
@@ -521,6 +530,7 @@ export function buildDisplayRows(args: {
         sizeMismatch: info?.mismatch ?? false,
         sizeBreakdown: info?.mismatch ? info.breakdown : null,
         undersizedLocations: info?.undersized ?? new Set<string>(),
+        coldIncomplete: info?.undersized.has('cold-storage') ?? false,
         isProjector: q.isProjector,
         precisions: q.precisions,
       });
@@ -549,6 +559,7 @@ export function buildDisplayRows(args: {
             sizeMismatch: false,
             sizeBreakdown: null,
             undersizedLocations: new Set<string>(),
+            coldIncomplete: false,
           });
         }
       }

@@ -253,6 +253,7 @@ export function AuditCell({
   audit,
   failures,
   invalid = false,
+  coldIncomplete = false,
   repoIssues,
   repoId,
   onDownloadFiles,
@@ -271,6 +272,10 @@ export function AuditCell({
   // The model has a local file that audits invalid (depth-0 rows). Its weights
   // can still pass, so a Pass verdict would be misleading — show Invalid instead.
   invalid?: boolean;
+  // This row's cold-storage copy is present but incomplete (smaller than the
+  // largest known copy). The audit of this tab's own copy can still pass, so a
+  // Pass verdict would hide the broken backup — show Incomplete instead.
+  coldIncomplete?: boolean;
   // The model's invalid + missing files, named in the hovercard and downloaded.
   repoIssues?: RepoFile[];
   repoId?: string;
@@ -356,6 +361,20 @@ export function AuditCell({
         }
       >
         {token}
+      </HoverCard>
+    );
+  }
+  // A file whose cold-storage copy is incomplete must not read as Pass even when
+  // this tab's own copy verifies (e.g. a peer holds the complete file) — the
+  // cold backup is still broken. Mirrors the `invalid` override above.
+  if (coldIncomplete && audit.status === 'pass') {
+    return (
+      <HoverCard content="Cold storage copy is incomplete — re-copy it to cold storage.">
+        <Badge
+          label="Incomplete"
+          variant="error"
+          xstyle={audit.cached ? styles.dimmed : undefined}
+        />
       </HoverCard>
     );
   }

@@ -396,6 +396,7 @@ export function ModelsTableClient({
                       item.depth === 0 &&
                       (invalidRepos?.has(item.parentName) ?? false)
                     }
+                    coldIncomplete={item.coldIncomplete}
                     repoIssues={item.repoIssues}
                     repoId={item.parentName}
                     onDownloadFiles={onDownloadRepoFiles}
