@@ -140,6 +140,19 @@ test('duplicateBasenames ignores same-named files in different cache repos', asy
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('duplicateBasenames does not flag mmproj projectors shared across repos', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-dup-'));
+  await writeFile(base, 'unsloth/Model-A-GGUF/mmproj-F16.gguf');
+  await writeFile(base, 'unsloth/Model-B-GGUF/mmproj-F16.gguf');
+  // A real (non-projector) duplicate alongside still gets flagged.
+  await writeFile(base, 'unsloth/Model-A-GGUF/weight-Q4_K_M.gguf');
+  await writeFile(base, 'sub/weight-Q4_K_M.gguf');
+
+  const dups = duplicateBasenames(scanModels(base));
+  expect([...dups.keys()]).toEqual(['weight-Q4_K_M.gguf']);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('scanModels names a cache-layout file by its decoded repo id', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
   await writeFile(

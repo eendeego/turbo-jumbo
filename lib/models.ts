@@ -10,7 +10,7 @@ import type {
 import {metaPath, pathImpliedRepo} from '@/lib/audit';
 import {parseHubCachePath} from '@/lib/hf-cache';
 import {readSafetensorsDtype} from '@/lib/safetensors';
-import {repoIdFromModelUrl} from '@/lib/model-name';
+import {isMmprojFilename, repoIdFromModelUrl} from '@/lib/model-name';
 import {WEIGHT_EXT_RE, isWeightFile} from '@/lib/weight-files';
 
 // Re-exported so existing `@/lib/models` importers keep working.
@@ -315,6 +315,10 @@ export function duplicateBasenames(models: Model[]): Map<string, string[]> {
     // never a stray basename duplicate the way a flat-layout copy can be.
     if (parseHubCachePath(relPath)) return;
     const name = path.basename(relPath);
+    // mmproj projector files carry generic names (mmproj-F16.gguf) that recur
+    // across vision models; same-named copies in different repos aren't
+    // duplicates of each other, so never flag them.
+    if (isMmprojFilename(name)) return;
     const paths = byName.get(name);
     if (paths) paths.push(relPath);
     else byName.set(name, [relPath]);
