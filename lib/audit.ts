@@ -12,10 +12,12 @@ import {
   resolveHfFileByPath,
   type HfFileInfo,
 } from '@/lib/hf-infer';
+import {repoIdFromModelUrl} from '@/lib/model-name';
 import {
   metaToEntry,
   modelDirForRepo,
   readFileMetaByPath,
+  removeFileMeta,
   upsertFileMeta,
 } from '@/lib/model-sidecar';
 
@@ -516,15 +518,30 @@ export async function moveFileWithMeta(
     throw new Error(`destination already exists: ${toRel}`);
   }
 
+  // Read provenance before the move (model sidecar, or a legacy per-file one).
+  const meta = await readMetaResolved(basePath, fromRel);
+
   await fsp.mkdir(path.dirname(toFull), {recursive: true});
   await fsp.rename(fromFull, toFull);
 
-  // Move the sidecar alongside if it exists; absence is fine.
-  try {
-    await fsp.rename(metaPath(fromFull), metaPath(toFull));
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  // Carry the provenance entry to the destination model sidecar and drop it
+  // from the source; a move stays within one repo, so the repoId is shared.
+  const repoId = meta ? repoIdFromModelUrl(meta.modelUrl) : '';
+  if (meta && repoId) {
+    const destLoc = modelDirForRepo(toRel, repoId);
+    if (destLoc) {
+      await upsertFileMeta(
+        basePath,
+        destLoc.dir,
+        repoId,
+        metaToEntry(destLoc.key, meta),
+      );
+    }
+    const srcLoc = modelDirForRepo(fromRel, repoId);
+    if (srcLoc) await removeFileMeta(basePath, srcLoc.dir, srcLoc.key);
   }
+  // Remove an orphaned legacy per-file sidecar left at the source, if any.
+  await fsp.rm(metaPath(fromFull), {force: true});
 }
 
 /** SHA256 of the first `length` bytes of a file. */

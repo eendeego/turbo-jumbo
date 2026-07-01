@@ -18,6 +18,7 @@ import {
   mergeMeta,
   moveFileWithMeta,
   readMeta,
+  readMetaResolved,
   refreshMetaSource,
   resolveSource,
   resumeOffset,
@@ -452,26 +453,28 @@ const exists = (p: string) =>
     .then(() => true)
     .catch(() => false);
 
-test('moveFileWithMeta relocates the file and its sidecar, creating dirs', async () => {
+test('moveFileWithMeta relocates the file and carries its provenance, creating dirs', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-move-'));
   const meta = {
-    modelUrl: 'u',
-    originUrl: 'o',
+    modelUrl: 'https://huggingface.co/o/r',
+    originUrl: 'https://huggingface.co/o/r/blob/main/M.Q4.gguf',
     sourceSize: 4,
     computedSize: 4,
     sourceSha256: 's',
     computedSha256: 'c',
   };
   await fsp.writeFile(path.join(base, 'M.Q4.gguf'), 'data');
-  await writeMeta(path.join(base, 'M.Q4.gguf'), meta);
+  await writeMeta(path.join(base, 'M.Q4.gguf'), meta); // legacy source sidecar
 
   await moveFileWithMeta(base, 'M.Q4.gguf', 'o/r/M.Q4.gguf');
 
   expect(await fsp.readFile(path.join(base, 'o/r/M.Q4.gguf'), 'utf8')).toBe(
     'data',
   );
-  expect(await readMeta(path.join(base, 'o/r/M.Q4.gguf'))).toEqual(meta);
+  // Provenance now lives in the destination model sidecar, read via resolve.
+  expect(await readMetaResolved(base, 'o/r/M.Q4.gguf')).toEqual(meta);
   expect(await exists(path.join(base, 'M.Q4.gguf'))).toBe(false);
+  // The legacy per-file sidecar at the source is removed, not renamed.
   expect(await readMeta(path.join(base, 'M.Q4.gguf'))).toBeNull();
 
   await fsp.rm(base, {recursive: true, force: true});
