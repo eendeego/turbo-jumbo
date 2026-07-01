@@ -1,6 +1,6 @@
 'use client';
 
-import {useState, useCallback, useMemo} from 'react';
+import {useEffect, useRef, useState, useCallback, useMemo} from 'react';
 import * as stylex from '@stylexjs/stylex';
 import {
   Table,
@@ -29,6 +29,7 @@ import {isMmprojFilename, modelDisplayName} from '@/lib/model-name';
 import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peer-paths';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
 import {rowAudit, rowUpdates, type RowAudit} from '@/lib/row-audit';
+import type {RepoFile, RepoFileState} from '@/lib/repo-files';
 
 export interface ShardInfo {
   filename: string;
@@ -93,6 +94,22 @@ interface DisplayRow extends Record<string, unknown> {
   sizeBreakdown: SizeEntry[] | null;
   undersizedLocations: Set<string>;
   isProjector?: boolean;
+  // Set on a whole-repo model's per-file child rows (present/missing/invalid).
+  fileState?: RepoFileState;
+}
+
+// A whole-repo (non-GGUF) model — ONNX/safetensors/etc. Its expansion lists the
+// repo's files rather than quants. A model name without `org/repo` (so no HF
+// repo to query) is excluded.
+function isWholeRepoModel(m: ModelRow): boolean {
+  return (
+    m.name.includes('/') &&
+    m.quants.length > 0 &&
+    m.quants.every((q) => {
+      const f = (q.filename ?? q.displayName ?? '').toLowerCase();
+      return f !== '' && !f.endsWith('.gguf');
+    })
+  );
 }
 
 const styles = stylex.create({
@@ -412,6 +429,17 @@ function AuditCell({
   );
 }
 
+// Per-file status token in a whole-repo model's expanded file list.
+function FileStateMarker({state}: {state: RepoFileState}) {
+  const {label, variant} =
+    state === 'present'
+      ? ({label: 'present', variant: 'green'} as const)
+      : state === 'missing'
+        ? ({label: 'missing', variant: 'neutral'} as const)
+        : ({label: 'invalid', variant: 'red'} as const);
+  return <Badge label={label} variant={variant} />;
+}
+
 function NameCell({
   row,
   isExpanded,
@@ -424,6 +452,16 @@ function NameCell({
   // The model's local copy is present but missing files (depth-0 rows only).
   incomplete?: boolean;
 }) {
+  // Whole-repo file row: the filename with a present/missing/invalid marker.
+  if (row.fileState) {
+    return (
+      <HStack gap={2} vAlign="center" xstyle={styles.indent1}>
+        <FileStateMarker state={row.fileState} />
+        <Text type="supporting">{row.label}</Text>
+      </HStack>
+    );
+  }
+
   // Shard row
   if (row.depth === 2) {
     return (
@@ -818,6 +856,14 @@ export function ModelsTableClient({
   fixingDuplicate?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Per-repo file lists for expanded whole-repo models, keyed by
+  // `<location>::<model name>` (file status is per location), fetched lazily on
+  // expand. In-flight fetches are tracked in a ref so marking one doesn't
+  // trigger a render.
+  const [repoFiles, setRepoFiles] = useState<Map<string, RepoFile[]>>(
+    new Map(),
+  );
+  const inFlight = useRef<Set<string>>(new Set());
 
   const toggle = useCallback((key: string) => {
     setExpanded((prev) => {
@@ -827,6 +873,35 @@ export function ModelsTableClient({
       return next;
     });
   }, []);
+
+  // Fetch the file list for whole-repo models as they're expanded, against the
+  // active location (the local store, or a peer proxied to its own endpoint).
+  useEffect(() => {
+    const peer = peers.find((p) => p.address === activeLocation);
+    const urlFor = (repoId: string) =>
+      peer
+        ? `/api/v1/peers/${encodeURIComponent(peer.name)}/repo-files?repoId=${encodeURIComponent(repoId)}`
+        : `/api/v1/local-models/repo-files?repoId=${encodeURIComponent(repoId)}`;
+    for (const name of expanded) {
+      const key = `${activeLocation}::${name}`;
+      if (repoFiles.has(key) || inFlight.current.has(key)) continue;
+      const m = models.find((mm) => mm.name === name);
+      if (!m || !isWholeRepoModel(m)) continue;
+      inFlight.current.add(key);
+      void (async () => {
+        let files: RepoFile[] = [];
+        try {
+          const res = await fetch(urlFor(name));
+          if (res.ok)
+            files = ((await res.json()) as {files?: RepoFile[]}).files ?? [];
+        } catch {
+          /* best-effort: leave the list empty */
+        }
+        inFlight.current.delete(key);
+        setRepoFiles((prev) => new Map(prev).set(key, files));
+      })();
+    }
+  }, [expanded, models, peers, activeLocation, repoFiles]);
 
   // Build lookup: peerAddress -> Set<file basename>. Files are matched across
   // hosts by basename because model names are derived per host and can
@@ -1030,6 +1105,37 @@ export function ModelsTableClient({
         undersizedLocations: new Set<string>(),
       });
       if (!expanded.has(m.name)) continue;
+      if (isWholeRepoModel(m)) {
+        // Whole-repo model: list its repo files (present/missing/invalid)
+        // instead of quants. Empty until the lazy fetch lands.
+        for (const f of repoFiles.get(`${activeLocation}::${m.name}`) ?? []) {
+          out.push({
+            key: `${m.name}::file::${f.path}`,
+            label: f.path,
+            quantizations: '',
+            isSingleFile: true,
+            filename: f.path,
+            depth: 1,
+            parentName: m.name,
+            size: f.size ?? f.expectedSize,
+            sizeRange: null,
+            inColdStorage: null,
+            coldComplete: null,
+            coldSize: null,
+            allInColdStorage: false,
+            noneInColdStorage: false,
+            paths: [],
+            totalShards: 0,
+            presentShards: 0,
+            missingIndices: [],
+            sizeMismatch: false,
+            sizeBreakdown: null,
+            undersizedLocations: new Set<string>(),
+            fileState: f.state,
+          });
+        }
+        continue;
+      }
       for (const q of m.quants) {
         const quantKey = `${m.name}::${q.label}`;
         const info = quantInfo.get(quantKey);
@@ -1087,7 +1193,14 @@ export function ModelsTableClient({
       }
     }
     return out;
-  }, [effectiveModels, expanded, peerQuantSizes, peerNameByAddr]);
+  }, [
+    effectiveModels,
+    expanded,
+    repoFiles,
+    activeLocation,
+    peerQuantSizes,
+    peerNameByAddr,
+  ]);
 
   const columns: TableColumn<DisplayRow>[] = [
     ...(showCheckboxes
@@ -1221,9 +1334,10 @@ export function ModelsTableClient({
             header: <PeersHeader peers={peers} />,
             width: pixel(120),
             align: 'center' as const,
-            renderCell: (item: DisplayRow) => (
-              <PeersCell row={item} peers={peers} peerKeys={peerKeys} />
-            ),
+            renderCell: (item: DisplayRow) =>
+              item.fileState ? null : (
+                <PeersCell row={item} peers={peers} peerKeys={peerKeys} />
+              ),
           } satisfies TableColumn<DisplayRow>,
         ]
       : []),
@@ -1235,13 +1349,14 @@ export function ModelsTableClient({
             header: 'Cold Storage',
             width: pixel(100),
             align: 'center' as const,
-            renderCell: (item: DisplayRow) => (
-              <ColdStorageCell
-                row={item}
-                onFixIncomplete={onFixColdIncomplete}
-                fixing={coldFixing}
-              />
-            ),
+            renderCell: (item: DisplayRow) =>
+              item.fileState ? null : (
+                <ColdStorageCell
+                  row={item}
+                  onFixIncomplete={onFixColdIncomplete}
+                  fixing={coldFixing}
+                />
+              ),
           } satisfies TableColumn<DisplayRow>,
         ]
       : []),
@@ -1272,6 +1387,7 @@ export function ModelsTableClient({
             width: pixel(170),
             align: 'center' as const,
             renderCell: (item: DisplayRow) => {
+              if (item.fileState) return null;
               const results = auditResults ?? new Map<string, AuditResult>();
               // A model (depth 0) row also shows verdicts for files that
               // belong to it but aren't on disk — e.g. a synthetic
