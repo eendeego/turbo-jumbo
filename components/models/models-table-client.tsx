@@ -55,6 +55,8 @@ export interface QuantInfo {
 export type {LocationTab} from '@/components/models/location-tabs';
 import type {LocationTab} from '@/components/models/location-tabs';
 
+export type ProjectorInfo = {filename: string; size: number};
+
 export interface ModelRow extends Record<string, unknown> {
   name: string;
   quantizations: string;
@@ -63,6 +65,7 @@ export interface ModelRow extends Record<string, unknown> {
   maxSize: number;
   allInColdStorage: boolean;
   noneInColdStorage: boolean;
+  projectors?: ProjectorInfo[];
 }
 
 // One location's copy of a quant, for the size-mismatch breakdown.

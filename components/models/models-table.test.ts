@@ -2,6 +2,61 @@ import {test, expect} from 'bun:test';
 import {buildModelRows} from '@/components/models/models-table';
 import type {Model} from '@/lib/models';
 
+function single(
+  filename: string,
+  quant: string,
+  size = 100,
+): Model['files'][number] {
+  return {
+    isSplit: false,
+    filename,
+    path: filename,
+    quant,
+    size,
+    missing: false,
+  };
+}
+
+test('buildModelRows lists an mmproj as a projector, not a quant', () => {
+  const local: Model[] = [
+    {
+      name: 'org/repo',
+      files: [
+        single('repo-Q4_K_M.gguf', 'Q4_K_M'),
+        single('mmproj-F16.gguf', 'F16', 50),
+      ],
+    },
+  ];
+  const [row] = buildModelRows(local, []);
+  expect(row.quants.map((q) => q.label)).toEqual(['Q4_K_M']);
+  expect(row.quantizations).toBe('4');
+  expect(row.projectors).toEqual([{filename: 'mmproj-F16.gguf', size: 50}]);
+});
+
+test('buildModelRows keeps a real F16 weight while extracting mmproj-F16', () => {
+  const local: Model[] = [
+    {
+      name: 'org/repo',
+      files: [
+        single('repo-F16.gguf', 'F16', 200),
+        single('mmproj-F16.gguf', 'F16', 50),
+      ],
+    },
+  ];
+  const [row] = buildModelRows(local, []);
+  expect(row.quants.map((q) => q.label)).toEqual(['F16']);
+  expect(row.quants[0].size).toBe(200); // the weight, not the projector
+  expect(row.projectors).toEqual([{filename: 'mmproj-F16.gguf', size: 50}]);
+});
+
+test('buildModelRows leaves projectors empty for a weights-only model', () => {
+  const local: Model[] = [
+    {name: 'org/repo', files: [single('repo-Q8_0.gguf', 'Q8_0')]},
+  ];
+  const [row] = buildModelRows(local, []);
+  expect(row.projectors ?? []).toEqual([]);
+});
+
 function singleModel(name: string, filename: string, quant: string): Model {
   return {
     name,

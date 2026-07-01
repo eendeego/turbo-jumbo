@@ -1,8 +1,8 @@
-import type {Model} from '@/lib/model-types';
-import {modelDisplayName} from '@/lib/model-name';
+import type {Model, ModelFile} from '@/lib/model-types';
+import {modelDisplayName, isMmprojFilename} from '@/lib/model-name';
 import {normalizeModelNames} from '@/lib/models';
 import {fileJoinKey} from '@/lib/peer-paths';
-import type {ModelRow, QuantInfo} from './models-table-client';
+import type {ModelRow, QuantInfo, ProjectorInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",
 // "BF16" → "16"); falls back to the raw token when there's no number.
@@ -28,7 +28,32 @@ export function buildModelRows(
   // A model's name depends on which copies carry sidecars, so the two scans
   // can name the same model differently; reconcile before grouping by name
   // (see normalizeModelNames).
-  const [localModels, coldModels] = normalizeModelNames([localScan, coldScan]);
+  const [localNorm, coldNorm] = normalizeModelNames([localScan, coldScan]);
+
+  // mmproj projector files are not quantizations — pull them out before quant
+  // assembly so they never become a QuantInfo (or collide with a real
+  // same-label weight), and surface them per model for the hovercard.
+  const projectorsByModel = new Map<string, ProjectorInfo[]>();
+  const addProjector = (modelName: string, filename: string, size: number) => {
+    const list = projectorsByModel.get(modelName) ?? [];
+    if (!list.some((p) => p.filename === filename)) list.push({filename, size});
+    projectorsByModel.set(modelName, list);
+  };
+  const stripProjectors = (models: Model[]): Model[] =>
+    models.map((m) => {
+      const files: ModelFile[] = [];
+      for (const f of m.files) {
+        const base = f.isSplit ? f.representativeFilename : f.filename;
+        if (isMmprojFilename(base)) {
+          addProjector(m.name, base, f.isSplit ? f.totalSize : f.size);
+        } else {
+          files.push(f);
+        }
+      }
+      return {...m, files};
+    });
+  const localModels = stripProjectors(localNorm);
+  const coldModels = stripProjectors(coldNorm);
 
   // Index cold files by join key. This is what survives the differences between
   // the two roots: the same file can sit at a bare path in one and under
@@ -177,6 +202,7 @@ export function buildModelRows(
         // copy; an incomplete copy counts as present but not complete.
         allInColdStorage: quants.every((q) => q.coldComplete),
         noneInColdStorage: quants.every((q) => !q.inColdStorage),
+        projectors: projectorsByModel.get(name) ?? [],
       };
     })
     .sort((a, b) =>
