@@ -72,6 +72,39 @@ export interface ModelRow extends Record<string, unknown> {
 // One location's copy of a quant, for the size-mismatch breakdown.
 type SizeEntry = {id: string; location: string; size: number};
 
+// A size-mismatch breakdown, optionally labelled by the file it belongs to.
+// Quant rows carry a single unlabelled group; the rolled-up model row carries
+// one labelled group per mismatched file so its warning is hoverable too.
+type SizeBreakdownGroup = {label: string | null; entries: SizeEntry[]};
+
+// The hovercard shown on a size-mismatch warning icon: each location and the
+// size it holds, grouped by file when a model row spans several mismatches.
+function SizeMismatchHover({groups}: {groups: SizeBreakdownGroup[]}) {
+  return (
+    <HoverCard
+      placement="above"
+      content={
+        <VStack gap={2}>
+          <Text type="supporting">Sizes differ across locations</Text>
+          {groups.map((g) => (
+            <VStack key={g.label ?? '_'} gap={1}>
+              {g.label && <Text type="supporting">{g.label}</Text>}
+              {g.entries.map((e) => (
+                <HStack key={e.id} gap={4} hAlign="between">
+                  <Text type="body">{e.location}</Text>
+                  <Text type="body">{formatSize(e.size)}</Text>
+                </HStack>
+              ))}
+            </VStack>
+          ))}
+        </VStack>
+      }
+    >
+      <Icon icon="warning" size="sm" />
+    </HoverCard>
+  );
+}
+
 interface DisplayRow extends Record<string, unknown> {
   key: string;
   label: string;
@@ -93,6 +126,9 @@ interface DisplayRow extends Record<string, unknown> {
   missingIndices: number[];
   sizeMismatch: boolean;
   sizeBreakdown: SizeEntry[] | null;
+  // Set only on a model (rollup) row: one labelled group per mismatched file,
+  // so its warning icon shows a hovercard like the per-quant rows do.
+  sizeBreakdownGroups?: SizeBreakdownGroup[];
   undersizedLocations: Set<string>;
   isProjector?: boolean;
   // Set on a whole-repo model's per-file child rows (present/missing/invalid).
@@ -1080,8 +1116,12 @@ export function ModelsTableClient({
       if (lo.type !== 'value') continue;
       for (const m of lo.value) {
         for (const f of m.files) {
+          // Join copies across locations by filename, not the quant label:
+          // several `.bin`/`.safetensors` files in one repo can share a quant
+          // (e.g. 'pytorch'), so keying by quant would compare the sizes of
+          // unrelated files and report a spurious cross-location mismatch.
           const base = f.isSplit ? f.representativeFilename : f.filename;
-          const key = `${m.name}::${isMmprojFilename(base) ? base : f.quant}`;
+          const key = `${m.name}::${base}`;
           const size = f.isSplit ? f.totalSize : f.size;
           const existing = map.get(key);
           if (existing) existing.push({address, size});
@@ -1190,6 +1230,10 @@ export function ModelsTableClient({
       let anyQuantMismatch = false;
       for (const q of m.quants) {
         const quantKey = `${m.name}::${q.label}`;
+        // Peer copies are keyed by filename (see peerQuantSizes), so this
+        // quant's cross-location sizes are looked up by its file, not its label
+        // — a label can cover several distinct files (e.g. two `.bin` weights).
+        const fileKey = `${m.name}::${q.isSingleFile ? q.filename : q.displayName}`;
         const breakdown: SizeEntry[] = [];
         if (q.coldTotalSize > 0) {
           breakdown.push({
@@ -1198,7 +1242,7 @@ export function ModelsTableClient({
             size: q.coldTotalSize,
           });
         }
-        for (const ps of peerQuantSizes.get(quantKey) ?? []) {
+        for (const ps of peerQuantSizes.get(fileKey) ?? []) {
           breakdown.push({
             id: ps.address,
             location: peerNameByAddr.get(ps.address) ?? ps.address,
@@ -1238,6 +1282,17 @@ export function ModelsTableClient({
       const maxSize =
         effectiveQuantSizes.length > 0 ? Math.max(...effectiveQuantSizes) : 0;
 
+      // One labelled breakdown per mismatched file, so the rolled-up model
+      // row's warning icon shows the same per-location sizes its quant rows do
+      // (the row is otherwise collapsed, leaving the icon unexplained).
+      const mismatchGroups: SizeBreakdownGroup[] = m.quants
+        .map((q) => ({
+          label: q.label,
+          info: quantInfo.get(`${m.name}::${q.label}`),
+        }))
+        .filter((x) => x.info?.mismatch === true)
+        .map((x) => ({label: x.label, entries: x.info!.breakdown}));
+
       // A whole-repo model's invalid + missing files (when its repo-file list
       // has been fetched), for the audit hovercard's "why" and download action.
       const repoIssues = isWholeRepoModel(m)
@@ -1267,6 +1322,9 @@ export function ModelsTableClient({
         missingIndices: [],
         sizeMismatch: anyQuantMismatch,
         sizeBreakdown: null,
+        ...(mismatchGroups.length > 0
+          ? {sizeBreakdownGroups: mismatchGroups}
+          : {}),
         undersizedLocations: new Set<string>(),
         ...(repoIssues && repoIssues.length > 0 ? {repoIssues} : {}),
       });
@@ -1465,26 +1523,18 @@ export function ModelsTableClient({
       renderCell: (item) => (
         <HStack gap={1} vAlign="center" hAlign="end">
           {item.sizeMismatch &&
-            (item.sizeBreakdown ? (
-              <HoverCard
-                placement="above"
-                content={
-                  <VStack gap={1}>
-                    <Text type="supporting">Sizes differ across locations</Text>
-                    {item.sizeBreakdown.map((e) => (
-                      <HStack key={e.id} gap={4} hAlign="between">
-                        <Text type="body">{e.location}</Text>
-                        <Text type="body">{formatSize(e.size)}</Text>
-                      </HStack>
-                    ))}
-                  </VStack>
-                }
-              >
+            (() => {
+              const groups =
+                item.sizeBreakdownGroups ??
+                (item.sizeBreakdown
+                  ? [{label: null, entries: item.sizeBreakdown}]
+                  : null);
+              return groups ? (
+                <SizeMismatchHover groups={groups} />
+              ) : (
                 <Icon icon="warning" size="sm" />
-              </HoverCard>
-            ) : (
-              <Icon icon="warning" size="sm" />
-            ))}
+              );
+            })()}
           <Text type="body">
             {item.sizeRange
               ? `${formatSize(item.sizeRange[0])} – ${formatSize(item.sizeRange[1])}`
