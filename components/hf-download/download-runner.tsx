@@ -8,6 +8,7 @@ import {Button} from '@astryxdesign/core/Button';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {Banner} from '@astryxdesign/core/Banner';
+import {HF_XET_HIGH_PERFORMANCE} from '@/lib/hf';
 
 export type TermState = {lines: string[]; col: number};
 
@@ -54,7 +55,8 @@ function parseSize(s: string): number {
  */
 export function buildHfCommand(req: DownloadRequest, localDir: string): string {
   const includes = req.filePaths.map((fp) => `--include "${fp}"`).join(' ');
-  return `HF_XET_HIGH_PERFORMANCE=1 hf download ${req.repoId} ${includes} --local-dir ${localDir} --revision ${req.branch}`;
+  const prefix = HF_XET_HIGH_PERFORMANCE ? 'HF_XET_HIGH_PERFORMANCE=1 ' : '';
+  return `${prefix}hf download ${req.repoId} ${includes} --local-dir ${localDir} --revision ${req.branch}`;
 }
 
 /** Copy text to the clipboard, falling back to a hidden textarea on browsers
