@@ -45,10 +45,9 @@ export function AppChrome({
     const segments = pathname.split('/').filter(Boolean);
     return parseRoute(segments, peers)?.location ?? ALL_LOCATION;
   }, [pathname, peers]);
-  const canDownloadLocally =
-    activeLocation === ALL_LOCATION || activeLocation === localPeerAddress;
-  // "Add model" works on any peer tab (downloads run on that peer) and on All;
-  // the local-only "Consolidate" action keeps the stricter gate above.
+  // "Consolidate" runs on the local peer only, so it's hidden on All.
+  const canConsolidate = activeLocation === localPeerAddress;
+  // "Add model" works on any peer tab (downloads run on that peer) and on All.
   const canAddModel =
     activeLocation === ALL_LOCATION ||
     peers.some((p) => p.address === activeLocation);
@@ -107,7 +106,7 @@ export function AppChrome({
             }
             endContent={
               <HStack gap={2} vAlign="center">
-                {canDownloadLocally && (
+                {canConsolidate && (
                   <Button
                     label="Consolidate with Lemonade…"
                     variant="secondary"
