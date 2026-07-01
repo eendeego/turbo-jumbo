@@ -2,7 +2,7 @@ import type {Model, ModelFile} from '@/lib/model-types';
 import {modelDisplayName, isMmprojFilename} from '@/lib/model-name';
 import {normalizeModelNames} from '@/lib/models';
 import {fileJoinKey} from '@/lib/peer-paths';
-import type {ModelRow, QuantInfo, ProjectorInfo} from './models-table-client';
+import type {ModelRow, QuantInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",
 // "BF16" → "16"); falls back to the raw token when there's no number.
@@ -28,32 +28,14 @@ export function buildModelRows(
   // A model's name depends on which copies carry sidecars, so the two scans
   // can name the same model differently; reconcile before grouping by name
   // (see normalizeModelNames).
-  const [localNorm, coldNorm] = normalizeModelNames([localScan, coldScan]);
+  const [localModels, coldModels] = normalizeModelNames([localScan, coldScan]);
 
-  // mmproj projector files are not quantizations — pull them out before quant
-  // assembly so they never become a QuantInfo (or collide with a real
-  // same-label weight), and surface them per model for the hovercard.
-  const projectorsByModel = new Map<string, ProjectorInfo[]>();
-  const addProjector = (modelName: string, filename: string, size: number) => {
-    const list = projectorsByModel.get(modelName) ?? [];
-    if (!list.some((p) => p.filename === filename)) list.push({filename, size});
-    projectorsByModel.set(modelName, list);
+  // A projector (mmproj) is keyed by its filename, not its quant label, so a
+  // real F16 weight and mmproj-F16.gguf don't collide; weights key by quant.
+  const fileLabel = (f: ModelFile): string => {
+    const base = f.isSplit ? f.representativeFilename : f.filename;
+    return isMmprojFilename(base) ? base : f.quant;
   };
-  const stripProjectors = (models: Model[]): Model[] =>
-    models.map((m) => {
-      const files: ModelFile[] = [];
-      for (const f of m.files) {
-        const base = f.isSplit ? f.representativeFilename : f.filename;
-        if (isMmprojFilename(base)) {
-          addProjector(m.name, base, f.isSplit ? f.totalSize : f.size);
-        } else {
-          files.push(f);
-        }
-      }
-      return {...m, files};
-    });
-  const localModels = stripProjectors(localNorm);
-  const coldModels = stripProjectors(coldNorm);
 
   // Index cold files by join key. This is what survives the differences between
   // the two roots: the same file can sit at a bare path in one and under
@@ -98,18 +80,18 @@ export function buildModelRows(
   for (const m of coldModels) {
     for (const f of m.files) {
       coldQuantSizes.set(
-        `${m.name}::${f.quant}`,
+        `${m.name}::${fileLabel(f)}`,
         f.isSplit ? f.totalSize : f.size,
       );
     }
   }
 
-  // Local file paths + display name per model::quant, for selection/deletion.
+  // Local file paths + display name per model::fileLabel, for selection/deletion.
   const localPathsMap = new Map<string, string[]>();
   const localDisplayNames = new Map<string, string>();
   for (const m of localModels) {
     for (const f of m.files) {
-      const key = `${m.name}::${f.quant}`;
+      const key = `${m.name}::${fileLabel(f)}`;
       if (f.isSplit) {
         localPathsMap.set(
           key,
@@ -131,8 +113,8 @@ export function buildModelRows(
       rowMap.set(m.name, quantMap);
     }
     for (const f of m.files) {
-      if (!quantMap.has(f.quant)) {
-        const quantKey = `${m.name}::${f.quant}`;
+      if (!quantMap.has(fileLabel(f))) {
+        const quantKey = `${m.name}::${fileLabel(f)}`;
         // Match each file to its cold copy by filename; size then decides
         // whether that copy is complete (identical) or just shares the name
         // (a partial/incomplete copy, or a different repo's same-named build).
@@ -155,8 +137,8 @@ export function buildModelRows(
         // means an incomplete/partial cold copy.
         const coldSize =
           !f.isSplit && present.length === 1 ? present[0].size : null;
-        quantMap.set(f.quant, {
-          label: f.quant,
+        quantMap.set(fileLabel(f), {
+          label: fileLabel(f),
           isSingleFile: !f.isSplit,
           filename: f.isSplit ? null : f.filename,
           displayName:
@@ -180,6 +162,9 @@ export function buildModelRows(
           totalShards: f.isSplit ? f.totalShards : 0,
           presentShards: f.isSplit ? f.presentShards : 0,
           missingIndices: f.isSplit ? f.missingIndices : [],
+          isProjector: isMmprojFilename(
+            f.isSplit ? f.representativeFilename : f.filename,
+          ),
         });
       }
     }
@@ -188,10 +173,13 @@ export function buildModelRows(
   return [...rowMap.entries()]
     .map(([name, quantMap]) => {
       const quants = [...quantMap.values()].sort(
-        (a, b) => Number(quantBits(a.label)) - Number(quantBits(b.label)),
+        (a, b) =>
+          Number(!!a.isProjector) - Number(!!b.isProjector) ||
+          Number(quantBits(a.label)) - Number(quantBits(b.label)),
       );
-      const bits = [...new Set(quants.map((q) => quantBits(q.label)))];
-      const sizes = quants.map((q) => q.size).filter((s) => s > 0);
+      const weights = quants.filter((q) => !q.isProjector);
+      const bits = [...new Set(weights.map((q) => quantBits(q.label)))];
+      const sizes = weights.map((q) => q.size).filter((s) => s > 0);
       return {
         name,
         quantizations: bits.join(', '),
@@ -200,9 +188,8 @@ export function buildModelRows(
         maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
         // "Complete" only when every quant has an identical (size-matching) cold
         // copy; an incomplete copy counts as present but not complete.
-        allInColdStorage: quants.every((q) => q.coldComplete),
-        noneInColdStorage: quants.every((q) => !q.inColdStorage),
-        projectors: projectorsByModel.get(name) ?? [],
+        allInColdStorage: weights.every((q) => q.coldComplete),
+        noneInColdStorage: weights.every((q) => !q.inColdStorage),
       };
     })
     .sort((a, b) =>

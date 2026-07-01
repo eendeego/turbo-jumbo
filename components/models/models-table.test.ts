@@ -17,7 +17,7 @@ function single(
   };
 }
 
-test('buildModelRows lists an mmproj as a projector, not a quant', () => {
+test('buildModelRows keeps an mmproj as an isProjector quant, out of the summary', () => {
   const local: Model[] = [
     {
       name: 'org/repo',
@@ -28,12 +28,16 @@ test('buildModelRows lists an mmproj as a projector, not a quant', () => {
     },
   ];
   const [row] = buildModelRows(local, []);
-  expect(row.quants.map((q) => q.label)).toEqual(['Q4_K_M']);
+  const weights = row.quants.filter((q) => !q.isProjector);
+  const projectors = row.quants.filter((q) => q.isProjector);
+  expect(weights.map((q) => q.label)).toEqual(['Q4_K_M']);
   expect(row.quantizations).toBe('4');
-  expect(row.projectors).toEqual([{filename: 'mmproj-F16.gguf', size: 50}]);
+  expect(projectors.map((q) => q.label)).toEqual(['mmproj-F16.gguf']);
+  expect(projectors[0].paths).toEqual(['mmproj-F16.gguf']);
+  expect(projectors[0].size).toBe(50);
 });
 
-test('buildModelRows keeps a real F16 weight while extracting mmproj-F16', () => {
+test('buildModelRows keeps a real F16 weight distinct from mmproj-F16', () => {
   const local: Model[] = [
     {
       name: 'org/repo',
@@ -44,17 +48,36 @@ test('buildModelRows keeps a real F16 weight while extracting mmproj-F16', () =>
     },
   ];
   const [row] = buildModelRows(local, []);
-  expect(row.quants.map((q) => q.label)).toEqual(['F16']);
-  expect(row.quants[0].size).toBe(200); // the weight, not the projector
-  expect(row.projectors).toEqual([{filename: 'mmproj-F16.gguf', size: 50}]);
+  const weight = row.quants.find((q) => !q.isProjector);
+  const projector = row.quants.find((q) => q.isProjector);
+  expect(weight?.label).toBe('F16');
+  expect(weight?.size).toBe(200);
+  expect(projector?.label).toBe('mmproj-F16.gguf');
+  expect(projector?.size).toBe(50);
+  expect(row.quantizations).toBe('16'); // weight only, not duplicated
+  expect(row.minSize).toBe(200); // projector excluded from the range
 });
 
-test('buildModelRows leaves projectors empty for a weights-only model', () => {
+test('buildModelRows detects a projector cold copy only within the same model', () => {
+  const local: Model[] = [
+    {name: 'org/repo', files: [single('mmproj-F16.gguf', 'F16', 50)]},
+  ];
+  const cold: Model[] = [
+    {name: 'org/repo', files: [single('mmproj-F16.gguf', 'F16', 50)]},
+    {name: 'org/other', files: [single('mmproj-F16.gguf', 'F16', 50)]},
+  ];
+  const row = buildModelRows(local, cold).find((r) => r.name === 'org/repo')!;
+  const projector = row.quants.find((q) => q.isProjector)!;
+  expect(projector.inColdStorage).toBe(true);
+  expect(projector.coldComplete).toBe(true);
+});
+
+test('buildModelRows leaves no projector quant for a weights-only model', () => {
   const local: Model[] = [
     {name: 'org/repo', files: [single('repo-Q8_0.gguf', 'Q8_0')]},
   ];
   const [row] = buildModelRows(local, []);
-  expect(row.projectors ?? []).toEqual([]);
+  expect(row.quants.some((q) => q.isProjector)).toBe(false);
 });
 
 function singleModel(name: string, filename: string, quant: string): Model {

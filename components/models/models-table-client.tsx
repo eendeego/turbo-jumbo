@@ -50,6 +50,7 @@ export interface QuantInfo {
   totalShards: number;
   presentShards: number;
   missingIndices: number[];
+  isProjector?: boolean;
 }
 
 export type {LocationTab} from '@/components/models/location-tabs';
