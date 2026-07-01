@@ -39,6 +39,39 @@ function fileAt(
   };
 }
 
+test('a generic safetensors is not in cold when only a different repo shares the name', () => {
+  // Two unrelated models each named their weights `model.safetensors`; the
+  // generic basename must not make one look present in cold because of the
+  // other.
+  const file = 'model.safetensors';
+  const local = [fileAt('org-a/Model', `org-a/Model/${file}`, 'ST', 100)];
+  const cold = [fileAt('org-b/Other', `org-b/Other/${file}`, 'ST', 200)];
+
+  const q = buildModelRows(local, cold).find((r) => r.name === 'org-a/Model')!
+    .quants[0];
+  expect(q.inColdStorage).toBe(false);
+  expect(q.coldPaths).toEqual([]);
+});
+
+test('a generic safetensors is in cold when the same repo has it', () => {
+  const file = 'model.safetensors';
+  const local = [fileAt('org-a/Model', `org-a/Model/${file}`, 'ST', 100)];
+  const cold = [
+    fileAt(
+      'org-a/Model',
+      `models--org-a--Model/snapshots/r1/${file}`,
+      'ST',
+      100,
+    ),
+  ];
+
+  const q = buildModelRows(local, cold).find((r) => r.name === 'org-a/Model')!
+    .quants[0];
+  expect(q.inColdStorage).toBe(true);
+  expect(q.coldComplete).toBe(true);
+  expect(q.coldPaths).toEqual([`models--org-a--Model/snapshots/r1/${file}`]);
+});
+
 test('detects cold presence across differing layouts (bare local vs repoId cold)', () => {
   const file = 'gemma-4-26B-A4B-it-UD-IQ2_M.gguf';
   const size = 9974938368;

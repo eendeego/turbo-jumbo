@@ -26,7 +26,7 @@ import type {
   UpdateResult,
 } from '@/lib/audit';
 import {modelDisplayName} from '@/lib/model-name';
-import {fileBasename, peerFileBasenames} from '@/lib/peer-paths';
+import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peer-paths';
 import {rowAudit, rowUpdates, type RowAudit} from '@/lib/row-audit';
 
 export interface ShardInfo {
@@ -469,21 +469,25 @@ function NameCell({
 function PeersCell({
   row,
   peers,
-  peerBasenames,
+  peerKeys,
 }: {
   row: DisplayRow;
   peers: PeerConfig[];
-  peerBasenames: Map<string, Set<string>>;
+  peerKeys: Map<string, Set<string>>;
 }) {
   if (peers.length === 0 || row.depth === 2) return null;
   return (
     <HStack gap={1} vAlign="center" wrap="nowrap">
       {peers.map((peer) => {
-        // Joined by file basename, not model name: names are derived per host
-        // and can disagree for the same file (see lib/peer-paths.ts).
-        const names = peerBasenames.get(peer.address);
+        // Joined by file key, not model name: names are derived per host and can
+        // disagree for the same file, but a generic weight name is qualified by
+        // the model so different repos don't collide (see lib/peer-paths.ts).
+        const keys = peerKeys.get(peer.address);
         const hasPeer =
-          names != null && row.paths.some((p) => names.has(fileBasename(p)));
+          keys != null &&
+          row.paths.some((p) =>
+            keys.has(fileJoinKey(row.parentName, fileBasename(p))),
+          );
         const undersized = row.undersizedLocations.has(peer.address);
         return (
           <Badge
@@ -737,11 +741,11 @@ export function ModelsTableClient({
   // Build lookup: peerAddress -> Set<file basename>. Files are matched across
   // hosts by basename because model names are derived per host and can
   // disagree for the same file (see lib/peer-paths.ts).
-  const peerBasenames = useMemo(() => {
+  const peerKeys = useMemo(() => {
     const map = new Map<string, Set<string>>();
     for (const [address, lo] of peerModels) {
       if (lo.type !== 'value') continue;
-      map.set(address, peerFileBasenames(lo.value));
+      map.set(address, peerFileKeys(lo.value));
     }
     return map;
   }, [peerModels]);
@@ -786,9 +790,12 @@ export function ModelsTableClient({
         const quants = m.quants
           .filter((q) => {
             if (activeLocation === 'cold-storage') return q.inColdStorage;
-            const names = peerBasenames.get(activeLocation);
+            const keys = peerKeys.get(activeLocation);
             return (
-              names != null && q.paths.some((p) => names.has(fileBasename(p)))
+              keys != null &&
+              q.paths.some((p) =>
+                keys.has(fileJoinKey(m.name, fileBasename(p))),
+              )
             );
           })
           // On the cold-storage tab, delete/select via the cold-storage paths.
@@ -809,7 +816,7 @@ export function ModelsTableClient({
         } satisfies ModelRow;
       })
       .filter((m): m is ModelRow => m !== null);
-  }, [augmentedModels, activeLocation, peerBasenames]);
+  }, [augmentedModels, activeLocation, peerKeys]);
 
   const showCheckboxes = onToggleSelected != null;
 
@@ -1119,11 +1126,7 @@ export function ModelsTableClient({
             width: pixel(120),
             align: 'center' as const,
             renderCell: (item: DisplayRow) => (
-              <PeersCell
-                row={item}
-                peers={peers}
-                peerBasenames={peerBasenames}
-              />
+              <PeersCell row={item} peers={peers} peerKeys={peerKeys} />
             ),
           } satisfies TableColumn<DisplayRow>,
         ]

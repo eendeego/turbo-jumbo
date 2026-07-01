@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {peerFileBasenames, withPeerPaths} from '@/lib/peer-paths';
+import {fileJoinKey, peerFileKeys, withPeerPaths} from '@/lib/peer-paths';
 import type {Model} from '@/lib/models';
 import type {
   ModelRow,
@@ -154,7 +154,7 @@ test('matches quants by filename when the hosts disagree on the model name', () 
   ]);
 });
 
-test('peerFileBasenames lists every file basename on the peer', () => {
+test('peerFileKeys lists every specific basename on the peer', () => {
   const peer: Model[] = [
     {
       name: 'unsloth/LFM2-1.2B-GGUF',
@@ -189,13 +189,108 @@ test('peerFileBasenames lists every file basename on the peer', () => {
     },
   ];
 
-  expect(peerFileBasenames(peer)).toEqual(
+  // Specific (GGUF) basenames join on their own — the keys are the basenames.
+  expect(peerFileKeys(peer)).toEqual(
     new Set([
       'LFM2-1.2B-Q6_K.gguf',
       'Big-Q4_K-00001-of-00002.gguf',
       'Big-Q4_K-00002-of-00002.gguf',
     ]),
   );
+});
+
+test('fileJoinKey qualifies generic weight names by model, not specific ones', () => {
+  // A GGUF/dtype-tagged name identifies the model, so it joins on its own.
+  expect(fileJoinKey('org/repo', 'Jan-nano-Q6_K.gguf')).toBe(
+    'Jan-nano-Q6_K.gguf',
+  );
+  // A generic safetensors/bin name collides across repos, so it carries the
+  // model name.
+  expect(fileJoinKey('org/repo', 'model.safetensors')).not.toBe(
+    'model.safetensors',
+  );
+  expect(fileJoinKey('org/repo', 'model.safetensors')).toBe(
+    fileJoinKey('org/repo', 'model.safetensors'),
+  );
+  expect(fileJoinKey('a/b', 'model.safetensors')).not.toBe(
+    fileJoinKey('c/d', 'model.safetensors'),
+  );
+  // Sharded generic names are qualified too.
+  expect(fileJoinKey('a/b', 'model-00001-of-00002.safetensors')).not.toBe(
+    fileJoinKey('c/d', 'model-00001-of-00002.safetensors'),
+  );
+});
+
+test('withPeerPaths does not match a generic name across different repos', () => {
+  const models = [
+    row('org-a/Model', [quant('ST', ['org-a/Model/model.safetensors'])]),
+  ];
+  const peer: Model[] = [
+    {
+      name: 'org-b/Other',
+      files: [
+        {
+          isSplit: false,
+          filename: 'model.safetensors',
+          path: 'org-b/Other/model.safetensors',
+          quant: 'ST',
+          size: 100,
+          missing: false,
+        },
+      ],
+    } as unknown as Model,
+  ];
+
+  // Different repo, same generic basename — the peer does not have this model,
+  // so the local path is kept (not remapped to the peer's other file).
+  const out = withPeerPaths(models, peer);
+  expect(out[0].quants[0].paths).toEqual(['org-a/Model/model.safetensors']);
+});
+
+test('withPeerPaths matches a generic name within the same repo', () => {
+  const models = [
+    row('org-a/Model', [quant('ST', ['org-a/Model/model.safetensors'])]),
+  ];
+  const peer: Model[] = [
+    {
+      name: 'org-a/Model',
+      files: [
+        {
+          isSplit: false,
+          filename: 'model.safetensors',
+          path: 'snapshots/r1/model.safetensors',
+          quant: 'ST',
+          size: 100,
+          missing: false,
+        },
+      ],
+    } as unknown as Model,
+  ];
+
+  const out = withPeerPaths(models, peer);
+  expect(out[0].quants[0].paths).toEqual(['snapshots/r1/model.safetensors']);
+});
+
+test('peerFileKeys qualifies a generic name by its model', () => {
+  const peer: Model[] = [
+    {
+      name: 'org-a/Model',
+      files: [
+        {
+          isSplit: false,
+          filename: 'model.safetensors',
+          path: 'org-a/Model/model.safetensors',
+          quant: 'ST',
+          size: 100,
+          missing: false,
+        },
+      ],
+    } as unknown as Model,
+  ];
+
+  const keys = peerFileKeys(peer);
+  expect(keys.has('model.safetensors')).toBe(false);
+  expect(keys.has(fileJoinKey('org-a/Model', 'model.safetensors'))).toBe(true);
 });
 
 test('merges paths when the peer has duplicate copies of a quant', () => {

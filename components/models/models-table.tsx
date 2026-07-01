@@ -1,5 +1,6 @@
 import type {Model} from '@/lib/model-types';
 import {normalizeModelNames} from '@/lib/models';
+import {fileJoinKey} from '@/lib/peer-paths';
 import type {ModelRow, QuantInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",
@@ -28,34 +29,39 @@ export function buildModelRows(
   // (see normalizeModelNames).
   const [localModels, coldModels] = normalizeModelNames([localScan, coldScan]);
 
-  // Index cold files by filename. This is what survives the differences between
+  // Index cold files by join key. This is what survives the differences between
   // the two roots: the same file can sit at a bare path in one and under
   // <repoId>/ in the other, and the model name is sidecar-derived (so it differs
   // too). Neither the path nor the name can join them — but filename + size can,
   // and size also tells apart same-named files from different repos (e.g. an MTP
   // vs non-MTP build).
+  // Files are joined by `fileJoinKey`: a specific basename (GGUF) on its own —
+  // surviving the layout and per-host name differences — and a generic weight
+  // name (model.safetensors) qualified by the repo-derived model name, so a
+  // different repo's same-named file isn't mistaken for a cold copy.
   const fileBase = (relPath: string) => relPath.split('/').pop() ?? relPath;
-  const coldByName = new Map<string, Array<{size: number; path: string}>>();
-  const addCold = (filename: string, size: number, p: string) => {
-    const list = coldByName.get(filename);
+  const coldByKey = new Map<string, Array<{size: number; path: string}>>();
+  const addCold = (key: string, size: number, p: string) => {
+    const list = coldByKey.get(key);
     if (list) list.push({size, path: p});
-    else coldByName.set(filename, [{size, path: p}]);
+    else coldByKey.set(key, [{size, path: p}]);
   };
   for (const m of coldModels) {
     for (const f of m.files) {
       if (f.isSplit) {
-        for (const s of f.files) addCold(fileBase(s.path), s.size, s.path);
+        for (const s of f.files)
+          addCold(fileJoinKey(m.name, fileBase(s.path)), s.size, s.path);
       } else {
-        addCold(f.filename, f.size, f.path);
+        addCold(fileJoinKey(m.name, f.filename), f.size, f.path);
       }
     }
   }
 
   // The cold copy of a local file: prefer a size-exact match (a complete,
-  // identical copy), else any file of the same name (a partial/mismatched copy,
-  // or a different repo's same-named build). null when none exists.
-  const coldMatch = (filename: string, size: number) => {
-    const candidates = coldByName.get(filename);
+  // identical copy), else any file of the same key (a partial/mismatched copy).
+  // null when none exists.
+  const coldMatch = (key: string, size: number) => {
+    const candidates = coldByKey.get(key);
     if (!candidates || candidates.length === 0) return null;
     return candidates.find((c) => c.size === size) ?? candidates[0];
   };
@@ -107,7 +113,9 @@ export function buildModelRows(
         const localFiles = f.isSplit
           ? f.files.map((s) => ({base: fileBase(s.path), size: s.size}))
           : [{base: f.filename, size: f.size}];
-        const coldHits = localFiles.map((lf) => coldMatch(lf.base, lf.size));
+        const coldHits = localFiles.map((lf) =>
+          coldMatch(fileJoinKey(m.name, lf.base), lf.size),
+        );
         const present = coldHits.filter(
           (c): c is {size: number; path: string} => c != null,
         );
