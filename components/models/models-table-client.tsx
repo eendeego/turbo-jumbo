@@ -357,6 +357,7 @@ function UpdateBadge({updates}: {updates: UpdateResult[]}) {
 function AuditCell({
   audit,
   failures,
+  invalid = false,
   onFix,
   fixing,
   onSetSource,
@@ -368,6 +369,9 @@ function AuditCell({
 }: {
   audit: RowAudit;
   failures?: AuditResult[];
+  // The model has a local file that audits invalid (depth-0 rows). Its weights
+  // can still pass, so a Pass verdict would be misleading — show Invalid instead.
+  invalid?: boolean;
   onFix?: (path: string) => void;
   fixing?: boolean;
   onSetSource?: (path: string) => void;
@@ -392,6 +396,20 @@ function AuditCell({
           <Text type="supporting">{audit.percent}%</Text>
         )}
       </HStack>
+    );
+  }
+  // A model with an invalid file must not read as Pass even when every audited
+  // weight passes (the invalid file — e.g. a bad index.json — isn't a weight, so
+  // it never enters the audited paths). Expand the row to see which file.
+  if (invalid && audit.status === 'pass') {
+    return (
+      <HoverCard content="Invalid — a local file's size or checksum doesn't match its source. Expand to see which file.">
+        <Badge
+          label="Invalid"
+          variant="error"
+          xstyle={audit.cached ? styles.dimmed : undefined}
+        />
+      </HoverCard>
     );
   }
   const {label, variant} = AUDIT_BADGE[audit.status];
@@ -1432,6 +1450,10 @@ export function ModelsTableClient({
                       auditStarted,
                     )}
                     failures={failures}
+                    invalid={
+                      item.depth === 0 &&
+                      (invalidRepos?.has(item.parentName) ?? false)
+                    }
                     onFix={
                       onFixMisplaced
                         ? (path) => onFixMisplaced([path])
