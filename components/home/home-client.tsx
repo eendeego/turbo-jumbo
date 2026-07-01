@@ -836,7 +836,11 @@ export function HomeClient({
   const inventoryLocations = useMemo<InventoryLocation[]>(() => {
     const locs: InventoryLocation[] = peerConfigs.map((p) => {
       const lo = seededPeerModels.get(p.address);
-      return {name: p.name, models: lo?.type === 'value' ? lo.value : []};
+      return {
+        name: p.name,
+        models: lo?.type === 'value' ? lo.value : [],
+        isLocal: p.isLocal ?? false,
+      };
     });
     locs.push({name: 'cold storage', models: coldModels});
     return locs;
