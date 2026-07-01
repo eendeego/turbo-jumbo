@@ -10,13 +10,17 @@ import {Button} from '@astryxdesign/core/Button';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {Badge} from '@astryxdesign/core/Badge';
+import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {
   DownloadModal,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
 import {
+  lemonadeDownloadStatus,
+  lemonadeStatusTooltip,
   matchVariantFiles,
   type InventoryLocation,
+  type LemonadeDownloadInfo,
   type LemonadeModel,
 } from '@/lib/lemonade';
 
@@ -94,6 +98,15 @@ export function LemonadeBrowser({
       ),
     );
   }, [models, filter]);
+
+  const statusByName = useMemo(() => {
+    const map = new Map<string, LemonadeDownloadInfo>();
+    if (!models) return map;
+    for (const m of models) {
+      map.set(m.name, lemonadeDownloadStatus(m, inventoryLocations));
+    }
+    return map;
+  }, [models, inventoryLocations]);
 
   const selected = useMemo(
     () => models?.find((m) => m.name === selectedName) ?? null,
@@ -204,6 +217,27 @@ export function LemonadeBrowser({
                   onClick={() => setSelectedName(m.name)}
                   endContent={
                     <HStack gap={1} vAlign="center">
+                      {(() => {
+                        const info = statusByName.get(m.name);
+                        if (!info || info.status === 'none') return null;
+                        return (
+                          <HoverCard
+                            placement="above"
+                            content={lemonadeStatusTooltip(info)}
+                          >
+                            <Badge
+                              label={
+                                info.status === 'complete'
+                                  ? 'downloaded'
+                                  : 'partial'
+                              }
+                              variant={
+                                info.status === 'complete' ? 'green' : 'orange'
+                              }
+                            />
+                          </HoverCard>
+                        );
+                      })()}
                       {m.suggested && (
                         <Badge label="suggested" variant="green" />
                       )}
