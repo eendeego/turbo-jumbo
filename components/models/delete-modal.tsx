@@ -6,6 +6,7 @@ import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {List, ListItem} from '@astryxdesign/core/List';
+import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Model} from '@/lib/model-types';
 import {modelDisplayName} from '@/lib/model-name';
 import {filePaths} from '@/components/models/model-list';
@@ -55,7 +56,7 @@ interface DeleteModalProps {
   files: FileInfo[];
   from?: string;
   requireDoubleConfirm: boolean;
-  onConfirm: () => void;
+  onConfirm: (dryRun: boolean) => void;
   onCancel: () => void;
 }
 
@@ -67,10 +68,14 @@ export function DeleteModal({
   onCancel,
 }: DeleteModalProps) {
   const [step, setStep] = useState<'list' | 'warn'>('list');
+  // Dev-only escape hatch: the delete endpoints log what they would remove
+  // instead of removing it. Owned by the modal so it resets on every open.
+  const [dryRun, setDryRun] = useState(false);
+  const isDev = process.env.NODE_ENV === 'development';
 
   function handleDelete() {
     if (requireDoubleConfirm) setStep('warn');
-    else onConfirm();
+    else onConfirm(dryRun);
   }
 
   return (
@@ -96,6 +101,14 @@ export function DeleteModal({
               />
             ))}
           </List>
+          {isDev && (
+            <CheckboxInput
+              label="Dry run (log only, no actual deletion)"
+              value={dryRun}
+              onChange={setDryRun}
+              size="sm"
+            />
+          )}
           <HStack gap={2} hAlign="end">
             <Button label="Cancel" variant="secondary" onClick={onCancel} />
             <Button
@@ -124,7 +137,7 @@ export function DeleteModal({
             <Button
               label="Confirm delete"
               variant="destructive"
-              onClick={onConfirm}
+              onClick={() => onConfirm(dryRun)}
             />
           </HStack>
         </VStack>

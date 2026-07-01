@@ -7,7 +7,6 @@ import {AppShell} from '@astryxdesign/core/AppShell';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
-import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models';
 import {AsyncState} from '@/lib/async-state';
@@ -136,8 +135,6 @@ export function HomeClient({
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [dryRun, setDryRun] = useState(false);
-  const isDev = process.env.NODE_ENV === 'development';
 
   const locations: LocationTab[] = useMemo(
     () =>
@@ -517,7 +514,7 @@ export function HomeClient({
     return peer.isLocal ? `${peer.name} (local)` : peer.name;
   }, [activeLocation, peerConfigs]);
 
-  async function onDelete() {
+  async function onDelete(dryRun: boolean) {
     setConfirming(false);
     setDeleting(true);
     setError(null);
@@ -761,14 +758,6 @@ export function HomeClient({
           misplacedCount={misplacedPaths.length}
           fixing={fixing}
         />
-        {isDev && selected.size > 0 && (
-          <CheckboxInput
-            label="Dry run (log only, no actual deletion)"
-            value={dryRun}
-            onChange={setDryRun}
-            size="sm"
-          />
-        )}
 
         {confirming && (
           <DeleteModal
