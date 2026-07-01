@@ -4,7 +4,7 @@ import {normalizeModelNames} from '@/lib/models';
 import {isDiffusersRepo, diffusersComponentKey} from '@/lib/diffusers';
 import {fileJoinKey} from '@/lib/peer-paths';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
-import type {SidecarSummary} from '@/lib/model-sidecar';
+import type {SidecarSummary} from '@/lib/sidecar-types';
 import type {ModelRow, QuantInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",

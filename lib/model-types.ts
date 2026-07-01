@@ -2,7 +2,7 @@
 // (lib/models.ts) and client components. Must stay free of Node imports
 // (fs, path) since client bundles pull in anything this module imports.
 
-import type {SidecarSummary} from '@/lib/model-sidecar';
+import type {SidecarSummary} from '@/lib/sidecar-types';
 
 export interface SingleFile {
   isSplit: false;

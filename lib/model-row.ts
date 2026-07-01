@@ -12,7 +12,7 @@ import {ggmlModelVariant} from '@/lib/weight-files';
 import {isPickOneSafetensorsRepo} from '@/lib/hf-download';
 import {isDiffusersRepo} from '@/lib/diffusers';
 import {coldStorageRollup} from '@/lib/cold-storage-rollup';
-import type {SidecarSummary} from '@/lib/model-sidecar';
+import type {SidecarSummary} from '@/lib/sidecar-types';
 
 export interface ShardInfo {
   filename: string;
