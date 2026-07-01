@@ -15,6 +15,8 @@ import {
   DownloadModal,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
+import {ModelLabelIcon} from '@/components/lemonade/model-label-icon';
+import {sortLabelsForDisplay} from '@/lib/lemonade-labels';
 import {
   lemonadeDownloadStatus,
   lemonadeStatusTooltip,
@@ -249,9 +251,13 @@ export function LemonadeBrowser({
                       {m.suggested && (
                         <Badge label="suggested" variant="green" />
                       )}
-                      {m.labels.map((l) => (
-                        <Badge key={l} label={l} variant="neutral" />
-                      ))}
+                      {m.labels.length > 0 && (
+                        <HStack gap={1} vAlign="center">
+                          {sortLabelsForDisplay(m.labels).map((l) => (
+                            <ModelLabelIcon key={l} label={l} />
+                          ))}
+                        </HStack>
+                      )}
                       <Text type="supporting">{formatGb(m.sizeGb)}</Text>
                     </HStack>
                   }
