@@ -159,6 +159,89 @@ test('preview splits actionable files into move vs deduplicate, omitting no-ops'
   await fsp.rm(root, {recursive: true, force: true});
 });
 
+// Build a cache repo whose snapshot entries are already symlinks into TJ (the
+// state a prior sync leaves behind), plus any extra real files.
+async function syncedRepo(
+  lemBase: string,
+  tjBase: string,
+  org: string,
+  repo: string,
+  rev: string,
+  linked: Record<string, string>, // repoPath -> content (lives in TJ, symlinked)
+  real: Record<string, string> = {}, // repoPath -> content (not yet synced)
+) {
+  const dir = `models--${org}--${repo}`;
+  await write(lemBase, `${dir}/refs/main`, rev);
+  const snap = path.join(lemBase, dir, 'snapshots', rev);
+  await fsp.mkdir(snap, {recursive: true});
+  for (const [rel, content] of Object.entries(linked)) {
+    const tjFile = await write(tjBase, `${org}/${repo}/${rel}`, content);
+    await fsp.mkdir(path.dirname(path.join(snap, rel)), {recursive: true});
+    await fsp.symlink(path.resolve(tjFile), path.join(snap, rel));
+  }
+  for (const [rel, content] of Object.entries(real)) {
+    await write(lemBase, `${dir}/snapshots/${rev}/${rel}`, content);
+  }
+}
+
+test('skips a model already synced (its files are symlinks into Turbo Jumbo)', async () => {
+  const {root, tj, lem} = await mkdirs();
+  const rev = 'synced';
+  await syncedRepo(lem, tj, 'org', 'done', rev, {'m.bin': 'DATA'});
+
+  // Neither the preview nor a run treats an already-linked model as work.
+  expect(await previewLemonadeSync(tj, lem)).toEqual([]);
+  expect(await syncLemonadeToTurboJumbo(tj, lem)).toEqual([]);
+
+  // The existing symlink is left exactly as it was.
+  const lemFile = path.join(lem, `models--org--done/snapshots/${rev}/m.bin`);
+  expect((await fsp.lstat(lemFile)).isSymbolicLink()).toBe(true);
+  expect(await fsp.readlink(lemFile)).toBe(
+    path.resolve(path.join(tj, 'org/done/m.bin')),
+  );
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('in a partially-synced model, acts only on the un-synced file', async () => {
+  const {root, tj, lem} = await mkdirs();
+  const rev = 'partial';
+  // old.bin already linked into TJ; new.bin is a fresh real file.
+  await syncedRepo(
+    lem,
+    tj,
+    'org',
+    'part',
+    rev,
+    {'old.bin': 'OLD'},
+    {'new.bin': 'NEW'},
+  );
+
+  // Only the un-synced file is counted as work.
+  expect(await previewLemonadeSync(tj, lem)).toEqual([
+    {repoId: 'org/part', rev, moveCount: 1, dedupCount: 0},
+  ]);
+
+  const [result] = await syncLemonadeToTurboJumbo(tj, lem);
+  expect(result.files).toContainEqual({repoPath: 'new.bin', status: 'linked'});
+  expect(result.files).toContainEqual({
+    repoPath: 'old.bin',
+    status: 'already-linked',
+  });
+
+  const snap = path.join(lem, `models--org--part/snapshots/${rev}`);
+  // The pre-existing symlink is untouched; the new file moved in and is linked.
+  expect((await fsp.lstat(path.join(snap, 'old.bin'))).isSymbolicLink()).toBe(
+    true,
+  );
+  expect(await fsp.readFile(path.join(tj, 'org/part/new.bin'), 'utf8')).toBe(
+    'NEW',
+  );
+  expect((await fsp.lstat(path.join(snap, 'new.bin'))).isSymbolicLink()).toBe(
+    true,
+  );
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
 test('resolves the revision from a sole snapshots dir when refs/main is absent', async () => {
   const {root, tj, lem} = await mkdirs();
   const rev = 'no-ref-rev';
