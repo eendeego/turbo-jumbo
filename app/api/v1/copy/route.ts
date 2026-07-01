@@ -3,10 +3,9 @@ import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {logger} from '@/lib/logger';
 import {isObject, readJsonBody} from '@/lib/request';
 import {promises as fsp} from 'fs';
-import {createReadStream, createWriteStream} from 'fs';
+import {createReadStream} from 'fs';
 import nodePath from 'path';
-import {pipeline} from 'stream/promises';
-import {Readable, Transform} from 'stream';
+import {Readable} from 'stream';
 
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB
 // Emit a progress event at most once per this many streamed bytes.
@@ -29,16 +28,6 @@ type CopyRequest = {
 function resolveWithin(base: string, file: string): string | null {
   const full = nodePath.resolve(base, file);
   return full.startsWith(base + nodePath.sep) ? full : null;
-}
-
-// A pass-through stream that reports how many bytes flow through it.
-function makeCounter(onBytes: (n: number) => void): Transform {
-  return new Transform({
-    transform(chunk, _enc, cb) {
-      onBytes(chunk.length);
-      cb(null, chunk);
-    },
-  });
 }
 
 export async function POST(req: Request) {
@@ -235,8 +224,13 @@ export async function POST(req: Request) {
           const srcIsLocalPeer = source === localPeerAddr;
           const srcIsRemote = !srcIsCold && !srcIsLocalPeer;
 
-          // Remote dest, remote source, different peers → batched push via source
-          if (destIsRemote && srcIsRemote) {
+          // Remote source → a peer destination (another peer, or this host):
+          // the source peer pushes the files to the destination itself, in
+          // bounded chunks. The bytes never transit a third host, and — unlike
+          // pulling the file here and piping the fetch body to disk — memory
+          // stays bounded (Bun doesn't backpressure a fetch body into a slower
+          // sink, which OOMs on multi-GB models).
+          if (!destIsCold && srcIsRemote) {
             const pushBytes = groupFiles.reduce((s, f) => s + f.size, 0);
             fileTotal = pushBytes;
             fileDone = 0;
@@ -544,30 +538,15 @@ export async function POST(req: Request) {
                   },
                 });
               } else {
-                logger.info(`[copy] fetch ${f.path} from ${source} → ${dest}`);
-                const res = await fetch(
-                  `http://${source}/api/v1/local-models/download?file=${encodeURIComponent(f.path)}`,
-                  {signal},
+                // Unreachable: every remote source is handled above (pushed by
+                // the source peer to cold storage or to the destination peer).
+                // Guard so an unforeseen combo fails loudly rather than falling
+                // back to pulling the file here and OOMing on a slow sink.
+                fail(
+                  `${source} → ${dest}: ${f.path}`,
+                  'unsupported source/destination combination',
                 );
-                if (!res.ok || !res.body) {
-                  throw new Error(`HTTP ${res.status}`);
-                }
-                let nextEmitAt = EMIT_INTERVAL;
-                const counter = makeCounter((n) => {
-                  fileDone += n;
-                  bytesDone += n;
-                  if (fileDone >= nextEmitAt) {
-                    nextEmitAt = fileDone + EMIT_INTERVAL;
-                    emit();
-                  }
-                });
-                await pipeline(
-                  // @ts-expect-error – DOM ReadableStream vs Node ReadableStream type mismatch
-                  Readable.fromWeb(res.body),
-                  counter,
-                  createWriteStream(dst),
-                  {signal},
-                );
+                continue;
               }
 
               filesDone++;
