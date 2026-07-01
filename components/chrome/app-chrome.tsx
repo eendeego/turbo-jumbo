@@ -1,7 +1,7 @@
 'use client';
 
 import {useCallback, useMemo, useState} from 'react';
-import {useRouter} from 'next/navigation';
+import {useRouter, usePathname} from 'next/navigation';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {TopNav, TopNavHeading} from '@astryxdesign/core/TopNav';
 import {NavIcon} from '@astryxdesign/core/NavIcon';
@@ -9,7 +9,7 @@ import {HStack} from '@astryxdesign/core/Stack';
 import {Button} from '@astryxdesign/core/Button';
 import {CubeIcon} from '@heroicons/react/24/outline';
 import type {Peer as PeerConfig} from '@/lib/config';
-import {locationHref} from '@/lib/locations';
+import {locationHref, parseRoute, ALL_LOCATION} from '@/lib/locations';
 import {
   LocationTabs,
   type LocationTab,
@@ -26,18 +26,26 @@ import {ConsoleProvider} from '@/components/chrome/console-context';
 // (HF/Lemonade) views.
 export function AppChrome({
   peers,
-  activeLocation,
-  canDownloadLocally,
+  localPeerAddress,
   logLevel,
   children,
 }: {
   peers: PeerConfig[];
-  activeLocation: string;
-  canDownloadLocally: boolean;
+  localPeerAddress: string | null;
   logLevel: string;
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+
+  // The active location follows the URL (the layout is static), so the tabs
+  // track navigation regardless of layout re-render timing.
+  const activeLocation = useMemo(() => {
+    const segments = pathname.split('/').filter(Boolean);
+    return parseRoute(segments, peers)?.location ?? ALL_LOCATION;
+  }, [pathname, peers]);
+  const canDownloadLocally =
+    activeLocation === ALL_LOCATION || activeLocation === localPeerAddress;
 
   const [consoleOpen, setConsoleOpen] = useState(false);
   const toggleConsole = useCallback(() => setConsoleOpen((o) => !o), []);
