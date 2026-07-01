@@ -1,5 +1,6 @@
 import {test, expect, afterEach} from 'bun:test';
 import {
+  canonicalBranch,
   inferHfFile,
   clearHfCache,
   listHfCommits,
@@ -165,6 +166,23 @@ test('parseHfFileUrl rejects non-file and non-HF URLs', () => {
   expect(
     parseHfFileUrl('https://huggingface.co/o/r/blob/main/../escape'),
   ).toBeNull();
+});
+
+test('canonicalBranch rewrites a commit SHA to main', () => {
+  expect(canonicalBranch('2d03716c45a1d5d5b8a82984e9ee3d39c2a5e69f')).toBe(
+    'main',
+  );
+  // Git SHAs are case-insensitive hex.
+  expect(canonicalBranch('2D03716C45A1D5D5B8A82984E9EE3D39C2A5E69F')).toBe(
+    'main',
+  );
+});
+
+test('canonicalBranch leaves branch and tag names alone', () => {
+  expect(canonicalBranch('main')).toBe('main');
+  expect(canonicalBranch('v2.0')).toBe('v2.0');
+  // Short hex could be a real branch name — only a full 40-hex SHA is a pin.
+  expect(canonicalBranch('deadbeef')).toBe('deadbeef');
 });
 
 test('resolveHfFileByPath matches a known path without a name search', async () => {

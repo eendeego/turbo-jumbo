@@ -1,7 +1,11 @@
 import path from 'path';
 import {auditFile} from '@/lib/audit';
 import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
-import {parseHfFileUrl, resolveHfFileByPath} from '@/lib/hf-infer';
+import {
+  canonicalBranch,
+  parseHfFileUrl,
+  resolveHfFileByPath,
+} from '@/lib/hf-infer';
 
 /**
  * Record the HuggingFace source for a file the audit couldn't infer. The client
@@ -47,7 +51,14 @@ export async function POST(req: Request) {
     );
   }
 
-  const hf = await resolveHfFileByPath(ref.repoId, ref.branch, ref.repoPath);
+  // A pasted commit permalink would pin every later audit to that revision;
+  // verify against the branch head instead. If the file is an older revision,
+  // the audit's history walk still finds and passes it.
+  const hf = await resolveHfFileByPath(
+    ref.repoId,
+    canonicalBranch(ref.branch),
+    ref.repoPath,
+  );
   if (!hf) {
     return Response.json(
       {error: `Couldn't find ${ref.repoPath} in ${ref.repoId} on HuggingFace.`},

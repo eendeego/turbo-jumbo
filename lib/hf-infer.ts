@@ -124,6 +124,18 @@ async function resolveHfFile(
   return null;
 }
 
+/**
+ * The branch to audit against for a URL's branch-or-revision segment. A commit
+ * permalink (a full 40-hex SHA) pins the repo to one moment; resolving "latest"
+ * there hides every newer revision, so a pin canonicalizes to `main`. Anything
+ * shorter could be a real branch or tag name and passes through unchanged. An
+ * older on-disk file still passes audit: the history walk finds its revision
+ * from the branch head.
+ */
+export function canonicalBranch(branch: string): string {
+  return /^[0-9a-f]{40}$/i.test(branch) ? 'main' : branch;
+}
+
 export interface HfFileRef {
   repoId: string;
   branch: string;

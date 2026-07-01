@@ -387,6 +387,78 @@ test('resolveSource falls back to the sidecar source when inference fails', asyn
   }
 });
 
+test('resolveSource resolves a commit-pinned sidecar source at the branch head', async () => {
+  const pin = '2d03716c45a1d5d5b8a82984e9ee3d39c2a5e69f';
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-resolve-'));
+  const full = path.join(base, 'Pinned.gguf');
+  await fsp.writeFile(full, 'data');
+  // A commit permalink pasted into Set source… pins an old revision. Later
+  // audits must still compare against the branch head — resolving at the pin
+  // would make every newer revision invisible.
+  await writeMeta(full, {
+    modelUrl: 'https://huggingface.co/Pin/Repo',
+    originUrl: `https://huggingface.co/Pin/Repo/blob/${pin}/Pinned.gguf`,
+    sourceSize: 7,
+    computedSize: 7,
+    sourceSha256: 'oldsha',
+    computedSha256: 'oldsha',
+  });
+
+  const realFetch = globalThis.fetch;
+  clearHfCache();
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models?')) return new Response('[]', {status: 200}); // inference: no match
+    if (u.includes('/api/models/Pin/Repo/tree/main')) {
+      return new Response(
+        JSON.stringify([
+          {
+            type: 'file',
+            path: 'Pinned.gguf',
+            size: 9,
+            lfs: {oid: 'sha256:newsha', size: 9},
+            lastCommit: {id: 'newcommit', date: '2026-01-01T00:00:00.000Z'},
+          },
+        ]),
+        {status: 200},
+      );
+    }
+    if (u.includes(`/api/models/Pin/Repo/tree/${pin}`)) {
+      // The repo as of the pinned commit — must not be what gets resolved.
+      return new Response(
+        JSON.stringify([
+          {
+            type: 'file',
+            path: 'Pinned.gguf',
+            size: 7,
+            lfs: {oid: 'sha256:oldsha', size: 7},
+            lastCommit: {id: pin, date: '2025-02-28T00:00:00.000Z'},
+          },
+        ]),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  try {
+    const hf = await resolveSource(full, 'Pinned', 'Pinned.gguf');
+    expect(hf).toEqual({
+      repoId: 'Pin/Repo',
+      branch: 'main',
+      repoPath: 'Pinned.gguf',
+      commit: 'newcommit',
+      commitDate: '2026-01-01T00:00:00.000Z',
+      size: 9,
+      sha256: 'newsha',
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
 test('refreshMetaSource backfills size/sha from the source, keeping the computed sha', async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-refresh-'));
   const full = path.join(dir, 'm.gguf');
@@ -857,6 +929,156 @@ test('auditFile stays incomplete when no earlier revision matches', async () => 
     expect(meta?.computedSha256).toBe(sha);
   } finally {
     globalThis.fetch = realFetch;
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+// Mock the full revision pipeline for a repo whose sidecar pins `pin`: name
+// inference finds nothing, the branch head is `latest`, the tree at the pinned
+// commit is `pinned`, and history walks `commits` with per-revision paths-info
+// from `revisions`. Routes everything an audit driven by a pinned sidecar hits.
+function mockPinnedRepo(
+  repoId: string,
+  pin: string,
+  latest: object,
+  pinned: object,
+  commits: Array<{id: string; date: string}>,
+  revisions: Record<string, object>,
+): typeof fetch {
+  return (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models?')) return new Response('[]', {status: 200});
+    if (u.includes(`/api/models/${repoId}/tree/main`))
+      return new Response(JSON.stringify([latest]), {status: 200});
+    if (u.includes(`/api/models/${repoId}/tree/${pin}`))
+      return new Response(JSON.stringify([pinned]), {status: 200});
+    if (u.includes(`/api/models/${repoId}/commits/main`))
+      return new Response(JSON.stringify(commits), {status: 200});
+    const rev = u.match(new RegExp(`/api/models/${repoId}/paths-info/(.+)$`));
+    if (rev && revisions[rev[1]])
+      return new Response(JSON.stringify([revisions[rev[1]]]), {status: 200});
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+}
+
+test('auditFile passes an older on-disk version whose sidecar pins an old commit', async () => {
+  clearHfCache();
+  const pin = 'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1';
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-pin-'));
+  const rel = 'h/r4/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  const content = Buffer.from('old version'); // 11 bytes; the head is 100
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+  // The sidecar pins the commit that produced this older version.
+  await writeMeta(full, {
+    modelUrl: 'https://huggingface.co/h/r4',
+    originUrl: `https://huggingface.co/h/r4/blob/${pin}/m.gguf`,
+    sourceSize: content.length,
+    computedSize: content.length,
+    sourceSha256: sha,
+    computedSha256: sha,
+  });
+
+  const oldEntry = {
+    type: 'file',
+    path: 'm.gguf',
+    size: content.length,
+    lfs: {oid: `sha256:${sha}`, size: content.length},
+    lastCommit: {id: 'c1', date: '2024-01-01T00:00:00.000Z'},
+  };
+  const latestEntry = {
+    type: 'file',
+    path: 'm.gguf',
+    size: 100,
+    lfs: {oid: 'sha256:deadbeef', size: 100},
+    lastCommit: {id: 'c2', date: '2025-01-02T00:00:00.000Z'},
+  };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = mockPinnedRepo(
+    'h/r4',
+    pin,
+    latestEntry,
+    oldEntry,
+    [
+      {id: 'c2', date: '2025-01-02T00:00:00.000Z'},
+      {id: 'c1', date: '2024-01-01T00:00:00.000Z'},
+    ],
+    {c2: latestEntry, c1: oldEntry},
+  );
+  try {
+    const result = await auditFile(base, rel, 'm', 'm.gguf');
+    // It matches an older revision — that's a pass, found by walking the
+    // branch history from the head, not by trusting the pin as "latest".
+    expect(result.status).toBe('pass');
+    expect(result.message).toBe('matches earlier revision c1, not the latest');
+    expect(result.hf?.commit).toBe('c1');
+    // The sidecar is re-anchored to the branch, not the pinned commit, so the
+    // next audit also compares against the real head.
+    const meta = await readMeta(full);
+    expect(meta?.originUrl).toBe(
+      'https://huggingface.co/h/r4/blob/main/m.gguf',
+    );
+    expect(meta?.sourceCommit).toBe('c1');
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('auditFile passes a current file whose sidecar pins an outdated commit', async () => {
+  clearHfCache();
+  const pin = 'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1';
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-pin-'));
+  const rel = 'h/r5/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  const content = Buffer.from('new version!'); // the current head revision
+  await fsp.writeFile(full, content);
+  const sha = crypto.createHash('sha256').update(content).digest('hex');
+  // A stale sidecar pin from before the file was updated to the new revision.
+  await writeMeta(full, {
+    modelUrl: 'https://huggingface.co/h/r5',
+    originUrl: `https://huggingface.co/h/r5/blob/${pin}/m.gguf`,
+    sourceSize: 7,
+    computedSize: 7,
+    sourceSha256: 'oldsha',
+    computedSha256: 'oldsha',
+  });
+
+  const latestEntry = {
+    type: 'file',
+    path: 'm.gguf',
+    size: content.length,
+    lfs: {oid: `sha256:${sha}`, size: content.length},
+    lastCommit: {id: 'c2', date: '2025-01-02T00:00:00.000Z'},
+  };
+  const oldEntry = {
+    type: 'file',
+    path: 'm.gguf',
+    size: 7,
+    lfs: {oid: 'sha256:oldsha', size: 7},
+    lastCommit: {id: 'c1', date: '2024-01-01T00:00:00.000Z'},
+  };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = mockPinnedRepo('h/r5', pin, latestEntry, oldEntry, [], {});
+  try {
+    const result = await auditFile(base, rel, 'm', 'm.gguf');
+    // The file IS the current revision: a clean pass against the head, no
+    // historical-match note.
+    expect(result.status).toBe('pass');
+    expect(result.message).toBeUndefined();
+    expect(result.hf?.commit).toBe('c2');
+    const meta = await readMeta(full);
+    expect(meta?.originUrl).toBe(
+      'https://huggingface.co/h/r5/blob/main/m.gguf',
+    );
+    expect(meta?.sourceSha256).toBe(sha);
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
     await fsp.rm(base, {recursive: true, force: true});
   }
 });

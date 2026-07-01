@@ -5,6 +5,7 @@ import path from 'path';
 import {pipeline} from 'stream/promises';
 import {promisify} from 'util';
 import {
+  canonicalBranch,
   inferHfFile,
   listHfCommits,
   parseHfFileUrl,
@@ -503,7 +504,13 @@ export async function resolveSource(
   const meta = await readMeta(fullPath);
   const ref = meta?.originUrl ? parseHfFileUrl(meta.originUrl) : null;
   if (!ref) return null;
-  return resolveHfFileByPath(ref.repoId, ref.branch, ref.repoPath);
+  // A sidecar may carry a commit permalink; audit against the branch head so
+  // newer revisions are seen (an older file still passes via the history walk).
+  return resolveHfFileByPath(
+    ref.repoId,
+    canonicalBranch(ref.branch),
+    ref.repoPath,
+  );
 }
 
 /**
