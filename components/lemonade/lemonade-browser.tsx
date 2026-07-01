@@ -491,6 +491,7 @@ export function LemonadeBrowser({
       const localModels =
         inventoryLocations.find((l) => l.isLocal)?.models ?? [];
       const reqs: DownloadRequest[] = [];
+      const unresolved: string[] = [];
       for (const job of planRepoJobs(checkpoints)) {
         const params = new URLSearchParams({
           repoId: job.repoId,
@@ -504,7 +505,13 @@ export function LemonadeBrowser({
         const all = uniq(
           job.variants.flatMap((v) => resolveCheckpointFiles(files, v)),
         );
-        if (all.length === 0) continue;
+        // A checkpoint resolving to nothing means the catalog named a file the
+        // repo doesn't have (a renamed/moved file). Don't skip it silently — a
+        // half-downloaded multi-repo model (e.g. Flux without its VAE) can't run.
+        if (all.length === 0) {
+          unresolved.push(`${job.repoId} (${job.variants.join(', ')})`);
+          continue;
+        }
         const missing = missingVariantFiles(all, localModels, job.repoId);
         reqs.push({
           repoId: job.repoId,
@@ -513,6 +520,12 @@ export function LemonadeBrowser({
           sendToCold,
           deleteAfterTransfer,
         });
+      }
+      if (unresolved.length > 0) {
+        setResolveError(
+          `Couldn't find the catalog files for ${title} in: ${unresolved.join('; ')}.`,
+        );
+        return;
       }
       if (reqs.length === 0) {
         setResolveError(`Found no files to download for ${title}.`);

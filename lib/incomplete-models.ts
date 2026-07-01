@@ -34,8 +34,11 @@ const isClutter = (p: string) => {
 async function expectedFiles(repoId: string): Promise<string[]> {
   const hit = treeCache.get(repoId);
   if (hit && Date.now() - hit.fetchedAt < TTL_MS) return hit.files;
+  // Recurse so a checkpoint's nested file (e.g. a Flux VAE under
+  // split_files/vae/) is seen and a missing one is flagged, rather than the
+  // subdirectory being reported as a single opaque entry.
   const res = await fetch(
-    `https://huggingface.co/api/models/${repoId}/tree/main`,
+    `https://huggingface.co/api/models/${repoId}/tree/main?recursive=true`,
     {headers: {'User-Agent': 'tj/1.0'}},
   );
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);

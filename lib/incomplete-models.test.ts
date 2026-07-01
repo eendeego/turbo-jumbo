@@ -95,3 +95,30 @@ test('still flags a whole-repo (onnx) model missing a file as incomplete', async
   expect(await findIncompleteRepos(base)).toEqual([repoId]);
   await fsp.rm(base, {recursive: true, force: true});
 });
+
+test('sees nested expected files via a recursive tree and flags a missing one', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-inc-'));
+  const repoId = 'org/nested-vae';
+  await writeSized(path.join(base, repoId, 'model.safetensors'), 10); // present
+  // A root listing shows `split_files` as a directory; only a recursive listing
+  // reveals the nested vae — so the fix is what surfaces it as missing.
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes(`/api/models/${repoId}/tree/main`)) {
+      const files = u.includes('recursive=true')
+        ? [
+            {type: 'file', path: 'model.safetensors', size: 10},
+            {type: 'file', path: 'split_files/vae/vae.safetensors', size: 20},
+          ]
+        : [
+            {type: 'file', path: 'model.safetensors', size: 10},
+            {type: 'directory', path: 'split_files'},
+          ];
+      return new Response(JSON.stringify(files), {status: 200});
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  expect(await findIncompleteRepos(base)).toEqual([repoId]);
+  await fsp.rm(base, {recursive: true, force: true});
+});
