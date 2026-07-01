@@ -15,11 +15,17 @@ import {copyToClipboard} from '@/lib/clipboard';
 import {modelDisplayName} from '@/lib/model-name';
 import type {RepoFileState} from '@/lib/repo-files';
 import {formatSize, type DisplayRow} from '@/lib/model-row';
-import {MIXED_COMMIT, type SidecarSummary} from '@/lib/sidecar-types';
+import {
+  MIXED_COMMIT,
+  type FileProvenance,
+  type SidecarSummary,
+} from '@/lib/sidecar-types';
 
 const styles = stylex.create({
   indent1: {paddingInlineStart: '1.5rem'},
   indent2: {paddingInlineStart: '3rem'},
+  // Full sha256 hashes wrap inside the hovercard instead of stretching it.
+  hash: {fontFamily: 'monospace', wordBreak: 'break-all', maxWidth: 340},
 });
 
 // Per-file status token in a whole-repo model's expanded file list.
@@ -136,6 +142,110 @@ function SidecarInfo({sidecar}: {sidecar: SidecarSummary}) {
   );
 }
 
+/** A label/value row flagging a local value that diverges from its source. */
+function MismatchRow({label, children}: {label: string; children: ReactNode}) {
+  return (
+    <HStack gap={4} hAlign="between" vAlign="center">
+      <HStack gap={1} vAlign="center">
+        <Icon icon="warning" size="sm" />
+        <Text type="supporting">{label}</Text>
+      </HStack>
+      <Text type="body">{children}</Text>
+    </HStack>
+  );
+}
+
+/** Full per-file provenance: source revision, sizes, checksums, origin link. */
+function FileProvenanceInfo({
+  provenance,
+  modelUrl,
+}: {
+  provenance: FileProvenance;
+  modelUrl: string;
+}) {
+  const {
+    sourceCommit,
+    sourceCommitDate,
+    sourceSize,
+    computedSize,
+    sourceSha256,
+    computedSha256,
+    originUrl,
+  } = provenance;
+  const sizeMismatch = computedSize > 0 && computedSize !== sourceSize;
+  const shaMismatch =
+    !!sourceSha256 && !!computedSha256 && computedSha256 !== sourceSha256;
+  return (
+    <VStack gap={1}>
+      {sourceCommit && (
+        <InfoRow label="Source revision">
+          <CommitLink modelUrl={modelUrl} sha={sourceCommit} />
+          {sourceCommitDate && ` (${sourceCommitDate.slice(0, 10)})`}
+        </InfoRow>
+      )}
+      <InfoRow label="Source size">{formatSize(sourceSize)}</InfoRow>
+      {sourceSha256 && (
+        <VStack gap={0}>
+          <Text type="supporting">Source sha256</Text>
+          <Text type="supporting" xstyle={styles.hash}>
+            {sourceSha256}
+          </Text>
+        </VStack>
+      )}
+      {sizeMismatch && (
+        <MismatchRow label="On disk">{formatSize(computedSize)}</MismatchRow>
+      )}
+      {shaMismatch && (
+        <VStack gap={0}>
+          <HStack gap={1} vAlign="center">
+            <Icon icon="warning" size="sm" />
+            <Text type="supporting">Computed sha256</Text>
+          </HStack>
+          <Text type="supporting" xstyle={styles.hash}>
+            {computedSha256}
+          </Text>
+        </VStack>
+      )}
+      <Link href={originUrl} isExternalLink>
+        View file on Hugging Face
+      </Link>
+    </VStack>
+  );
+}
+
+/**
+ * Wrap a file row's label in its provenance hovercard: a split quant's
+ * aggregate card, a single file's full provenance, or plain text when neither.
+ */
+function FileHover({row, children}: {row: DisplayRow; children: ReactNode}) {
+  if (row.provenanceAggregate) {
+    return (
+      <HoverCard
+        placement="above"
+        content={<SidecarInfo sidecar={row.provenanceAggregate} />}
+      >
+        {children}
+      </HoverCard>
+    );
+  }
+  if (row.provenance) {
+    return (
+      <HoverCard
+        placement="above"
+        content={
+          <FileProvenanceInfo
+            provenance={row.provenance}
+            modelUrl={`https://huggingface.co/${row.parentName}`}
+          />
+        }
+      >
+        {children}
+      </HoverCard>
+    );
+  }
+  return <>{children}</>;
+}
+
 export function NameCell({
   row,
   isExpanded,
@@ -156,7 +266,9 @@ export function NameCell({
     return (
       <HStack gap={2} vAlign="center" xstyle={styles.indent1}>
         <FileStateMarker state={row.fileState} />
-        <Text type="supporting">{row.label}</Text>
+        <FileHover row={row}>
+          <Text type="supporting">{row.label}</Text>
+        </FileHover>
       </HStack>
     );
   }
@@ -164,9 +276,11 @@ export function NameCell({
   // Shard row
   if (row.depth === 2) {
     return (
-      <Text type="supporting" xstyle={styles.indent2}>
-        {row.label}
-      </Text>
+      <FileHover row={row}>
+        <Text type="supporting" xstyle={styles.indent2}>
+          {row.label}
+        </Text>
+      </FileHover>
     );
   }
 
@@ -176,7 +290,9 @@ export function NameCell({
     return (
       <HStack gap={2} vAlign="center" xstyle={styles.indent1}>
         <Badge variant="neutral" label="projector" />
-        <Text type="supporting">{row.label}</Text>
+        <FileHover row={row}>
+          <Text type="supporting">{row.label}</Text>
+        </FileHover>
       </HStack>
     );
   }
@@ -186,7 +302,9 @@ export function NameCell({
     if (row.isSingleFile) {
       return (
         <HStack gap={2} vAlign="center" xstyle={styles.indent1}>
-          <Text type="body">{row.label}</Text>
+          <FileHover row={row}>
+            <Text type="body">{row.label}</Text>
+          </FileHover>
           {row.precisions && row.precisions.length > 0 && (
             <Badge label={row.precisions.join(', ')} variant="neutral" />
           )}
@@ -196,27 +314,29 @@ export function NameCell({
     }
     // Split quant: expandable to its shards
     return (
-      <Button
-        label={row.label}
-        variant="ghost"
-        size="sm"
-        xstyle={styles.indent1}
-        icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
-        endContent={
-          <HStack gap={2} vAlign="center">
-            <Text type="supporting">
-              {row.presentShards}/{row.totalShards} files
-            </Text>
-            {row.missingIndices.length > 0 && (
-              <Badge
-                variant="orange"
-                label={`missing: ${row.missingIndices.join(', ')}`}
-              />
-            )}
-          </HStack>
-        }
-        onClick={() => onToggle(row.key)}
-      />
+      <FileHover row={row}>
+        <Button
+          label={row.label}
+          variant="ghost"
+          size="sm"
+          xstyle={styles.indent1}
+          icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
+          endContent={
+            <HStack gap={2} vAlign="center">
+              <Text type="supporting">
+                {row.presentShards}/{row.totalShards} files
+              </Text>
+              {row.missingIndices.length > 0 && (
+                <Badge
+                  variant="orange"
+                  label={`missing: ${row.missingIndices.join(', ')}`}
+                />
+              )}
+            </HStack>
+          }
+          onClick={() => onToggle(row.key)}
+        />
+      </FileHover>
     );
   }
 
