@@ -698,7 +698,10 @@ export async function resolveSource(
   modelName: string,
   filename: string,
 ): Promise<HfFileInfo | null> {
-  const implied = pathImpliedRepo(relPath);
+  const cache = parseHubCachePath(relPath);
+  const implied = cache
+    ? {repoId: cache.repoId, repoPath: cache.repoPath}
+    : pathImpliedRepo(relPath);
   if (implied) {
     const fromPath = await resolveHfFileByPath(
       implied.repoId,

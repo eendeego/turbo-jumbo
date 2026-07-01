@@ -623,6 +623,57 @@ test('resolveSource falls back to search when the path-implied repo misses', asy
   }
 });
 
+test('resolveSource resolves a cache-layout file from its decoded repo', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-cache-'));
+  const rel =
+    'models--unsloth--Qwen3-0.6B-GGUF/snapshots/abc123/Qwen3-0.6B-Q4_0.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, 'data');
+
+  const realFetch = globalThis.fetch;
+  clearHfCache();
+  let searched = false;
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models?')) {
+      searched = true;
+      return new Response('[]', {status: 200});
+    }
+    if (u.includes('/api/models/unsloth/Qwen3-0.6B-GGUF/tree/main')) {
+      return new Response(
+        JSON.stringify([
+          {
+            type: 'file',
+            path: 'Qwen3-0.6B-Q4_0.gguf',
+            size: 4,
+            lfs: {oid: 'sha256:feed', size: 4},
+          },
+        ]),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+
+  try {
+    const out = await resolveSource(
+      full,
+      rel,
+      'Qwen3-0.6B',
+      'Qwen3-0.6B-Q4_0.gguf',
+    );
+    expect(out?.repoId).toBe('unsloth/Qwen3-0.6B-GGUF');
+    expect(out?.sha256).toBe('feed');
+    // Resolved straight from the decoded repo — no name search needed.
+    expect(searched).toBe(false);
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
 test('resolveSource falls back to the sidecar source when inference fails', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-resolve-'));
   const full = path.join(base, 'GPT.gguf');
