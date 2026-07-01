@@ -6,6 +6,7 @@ import {
   type QuantInfo,
 } from '@/lib/model-row';
 import type {Model} from '@/lib/model-types';
+import type {SidecarSummary} from '@/lib/model-sidecar';
 import {AsyncState} from '@/lib/async-state';
 
 function quant(p: Partial<QuantInfo> & {label: string}): QuantInfo {
@@ -58,6 +59,27 @@ test('a collapsed model yields a single depth-0 row', () => {
   });
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({key: 'org/repo', depth: 0, label: 'org/repo'});
+});
+
+test('buildDisplayRows puts the sidecar summary on the depth-0 row only', () => {
+  const sidecar: SidecarSummary = {
+    repoId: 'org/repo',
+    modelUrl: 'https://huggingface.co/org/repo',
+    sourceCommit: 'abc123',
+    fileCount: 2,
+    totalSourceSize: 200,
+  };
+  const rows = buildDisplayRows({
+    ...noPeers,
+    expanded: new Set(['org/repo']),
+    models: [
+      model({name: 'org/repo', quants: [quant({label: 'Q4_K_M'})], sidecar}),
+    ],
+  });
+  const modelRow = rows.find((r) => r.depth === 0);
+  const quantRow = rows.find((r) => r.depth === 1);
+  expect(modelRow!.sidecar).toBe(sidecar);
+  expect(quantRow!.sidecar).toBeUndefined();
 });
 
 test('two models sharing a repo name get an org suffix; a unique repo name does not', () => {

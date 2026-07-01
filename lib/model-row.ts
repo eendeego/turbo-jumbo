@@ -103,6 +103,9 @@ export interface DisplayRow extends Record<string, unknown> {
   // Set on a model row (depth 0) whose repo name is shared with an adjacent
   // model from a different org: the org to show as a disambiguating suffix.
   orgSuffix?: string;
+  // Set on a model row (depth 0): the model-level sidecar summary, for the
+  // name hovercard. Undefined on quant/shard/file rows and sidecar-less models.
+  sidecar?: SidecarSummary;
 }
 
 // A peer's copy of a row's files relative to what's expected.
@@ -475,6 +478,7 @@ export function buildDisplayRows(args: {
       ),
       ...(repoIssues && repoIssues.length > 0 ? {repoIssues} : {}),
       ...(orgSuffix ? {orgSuffix} : {}),
+      ...(m.sidecar ? {sidecar: m.sidecar} : {}),
     });
     if (!expanded.has(m.name)) continue;
     if (isWholeRepoModel(m)) {
