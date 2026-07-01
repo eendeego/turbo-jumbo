@@ -11,6 +11,7 @@ import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
 import {hashProgressEmitter} from '@/lib/audit-progress';
 import {clearHfCache} from '@/lib/hf-infer';
 import {detectMissingMmproj} from '@/lib/mmproj';
+import {detectMissingExpectedFiles} from '@/lib/incomplete-models';
 
 // How many files to audit at once. Each job reads an entire (multi-GB) file to
 // hash it, so this is capped low: too high thrashes a single disk and the runs
@@ -188,6 +189,10 @@ export async function POST(req: Request) {
       ];
       const extra = await detectMissingMmproj(repoIds, allRelPaths, 'main');
       for (const r of extra) await emit(r);
+      // Whole-repo (non-GGUF) models — flag any expected weight file that a full
+      // download would include but isn't on disk (e.g. a Kokoro .onnx).
+      const missing = await detectMissingExpectedFiles(repoIds, root, 'main');
+      for (const r of missing) await emit(r);
     }
 
     try {
