@@ -303,12 +303,12 @@ export function NameCell({
       return (
         <HStack gap={2} vAlign="center" xstyle={styles.indent1}>
           <FileHover row={row}>
-            <Text type="body">{row.label}</Text>
+            <Text type="body">{row.filename}</Text>
           </FileHover>
+          <Badge label={row.label} variant="neutral" />
           {row.precisions && row.precisions.length > 0 && (
             <Badge label={row.precisions.join(', ')} variant="neutral" />
           )}
-          <Text type="supporting">{row.filename}</Text>
         </HStack>
       );
     }
