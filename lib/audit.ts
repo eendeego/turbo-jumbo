@@ -46,9 +46,10 @@ export interface TjMeta {
   originUrl: string; // HF file URL within the repo
   sourceCommit?: string; // resolved commit SHA the file was verified against, when known
   sourceCommitDate?: string; // ISO 8601 timestamp of that commit, when known
-  sourceSize: number; // expected size in bytes, from the HF source
-  sourceSha256: string;
-  computedSha256: string;
+  sourceSize: number; // expected size in bytes, from the HF source (0 if unknown)
+  computedSize: number; // actual on-disk size in bytes, observed at audit time
+  sourceSha256: string; // '' when no source could be resolved
+  computedSha256: string; // '' when the file wasn't hashed (no source, or size mismatch)
 }
 
 /**
@@ -124,6 +125,13 @@ export function cachedResultFromMeta(
   let message: string | undefined;
   if (!meta.sourceSha256) {
     status = 'unverifiable';
+  } else if (
+    typeof meta.computedSize === 'number' &&
+    meta.sourceSize > 0 &&
+    meta.computedSize !== meta.sourceSize
+  ) {
+    status = 'incomplete';
+    message = `size ${meta.computedSize} != expected ${meta.sourceSize}`;
   } else if (meta.computedSha256 !== meta.sourceSha256) {
     status = 'checksum-mismatch';
   } else if (hf && relPath !== hf.expectedPath) {
@@ -200,6 +208,7 @@ export async function refreshMetaSource(
   signal?: AbortSignal,
 ): Promise<void> {
   const prev = await readMeta(fullPath);
+  const computedSize = (await fsp.stat(fullPath)).size;
   const computedSha256 =
     prev?.computedSha256 || (await localSha256(fullPath, signal));
   const summary = hfSummary(hf);
@@ -209,6 +218,7 @@ export async function refreshMetaSource(
     ...(hf.commit ? {sourceCommit: hf.commit} : {}),
     ...(hf.commitDate ? {sourceCommitDate: hf.commitDate} : {}),
     sourceSize: hf.size,
+    computedSize,
     sourceSha256: hf.sha256,
     computedSha256,
   });
@@ -312,8 +322,13 @@ export async function resolveSource(
 }
 
 /**
- * Audit a single physical file: resolve its HF source, fail-fast on size, then
- * hash, persist the sidecar, and return the verdict.
+ * Audit a single physical file: resolve its HF source, check size, hash when it
+ * matches, and return the verdict. A sidecar is *always* written for a file that
+ * exists — even with incomplete information (no resolved source, a size
+ * mismatch, or a hashing failure) — so every audited file carries a record of
+ * what was observed. Unknown fields are left empty; the on-disk size is always
+ * recorded, letting a later cached audit re-derive the same verdict without
+ * re-resolving or re-hashing.
  *
  * The source is found in order: an explicit `source` (a manually-supplied URL,
  * already resolved), then `resolveSource` (inference, then sidecar fallback) —
@@ -334,65 +349,70 @@ export async function auditFile(
   try {
     actualSize = (await fsp.stat(fullPath)).size;
   } catch {
+    // The file vanished between scan and audit — there's nothing to attest, so
+    // no sidecar is written.
     return {file: relPath, status: 'incomplete', message: 'file missing'};
   }
 
   const hf = source ?? (await resolveSource(fullPath, modelName, filename));
-  if (!hf) return {file: relPath, status: 'unverifiable'};
-  const summary = hfSummary(hf);
-  if (actualSize !== hf.size) {
-    return {
-      file: relPath,
-      status: 'incomplete',
-      message: `size ${actualSize} != expected ${hf.size}`,
-      hf: summary,
-    };
-  }
+  const summary = hf ? hfSummary(hf) : undefined;
 
+  // Hash only when there's a source to compare against and the size already
+  // matches: a missing source or a size mismatch can't be a checksum pass, so we
+  // skip the expensive hash and leave computedSha256 empty.
   let computedSha256: string | null = null;
-  try {
-    computedSha256 = await localSha256(fullPath, signal);
-  } catch {
-    return {
-      file: relPath,
-      status: 'error',
-      message: 'sha256sum failed',
-      hf: summary,
-    };
+  if (hf && actualSize === hf.size) {
+    try {
+      computedSha256 = await localSha256(fullPath, signal);
+    } catch {
+      computedSha256 = null; // hashing failed → 'error'
+    }
   }
 
-  // Record the HF source URL and cache its sha into the sidecar. The URL is
+  // Always record a sidecar, with whatever was determined. The source fields are
   // authoritative when `source` was supplied (the download flow, or a pasted
-  // URL); otherwise it's inferred from the filename and a best guess.
+  // URL); otherwise inferred from the filename, or empty when unverifiable.
+  let metaWriteFailed = false;
   try {
     await writeMeta(fullPath, {
-      modelUrl: summary.modelUrl,
-      originUrl: summary.fileUrl,
-      ...(hf.commit ? {sourceCommit: hf.commit} : {}),
-      ...(hf.commitDate ? {sourceCommitDate: hf.commitDate} : {}),
-      sourceSize: hf.size,
-      sourceSha256: hf.sha256,
-      computedSha256,
+      modelUrl: summary?.modelUrl ?? '',
+      originUrl: summary?.fileUrl ?? '',
+      ...(hf?.commit ? {sourceCommit: hf.commit} : {}),
+      ...(hf?.commitDate ? {sourceCommitDate: hf.commitDate} : {}),
+      sourceSize: hf?.size ?? 0,
+      computedSize: actualSize,
+      sourceSha256: hf?.sha256 ?? '',
+      computedSha256: computedSha256 ?? '',
     });
   } catch {
-    // Non-fatal: still return the verdict, but note the metadata gap.
-    const status = decideStatus({hf, actualSize, relPath, computedSha256});
-    return {
-      file: relPath,
-      status,
-      message: 'metadata write failed',
-      hf: summary,
-    };
+    metaWriteFailed = true; // non-fatal: still return the verdict
   }
 
-  const status = decideStatus({hf, actualSize, relPath, computedSha256});
+  const status = decideStatus({
+    hf: hf ?? null,
+    actualSize,
+    relPath,
+    computedSha256,
+  });
+
+  let message: string | undefined;
+  if (status === 'incomplete') {
+    message = `size ${actualSize} != expected ${hf!.size}`;
+  } else if (status === 'error') {
+    message = 'sha256sum failed';
+  } else if (status === 'misplaced') {
+    message = `expected path ${expectedRelPath(hf!)}`;
+  }
+  if (metaWriteFailed) {
+    message = message
+      ? `${message}; metadata write failed`
+      : 'metadata write failed';
+  }
+
   return {
     file: relPath,
     status,
-    message:
-      status === 'misplaced'
-        ? `expected path ${expectedRelPath(hf)}`
-        : undefined,
-    hf: summary,
+    ...(message ? {message} : {}),
+    ...(summary ? {hf: summary} : {}),
   };
 }

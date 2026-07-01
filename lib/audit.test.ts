@@ -17,7 +17,7 @@ import {
   writeMeta,
   metaPath,
 } from '@/lib/audit';
-import type {HfFileInfo} from '@/lib/hf-infer';
+import {clearHfCache, type HfFileInfo} from '@/lib/hf-infer';
 
 const hf: HfFileInfo = {
   repoId: 'o/r',
@@ -117,6 +117,7 @@ const cachedMeta = {
   modelUrl: 'https://huggingface.co/o/r',
   originUrl: 'https://huggingface.co/o/r/blob/main/sub/M.Q4.gguf',
   sourceSize: 100,
+  computedSize: 100,
   sourceSha256: 'deadbeef',
   computedSha256: 'deadbeef',
 };
@@ -151,6 +152,28 @@ test('cachedResultFromMeta: surfaces a commit permalink when the sidecar pins on
   expect(r.hf?.commitDate).toBe('2024-02-19T10:57:45.000Z');
 });
 
+test('cachedResultFromMeta: incomplete when the recorded on-disk size differs from the source', () => {
+  const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', {
+    ...cachedMeta,
+    sourceSize: 100,
+    computedSize: 50,
+  });
+  expect(r.status).toBe('incomplete');
+  expect(r.message).toBe('size 50 != expected 100');
+});
+
+test('cachedResultFromMeta: skips the size check for a legacy sidecar without computedSize', () => {
+  // @ts-expect-error — legacy sidecars predate computedSize
+  const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', {
+    modelUrl: cachedMeta.modelUrl,
+    originUrl: cachedMeta.originUrl,
+    sourceSize: 100,
+    sourceSha256: 'deadbeef',
+    computedSha256: 'deadbeef',
+  });
+  expect(r.status).toBe('pass');
+});
+
 test('cachedResultFromMeta: checksum-mismatch when cached shas differ', () => {
   const r = cachedResultFromMeta('o/r/sub/M.Q4.gguf', {
     ...cachedMeta,
@@ -171,6 +194,7 @@ test('cachedResultFromMeta: unverifiable when the sidecar has no source sha', ()
     modelUrl: '',
     originUrl: '',
     sourceSize: 0,
+    computedSize: 42,
     sourceSha256: '',
     computedSha256: '',
   });
@@ -206,6 +230,7 @@ test('writeMeta/readMeta round-trip and metaPath naming', async () => {
     modelUrl: 'https://huggingface.co/o/r',
     originUrl: 'https://huggingface.co/o/r/blob/main/M.Q4.gguf',
     sourceSize: 100,
+    computedSize: 100,
     sourceSha256: 'deadbeef',
     computedSha256: 'deadbeef',
   };
@@ -233,6 +258,7 @@ test('moveFileWithMeta relocates the file and its sidecar, creating dirs', async
     modelUrl: 'u',
     originUrl: 'o',
     sourceSize: 4,
+    computedSize: 4,
     sourceSha256: 's',
     computedSha256: 'c',
   };
@@ -298,6 +324,7 @@ test('resolveSource falls back to the sidecar source when inference fails', asyn
     modelUrl: 'https://huggingface.co/Hauhau/Repo',
     originUrl: 'https://huggingface.co/Hauhau/Repo/blob/main/GPT.gguf',
     sourceSize: 7,
+    computedSize: 7,
     sourceSha256: 'feed',
     computedSha256: 'feed',
   });
@@ -351,6 +378,7 @@ test('refreshMetaSource backfills size/sha from the source, keeping the computed
     modelUrl: 'https://huggingface.co/old/repo',
     originUrl: 'https://huggingface.co/old/repo/blob/main/m.gguf',
     sourceSize: 0,
+    computedSize: 0,
     sourceSha256: 'stale',
     computedSha256: 'computed',
   });
@@ -371,6 +399,7 @@ test('refreshMetaSource backfills size/sha from the source, keeping the computed
     sourceCommit: 'freshcommit',
     sourceCommitDate: '2025-06-01T12:00:00.000Z',
     sourceSize: 4,
+    computedSize: 4, // 'data' is 4 bytes, observed by stat
     sourceSha256: 'fresh',
     computedSha256: 'computed', // preserved — a relocation doesn't change bytes
   });
@@ -409,6 +438,7 @@ test('copyFileWithMeta copies the file and its sidecar, reporting bytes', async 
     modelUrl: 'https://huggingface.co/o/r',
     originUrl: 'https://huggingface.co/o/r/blob/main/m.gguf',
     sourceSize: 7,
+    computedSize: 7,
     sourceSha256: 's',
     computedSha256: 'c',
   });
@@ -437,6 +467,63 @@ test('copyFileWithMeta tolerates a file with no sidecar', async () => {
 
   expect(await fsp.readFile(dst, 'utf8')).toBe('data');
   expect(await readMeta(dst)).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('auditFile still writes a sidecar when the file is unverifiable (no source)', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-unver-'));
+  const rel = 'mystery.gguf';
+  const full = path.join(base, rel);
+  await fsp.writeFile(full, 'somebytes');
+
+  // Inference finds nothing and there's no prior sidecar → unverifiable.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/api/models?')) return new Response('[]', {status: 200});
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+  clearHfCache();
+  try {
+    const result = await auditFile(base, rel, 'mystery', 'mystery.gguf');
+    expect(result.status).toBe('unverifiable');
+    expect(result.hf).toBeUndefined();
+    const meta = await readMeta(full);
+    expect(meta).not.toBeNull();
+    expect(meta?.sourceSha256).toBe(''); // no source resolved
+    expect(meta?.computedSha256).toBe(''); // not hashed without a source to compare
+    expect(meta?.computedSize).toBe('somebytes'.length); // on-disk size is always recorded
+  } finally {
+    globalThis.fetch = realFetch;
+    clearHfCache();
+    await fsp.rm(base, {recursive: true, force: true});
+  }
+});
+
+test('auditFile writes a sidecar for a size-mismatched (incomplete) file, without hashing', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-incomplete-'));
+  const rel = 'o/r/m.gguf';
+  const full = path.join(base, rel);
+  await fsp.mkdir(path.dirname(full), {recursive: true});
+  await fsp.writeFile(full, 'short'); // 5 bytes — a partial download
+
+  const source: HfFileInfo = {
+    repoId: 'o/r',
+    branch: 'main',
+    repoPath: 'm.gguf',
+    commit: '',
+    commitDate: '',
+    size: 999, // expected, doesn't match the 5 bytes on disk
+    sha256: 'expectedsha',
+  };
+
+  const result = await auditFile(base, rel, '', 'm.gguf', undefined, source);
+  expect(result.status).toBe('incomplete');
+  const meta = await readMeta(full);
+  expect(meta?.sourceSize).toBe(999);
+  expect(meta?.computedSize).toBe(5);
+  expect(meta?.sourceSha256).toBe('expectedsha');
+  expect(meta?.computedSha256).toBe(''); // skipped — a size mismatch can't be a sha pass
   await fsp.rm(base, {recursive: true, force: true});
 });
 
@@ -471,6 +558,7 @@ test('auditFile verifies against an explicit source without any inference', asyn
     expect(meta?.sourceCommit).toBe('srccommit');
     expect(meta?.sourceCommitDate).toBe('2024-02-19T10:57:45.000Z');
     expect(meta?.sourceSize).toBe(content.length);
+    expect(meta?.computedSize).toBe(content.length);
     expect(meta?.sourceSha256).toBe(sha);
     expect(meta?.computedSha256).toBe(sha);
   } finally {
