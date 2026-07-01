@@ -1,7 +1,7 @@
 import {promises as fsp} from 'fs';
 import path from 'path';
 import {parseHubCachePath} from '@/lib/hf-cache';
-import type {TjMeta} from '@/lib/audit';
+import type {TjMeta} from '@/lib/tjmeta';
 
 export const MODEL_SIDECAR_NAME = 'tjmodel.json';
 
