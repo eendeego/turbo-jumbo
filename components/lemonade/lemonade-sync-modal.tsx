@@ -17,7 +17,7 @@ interface Preview {
 }
 interface FileResult {
   repoPath: string;
-  status: 'linked' | 'already-linked' | 'skipped' | 'error';
+  status: 'linked' | 'deduplicated' | 'already-linked' | 'skipped' | 'error';
   message?: string;
 }
 interface ModelResult {
@@ -103,8 +103,8 @@ export function LemonadeSyncModal({
         <Heading level={3}>Sync from Lemonade</Heading>
         <Text type="supporting">
           Moves models that exist only in Lemonade into Turbo Jumbo&apos;s file
-          structure, then replaces the Lemonade copies with symbolic links into
-          Turbo Jumbo.
+          structure, and deduplicates files Turbo Jumbo already holds — then
+          replaces the Lemonade copies with symbolic links into Turbo Jumbo.
         </Text>
 
         {phase === 'loading' && (
@@ -139,6 +139,12 @@ export function LemonadeSyncModal({
           <VStack gap={2}>
             <HStack gap={2} vAlign="center">
               <Badge label={`${counts.linked ?? 0} linked`} variant="success" />
+              {counts.deduplicated ? (
+                <Badge
+                  label={`${counts.deduplicated} deduplicated`}
+                  variant="success"
+                />
+              ) : null}
               {counts.skipped ? (
                 <Badge label={`${counts.skipped} skipped`} variant="neutral" />
               ) : null}

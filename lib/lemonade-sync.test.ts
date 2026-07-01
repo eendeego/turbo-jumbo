@@ -96,17 +96,45 @@ test('is idempotent: a second run finds nothing to sync', async () => {
   await fsp.rm(root, {recursive: true, force: true});
 });
 
-test('skips a model that already exists in Turbo Jumbo, leaving Lemonade untouched', async () => {
+test('leaves a model alone when Turbo Jumbo holds a different (size) file', async () => {
   const {root, tj, lem} = await mkdirs();
   const rev = 'deadbeef';
-  await write(tj, 'org/repo/a.bin', 'TJ-COPY'); // already present in TJ
-  await lemonadeRepo(lem, 'org', 'repo', rev, {'a.bin': 'LEM-COPY'});
+  await write(tj, 'org/repo/a.bin', 'TJ-COPY'); // 7 bytes
+  await lemonadeRepo(lem, 'org', 'repo', rev, {'a.bin': 'LEM-COPY-X'}); // 10 bytes
 
   expect(await syncLemonadeToTurboJumbo(tj, lem)).toEqual([]);
-  // The Lemonade file is still a real file, not converted to a symlink.
+  // Both copies are untouched — neither is the other.
   const lemFile = path.join(lem, `models--org--repo/snapshots/${rev}/a.bin`);
   expect((await fsp.lstat(lemFile)).isSymbolicLink()).toBe(false);
-  expect(await fsp.readFile(lemFile, 'utf8')).toBe('LEM-COPY');
+  expect(await fsp.readFile(lemFile, 'utf8')).toBe('LEM-COPY-X');
+  expect(await fsp.readFile(path.join(tj, 'org/repo/a.bin'), 'utf8')).toBe(
+    'TJ-COPY',
+  );
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('deduplicates a model in both stores: deletes the Lemonade copy, symlinks to TJ', async () => {
+  const {root, tj, lem} = await mkdirs();
+  const rev = 'rev-dup';
+  await write(tj, 'org/repo/a.bin', 'SAME'); // Turbo Jumbo already owns it
+  await lemonadeRepo(lem, 'org', 'repo', rev, {'a.bin': 'SAME'}); // identical size
+
+  const [result] = await syncLemonadeToTurboJumbo(tj, lem);
+  expect(result.files).toEqual([{repoPath: 'a.bin', status: 'deduplicated'}]);
+
+  // The Turbo Jumbo copy is untouched (still a real file).
+  const tjFile = path.join(tj, 'org/repo/a.bin');
+  expect((await fsp.lstat(tjFile)).isSymbolicLink()).toBe(false);
+  expect(await fsp.readFile(tjFile, 'utf8')).toBe('SAME');
+
+  // The Lemonade copy is now a symlink to the Turbo Jumbo file.
+  const lemFile = path.join(lem, `models--org--repo/snapshots/${rev}/a.bin`);
+  expect((await fsp.lstat(lemFile)).isSymbolicLink()).toBe(true);
+  expect(await fsp.readlink(lemFile)).toBe(path.resolve(tjFile));
+  expect(await fsp.readFile(lemFile, 'utf8')).toBe('SAME');
+
+  // Idempotent: a second run has nothing left to do.
+  expect(await syncLemonadeToTurboJumbo(tj, lem)).toEqual([]);
   await fsp.rm(root, {recursive: true, force: true});
 });
 

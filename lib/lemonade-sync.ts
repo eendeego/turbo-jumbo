@@ -3,10 +3,12 @@ import nodePath from 'path';
 import {logger} from '@/lib/logger';
 import {upsertFileMeta, type TjModelFile} from '@/lib/model-sidecar';
 
-// Sync Lemonade's HuggingFace-cache models into Turbo Jumbo's flat mirror: move
-// the real files into `<tj>/<org>/<repo>/<repoPath>` and leave the Lemonade
-// `models--<org>--<repo>/snapshots/<rev>/<repoPath>` entries as symlinks into
-// Turbo Jumbo. A single copy on disk, owned by Turbo Jumbo, served to both.
+// Sync Lemonade's HuggingFace-cache models into Turbo Jumbo's flat mirror so a
+// single copy on disk serves both. A file only in Lemonade is moved into
+// `<tj>/<org>/<repo>/<repoPath>`; a file Turbo Jumbo already holds an identical
+// copy of has its Lemonade duplicate deleted. Either way the Lemonade
+// `models--<org>--<repo>/snapshots/<rev>/<repoPath>` entry becomes a symlink
+// into Turbo Jumbo.
 
 const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
@@ -18,8 +20,9 @@ export interface LemonadeRepo {
 
 export type SyncFileStatus =
   | 'linked' // moved to Turbo Jumbo and replaced with a symlink
+  | 'deduplicated' // an identical Turbo Jumbo copy existed — Lemonade dup deleted, symlinked
   | 'already-linked' // the Lemonade entry was already a symlink — left alone
-  | 'skipped' // a Turbo Jumbo copy already exists — not overwritten
+  | 'skipped' // Turbo Jumbo holds a *different* file — left alone
   | 'error';
 
 export interface SyncFileResult {
@@ -159,28 +162,61 @@ export async function findLemonadeOnlyRepos(
 export interface LemonadeSyncPreview {
   repoId: string;
   rev: string;
-  fileCount: number; // real (not-yet-linked) files that would move
+  fileCount: number; // files that would move or deduplicate
 }
 
-/** The Lemonade-only models a sync would move, each with its movable file count.
- *  Read-only — touches no files. */
+/** The models a sync would change, each with its count of files to move or
+ *  deduplicate. Read-only — touches no files; uses the same per-file plan as
+ *  the executor, so the preview and the run agree. */
 export async function previewLemonadeSync(
   tjBase: string,
   lemonadeBase: string,
 ): Promise<LemonadeSyncPreview[]> {
-  const candidates = await findLemonadeOnlyRepos(tjBase, lemonadeBase);
+  const tj = nodePath.resolve(tjBase);
+  const repos = await listLemonadeRepos(lemonadeBase);
   const out: LemonadeSyncPreview[] = [];
-  for (const repo of candidates) {
+  for (const repo of repos) {
     const entries = await walkSnapshot(
       nodePath.join(repo.dir, 'snapshots', repo.rev),
     );
-    out.push({
-      repoId: repo.repoId,
-      rev: repo.rev,
-      fileCount: entries.filter((e) => !e.isSymlink).length,
-    });
+    let fileCount = 0;
+    for (const entry of entries) {
+      const {action} = await planFile(tj, repo.repoId, entry);
+      if (action === 'move' || action === 'dedup') fileCount++;
+    }
+    if (fileCount > 0)
+      out.push({repoId: repo.repoId, rev: repo.rev, fileCount});
   }
   return out;
+}
+
+// What syncing a single Lemonade snapshot entry will do, shared by the preview
+// and the executor so they can't disagree.
+//  - move:           no Turbo Jumbo copy yet — relocate the real file there
+//  - dedup:          an identical (same-size) Turbo Jumbo copy exists — drop ours
+//  - skip-differs:   a Turbo Jumbo copy exists but differs in size — leave it
+//  - already-linked: the entry is already a symlink
+type FileAction = 'move' | 'dedup' | 'skip-differs' | 'already-linked';
+
+interface FilePlan {
+  dst: string; // the Turbo Jumbo path this entry maps to
+  action: FileAction;
+}
+
+/** Decide what to do with one snapshot entry. Files are matched by size — the
+ *  app validates by size and never live-hashes; for the same in-repo path from
+ *  the same repo, equal size means equal bytes. */
+async function planFile(
+  tj: string,
+  repoId: string,
+  entry: SnapshotEntry,
+): Promise<FilePlan> {
+  const dst = nodePath.join(tj, repoId, entry.repoPath);
+  if (entry.isSymlink) return {dst, action: 'already-linked'};
+  const dstStat = await fsp.stat(dst).catch(() => null);
+  if (!dstStat) return {dst, action: 'move'};
+  const srcSize = (await fsp.stat(entry.full)).size;
+  return {dst, action: srcSize === dstStat.size ? 'dedup' : 'skip-differs'};
 }
 
 /** Move a file to `dst`, falling back to copy+unlink across filesystems. */
@@ -196,11 +232,15 @@ async function moveFile(src: string, dst: string): Promise<void> {
 }
 
 /**
- * Sync one Lemonade repo into Turbo Jumbo: move each real snapshot file into the
- * flat mirror and replace the Lemonade entry with a symlink to it. Files already
- * symlinked, or whose Turbo Jumbo target already exists, are left untouched (no
- * overwrite, no data loss). Writes a `tjmodel.json` recording the moved files
- * and the snapshot revision as the model's `repoCommit`.
+ * Sync one Lemonade repo into Turbo Jumbo so a single copy on disk serves both.
+ * Per snapshot file: a file with no Turbo Jumbo copy is **moved** there and the
+ * Lemonade entry becomes a symlink to it; a file Turbo Jumbo already holds an
+ * identical (same-size) copy of is **deduplicated** — the Lemonade copy is
+ * deleted and replaced with a symlink; a file Turbo Jumbo holds a *different*
+ * copy of, or one already symlinked, is left untouched (no overwrite, no data
+ * loss). Moved files are recorded in `tjmodel.json` with the snapshot revision
+ * as the model's `repoCommit`; deduplicated files already have a Turbo Jumbo
+ * sidecar and aren't rewritten.
  */
 export async function syncLemonadeRepo(
   tjBase: string,
@@ -213,29 +253,31 @@ export async function syncLemonadeRepo(
   const movedEntries: TjModelFile[] = [];
 
   for (const entry of entries) {
-    if (entry.isSymlink) {
-      files.push({repoPath: entry.repoPath, status: 'already-linked'});
-      continue;
-    }
-    const dst = nodePath.join(tj, repo.repoId, entry.repoPath);
     try {
-      // Never clobber an existing Turbo Jumbo copy — that file isn't ours to
-      // replace, and the bytes might differ.
-      const exists = await fsp
-        .access(dst)
-        .then(() => true)
-        .catch(() => false);
-      if (exists) {
+      const {dst, action} = await planFile(tj, repo.repoId, entry);
+      if (action === 'already-linked') {
+        files.push({repoPath: entry.repoPath, status: 'already-linked'});
+        continue;
+      }
+      if (action === 'skip-differs') {
         files.push({
           repoPath: entry.repoPath,
           status: 'skipped',
-          message: 'a Turbo Jumbo copy already exists',
+          message: 'a different file exists in Turbo Jumbo',
         });
         continue;
       }
+      if (action === 'dedup') {
+        // Turbo Jumbo already holds an identical copy: drop the Lemonade
+        // duplicate and point its slot at the Turbo Jumbo file (absolute, so
+        // the link resolves wherever it's read from).
+        await fsp.unlink(entry.full);
+        await fsp.symlink(dst, entry.full);
+        files.push({repoPath: entry.repoPath, status: 'deduplicated'});
+        continue;
+      }
+      // move: relocate the only copy into Turbo Jumbo, then symlink it back.
       await moveFile(entry.full, dst);
-      // The source path is now free; point it back at the moved file (absolute,
-      // so it resolves regardless of where the link is read from).
       await fsp.symlink(dst, entry.full);
       const size = (await fsp.stat(dst)).size;
       movedEntries.push({
@@ -274,18 +316,26 @@ export async function syncLemonadeRepo(
 }
 
 /**
- * Sync every Lemonade-only model into Turbo Jumbo. Idempotent: a model already
- * present in Turbo Jumbo (including one synced on a prior run, whose Lemonade
- * files are now symlinks) is skipped. Returns a per-model, per-file summary.
+ * Sync every Lemonade model into Turbo Jumbo: move Lemonade-only files in, and
+ * deduplicate files Turbo Jumbo already holds. Idempotent — a model whose files
+ * are all symlinked already (or all differ from Turbo Jumbo) makes no change and
+ * is omitted. Returns a per-model, per-file summary of the models that changed.
  */
 export async function syncLemonadeToTurboJumbo(
   tjBase: string,
   lemonadeBase: string,
 ): Promise<SyncModelResult[]> {
-  const candidates = await findLemonadeOnlyRepos(tjBase, lemonadeBase);
+  const repos = await listLemonadeRepos(lemonadeBase);
   const out: SyncModelResult[] = [];
-  for (const repo of candidates) {
-    out.push(await syncLemonadeRepo(tjBase, repo));
+  for (const repo of repos) {
+    const result = await syncLemonadeRepo(tjBase, repo);
+    if (
+      result.files.some(
+        (f) => f.status === 'linked' || f.status === 'deduplicated',
+      )
+    ) {
+      out.push(result);
+    }
   }
   return out;
 }
