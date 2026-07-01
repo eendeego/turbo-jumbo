@@ -3,7 +3,7 @@ import {promises as fsp} from 'fs';
 import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
-import {metaPath, writeMeta, readMeta} from '@/lib/audit';
+import {metaPath, writeMeta, readMetaResolved} from '@/lib/audit';
 import {fixDuplicateGroup} from '@/lib/fix-duplicates';
 import {clearHfCache} from '@/lib/hf-infer';
 
@@ -111,7 +111,7 @@ test('discards the invalid copy and moves the valid survivor to the expected pat
     expect(await exists(metaPath(path.join(base, 'sub/m.gguf')))).toBe(false);
     expect(await exists(path.join(base, 'o/r/m.gguf'))).toBe(true);
     // The survivor's sidecar pins the verified revision and computed hash.
-    const meta = await readMeta(path.join(base, 'o/r/m.gguf'));
+    const meta = await readMetaResolved(base, 'o/r/m.gguf');
     expect(meta?.sourceCommit).toBe('c1');
     expect(meta?.sourceSha256).toBe(sha('good bytes'));
     expect(meta?.computedSha256).toBe(sha('good bytes'));

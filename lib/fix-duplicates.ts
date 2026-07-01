@@ -8,9 +8,10 @@ import {
   metaPath,
   moveFileWithMeta,
   resolveSource,
-  writeMeta,
+  updateMetaResolved,
 } from '@/lib/audit';
 import type {HfFileInfo} from '@/lib/hf-infer';
+import {modelDirForRepo, removeFileMeta} from '@/lib/model-sidecar';
 
 export interface DuplicateFixResult {
   file: string; // original path relative to the storage root
@@ -136,6 +137,10 @@ export async function fixDuplicateGroup(
     try {
       await fsp.rm(full);
       await fsp.rm(metaPath(full), {force: true});
+      const loc = copy.matched
+        ? modelDirForRepo(copy.relPath, copy.matched.repoId)
+        : null;
+      if (loc) await removeFileMeta(basePath, loc.dir, loc.key);
       results.push({file: copy.relPath, status: 'deleted'});
     } catch (e) {
       results.push({
@@ -160,7 +165,7 @@ export async function fixDuplicateGroup(
       to = target;
     }
     const summary = hfSummary(pinned);
-    await writeMeta(path.join(basePath, to ?? survivor.relPath), {
+    await updateMetaResolved(basePath, to ?? survivor.relPath, pinned.repoId, {
       modelUrl: summary.modelUrl,
       originUrl: summary.fileUrl,
       ...(pinned.commit ? {sourceCommit: pinned.commit} : {}),
