@@ -2,6 +2,7 @@ import type {Model, ModelFile} from '@/lib/model-types';
 import {modelDisplayName, isMmprojFilename} from '@/lib/model-name';
 import {normalizeModelNames} from '@/lib/models';
 import {fileJoinKey} from '@/lib/peer-paths';
+import {coldStorageRollup} from '@/lib/cold-storage-rollup';
 import type {ModelRow, QuantInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",
@@ -187,13 +188,7 @@ export function buildModelRows(
         quants,
         minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
         maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
-        // Complete only when every file — weights AND any companion mmproj
-        // projector — has a matching cold copy. A projector present locally or
-        // on a peer but absent from cold storage drops the model to Partial.
-        allInColdStorage:
-          weights.length > 0 && quants.every((q) => q.coldComplete),
-        noneInColdStorage:
-          weights.length === 0 || weights.every((q) => !q.inColdStorage),
+        ...coldStorageRollup(quants),
       };
     })
     .sort((a, b) =>

@@ -27,6 +27,7 @@ import type {
 } from '@/lib/audit';
 import {isMmprojFilename, modelDisplayName} from '@/lib/model-name';
 import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peer-paths';
+import {coldStorageRollup} from '@/lib/cold-storage-rollup';
 import {rowAudit, rowUpdates, type RowAudit} from '@/lib/row-audit';
 
 export interface ShardInfo {
@@ -704,13 +705,7 @@ export function augmentWithPeerOnlyQuants(
         ].join(', '),
         minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
         maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
-        // Complete only when every file — weights AND any companion mmproj
-        // projector — has a matching cold copy. A projector present locally or
-        // on a peer but absent from cold storage drops the model to Partial.
-        allInColdStorage:
-          weights.length > 0 && quants.every((q) => q.coldComplete),
-        noneInColdStorage:
-          weights.length === 0 || weights.every((q) => !q.inColdStorage),
+        ...coldStorageRollup(quants),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -853,10 +848,7 @@ export function ModelsTableClient({
           quants,
           minSize: sizes.length > 0 ? Math.min(...sizes) : 0,
           maxSize: sizes.length > 0 ? Math.max(...sizes) : 0,
-          allInColdStorage:
-            weights.length > 0 && weights.every((q) => q.inColdStorage),
-          noneInColdStorage:
-            weights.length === 0 || weights.every((q) => !q.inColdStorage),
+          ...coldStorageRollup(quants),
         } satisfies ModelRow;
       })
       .filter((m): m is ModelRow => m !== null);
