@@ -26,6 +26,17 @@ export function modelDisplayName(name: string): string {
 }
 
 /**
+ * Order two model identities by repo name, ignoring the org prefix, so a table
+ * groups by the model (Qwen3-GGUF) rather than by who published it. Use as a
+ * `.sort` comparator: `models.sort((a, b) => compareByRepoName(a.name, b.name))`.
+ */
+export function compareByRepoName(a: string, b: string): number {
+  return modelDisplayName(a).localeCompare(modelDisplayName(b), undefined, {
+    sensitivity: 'base',
+  });
+}
+
+/**
  * A GGUF projector file (mmproj-F16.gguf, mmproj-BF16.gguf, …). Pass a
  * basename. Pure and client-safe, so both the table builders and the
  * server-only mmproj audit can share one definition.

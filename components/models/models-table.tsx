@@ -1,5 +1,5 @@
 import type {Model, ModelFile} from '@/lib/model-types';
-import {modelDisplayName, isMmprojFilename} from '@/lib/model-name';
+import {compareByRepoName, isMmprojFilename} from '@/lib/model-name';
 import {normalizeModelNames} from '@/lib/models';
 import {isDiffusersRepo, diffusersComponentKey} from '@/lib/diffusers';
 import {fileJoinKey} from '@/lib/peer-paths';
@@ -239,13 +239,5 @@ export function buildModelRows(
         ...coldStorageRollup(quants),
       };
     })
-    .sort((a, b) =>
-      modelDisplayName(a.name).localeCompare(
-        modelDisplayName(b.name),
-        undefined,
-        {
-          sensitivity: 'base',
-        },
-      ),
-    );
+    .sort((a, b) => compareByRepoName(a.name, b.name));
 }
