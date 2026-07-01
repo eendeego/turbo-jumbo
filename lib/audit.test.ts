@@ -13,6 +13,7 @@ import {
   duplicateResult,
   expectedRelPath,
   hfSummary,
+  isPlacedCorrectly,
   localSha256,
   mergeMeta,
   moveFileWithMeta,
@@ -120,6 +121,41 @@ test('error when sha could not be computed despite matching size', () => {
 
 test('expectedRelPath joins repoId and repoPath', () => {
   expect(expectedRelPath(hf)).toBe('o/r/M.Q4.gguf');
+});
+
+test('decideStatus: a correctly-placed cache file passes, not misplaced', () => {
+  expect(
+    decideStatus({
+      hf,
+      actualSize: 100,
+      relPath: 'models--o--r/snapshots/abc123/M.Q4.gguf',
+      computedSha256: 'deadbeef',
+    }),
+  ).toBe('pass');
+});
+
+test('decideStatus: a cache file under the wrong repo dir is misplaced', () => {
+  expect(
+    decideStatus({
+      hf, // repoId 'o/r', repoPath 'M.Q4.gguf'
+      actualSize: 100,
+      relPath: 'models--other--repo/snapshots/abc123/M.Q4.gguf',
+      computedSha256: 'deadbeef',
+    }),
+  ).toBe('misplaced');
+});
+
+test('isPlacedCorrectly accepts the flat and cache layouts, rejects others', () => {
+  expect(isPlacedCorrectly('o/r/M.Q4.gguf', 'o/r', 'M.Q4.gguf')).toBe(true);
+  expect(
+    isPlacedCorrectly('models--o--r/snapshots/x/M.Q4.gguf', 'o/r', 'M.Q4.gguf'),
+  ).toBe(true);
+  // Wrong repo dir.
+  expect(
+    isPlacedCorrectly('models--o--z/snapshots/x/M.Q4.gguf', 'o/r', 'M.Q4.gguf'),
+  ).toBe(false);
+  // Bare file at the storage root.
+  expect(isPlacedCorrectly('M.Q4.gguf', 'o/r', 'M.Q4.gguf')).toBe(false);
 });
 
 test('duplicateResult names the other copies, not the file itself', () => {

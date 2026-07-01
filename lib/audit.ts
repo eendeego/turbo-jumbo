@@ -2,6 +2,7 @@ import {createHash} from 'crypto';
 import {createReadStream, createWriteStream, promises as fsp} from 'fs';
 import path from 'path';
 import {pipeline} from 'stream/promises';
+import {parseHubCachePath} from '@/lib/hf-cache';
 import {
   canonicalBranch,
   inferHfFile,
@@ -167,6 +168,24 @@ export function expectedRelPath(hf: HfFileInfo): string {
   return `${hf.repoId}/${hf.repoPath}`;
 }
 
+/**
+ * Whether a file is stored where its source says it belongs. True for the flat
+ * mirror (`<repoId>/<repoPath>`) and for the huggingface_hub cache layout
+ * (`models--…/snapshots/<rev>/<repoPath>` of the same repo). Anything else —
+ * a bare file at the root, the wrong repo directory — is misplaced.
+ */
+export function isPlacedCorrectly(
+  relPath: string,
+  repoId: string,
+  repoPath: string,
+): boolean {
+  if (relPath === `${repoId}/${repoPath}`) return true;
+  const cache = parseHubCachePath(relPath);
+  return (
+    cache != null && cache.repoId === repoId && cache.repoPath === repoPath
+  );
+}
+
 // One path segment of an HF repo id (org or repo name).
 const REPO_SEGMENT_RE = /^[A-Za-z0-9_.-]+$/;
 
@@ -314,7 +333,7 @@ export function decideStatus(input: {
   if (actualSize !== hf.size) return 'incomplete';
   if (computedSha256 === null) return 'error';
   if (computedSha256 !== hf.sha256) return 'checksum-mismatch';
-  if (relPath !== expectedRelPath(hf)) return 'misplaced';
+  if (!isPlacedCorrectly(relPath, hf.repoId, hf.repoPath)) return 'misplaced';
   return 'pass';
 }
 
