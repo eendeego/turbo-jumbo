@@ -15,6 +15,7 @@ function quant(label: string, paths: string[]): QuantInfo {
     inColdStorage: false,
     coldComplete: false,
     coldSize: null,
+    coldTotalSize: 0,
     size: 100,
     paths,
     coldPaths: [],

@@ -60,6 +60,18 @@ export function buildModelRows(
     return candidates.find((c) => c.size === size) ?? candidates[0];
   };
 
+  // Total size of each quant's cold copy (split groups summed), for comparing
+  // against peer copies of the same quant.
+  const coldQuantSizes = new Map<string, number>();
+  for (const m of coldModels) {
+    for (const f of m.files) {
+      coldQuantSizes.set(
+        `${m.name}::${f.quant}`,
+        f.isSplit ? f.totalSize : f.size,
+      );
+    }
+  }
+
   // Local file paths + display name per model::quant, for selection/deletion.
   const localPathsMap = new Map<string, string[]>();
   const localDisplayNames = new Map<string, string>();
@@ -119,6 +131,7 @@ export function buildModelRows(
           inColdStorage,
           coldComplete,
           coldSize,
+          coldTotalSize: coldQuantSizes.get(quantKey) ?? 0,
           size: f.isSplit ? f.totalSize : f.size,
           paths: localPathsMap.get(quantKey) ?? relPaths,
           coldPaths,

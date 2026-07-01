@@ -37,6 +37,7 @@ export interface QuantInfo {
   inColdStorage: boolean; // a file of this name exists in cold storage
   coldComplete: boolean; // ...and its size matches (a complete, identical copy)
   coldSize: number | null; // size of the cold copy, when present (for the tooltip)
+  coldTotalSize: number; // total size of the cold copy, splits summed (0 when absent)
   size: number;
   paths: string[];
   coldPaths: string[];
@@ -78,6 +79,7 @@ interface DisplayRow extends Record<string, unknown> {
   totalShards: number;
   presentShards: number;
   missingIndices: number[];
+  sizeMismatch: boolean;
 }
 
 const styles = stylex.create({
@@ -88,7 +90,8 @@ const styles = stylex.create({
 });
 
 export function formatSize(bytes: number): string {
-  if (bytes <= 0) return '';
+  if (bytes < 0) return '';
+  if (bytes === 0) return '0 KB';
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -560,6 +563,25 @@ export function ModelsTableClient({
     return map;
   }, [peerModels]);
 
+  // Build lookup: "modelName::quant" -> size[] across all peers (split groups
+  // summed), to flag cold copies whose size disagrees with a peer's copy.
+  const peerQuantSizes = useMemo(() => {
+    const map = new Map<string, number[]>();
+    for (const [, lo] of peerModels) {
+      if (lo.type !== 'value') continue;
+      for (const m of lo.value) {
+        for (const f of m.files) {
+          const key = `${m.name}::${f.quant}`;
+          const size = f.isSplit ? f.totalSize : f.size;
+          const existing = map.get(key);
+          if (existing) existing.push(size);
+          else map.set(key, [size]);
+        }
+      }
+    }
+    return map;
+  }, [peerModels]);
+
   // Filter models to the active location tab.
   const effectiveModels = useMemo(() => {
     if (activeLocation === 'all') return models;
@@ -628,6 +650,23 @@ export function ModelsTableClient({
   const rows: DisplayRow[] = useMemo(() => {
     const out: DisplayRow[] = [];
     for (const m of effectiveModels) {
+      // A quant's cold copy disagreeing in size with any peer's copy marks the
+      // quant — and, rolled up, the model row.
+      let anyQuantMismatch = false;
+      const quantMismatches = new Map<string, boolean>();
+      for (const q of m.quants) {
+        const quantKey = `${m.name}::${q.label}`;
+        let mismatch = false;
+        if (q.inColdStorage && q.coldTotalSize > 0) {
+          const peerSizes = peerQuantSizes.get(quantKey);
+          if (peerSizes) {
+            mismatch = peerSizes.some((ps) => ps !== q.coldTotalSize);
+          }
+        }
+        quantMismatches.set(quantKey, mismatch);
+        if (mismatch) anyQuantMismatch = true;
+      }
+
       out.push({
         key: m.name,
         label: m.name,
@@ -647,6 +686,7 @@ export function ModelsTableClient({
         totalShards: 0,
         presentShards: 0,
         missingIndices: [],
+        sizeMismatch: anyQuantMismatch,
       });
       if (!expanded.has(m.name)) continue;
       for (const q of m.quants) {
@@ -670,6 +710,7 @@ export function ModelsTableClient({
           totalShards: q.totalShards,
           presentShards: q.presentShards,
           missingIndices: q.missingIndices,
+          sizeMismatch: quantMismatches.get(quantKey) ?? false,
         });
         if (!q.isSingleFile && expanded.has(quantKey)) {
           for (const shard of q.shards) {
@@ -692,13 +733,14 @@ export function ModelsTableClient({
               totalShards: 0,
               presentShards: 0,
               missingIndices: [],
+              sizeMismatch: false,
             });
           }
         }
       }
     }
     return out;
-  }, [effectiveModels, expanded]);
+  }, [effectiveModels, expanded, peerQuantSizes]);
 
   const columns: TableColumn<DisplayRow>[] = [
     ...(showCheckboxes
@@ -789,11 +831,14 @@ export function ModelsTableClient({
       width: pixel(120),
       align: 'end',
       renderCell: (item) => (
-        <Text type="body">
-          {item.sizeRange
-            ? `${formatSize(item.sizeRange[0])} – ${formatSize(item.sizeRange[1])}`
-            : formatSize(item.size)}
-        </Text>
+        <HStack gap={1} vAlign="center" hAlign="end">
+          {item.sizeMismatch && <Icon icon="warning" size="sm" />}
+          <Text type="body">
+            {item.sizeRange
+              ? `${formatSize(item.sizeRange[0])} – ${formatSize(item.sizeRange[1])}`
+              : formatSize(item.size)}
+          </Text>
+        </HStack>
       ),
     },
     // Peers column only on the "All" tab (redundant on a peer's own tab and on
