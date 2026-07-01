@@ -355,7 +355,7 @@ test('resolveSource falls back to the sidecar source when inference fails', asyn
       repoId: 'Hauhau/Repo',
       branch: 'main',
       repoPath: 'GPT.gguf',
-      // The revision endpoint isn't mocked here — commit/date degrade to ''.
+      // The tree entry carries no lastCommit here — commit/date degrade to ''.
       commit: '',
       commitDate: '',
       size: 7,

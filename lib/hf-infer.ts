@@ -2,8 +2,8 @@ export interface HfFileInfo {
   repoId: string;
   branch: string;
   repoPath: string; // path of the file within the repo
-  commit: string; // resolved commit SHA the branch/tag pointed at (immutable), '' if unknown
-  commitDate: string; // ISO 8601 timestamp of that commit, '' if unknown
+  commit: string; // commit that last modified this file (what the HF file page shows), '' if unknown
+  commitDate: string; // ISO 8601 date of that commit, '' if unknown
   size: number;
   sha256: string; // hex, no "sha256:" prefix
 }
@@ -17,6 +17,9 @@ interface HfTreeEntry {
   path: string;
   size: number;
   lfs?: {oid: string; size: number};
+  // Present with `expand=true`: the commit that last touched this path — the
+  // file-level revision the HF blob page shows (not the repo HEAD).
+  lastCommit?: {id: string; date: string};
 }
 
 const HEADERS = {'User-Agent': 'tj/1.0'};
@@ -43,12 +46,12 @@ export async function inferHfFile(
 // Convert a repo-tree entry into file info, or null if it carries no Git-LFS
 // checksum. The sha256 is the LFS object id; a match without one (a small,
 // non-LFS file) can't be verified, so callers skip it rather than return an
-// empty sha that reads as corruption.
+// empty sha that reads as corruption. The commit/date come from the entry's
+// `lastCommit` (the file's own last-modifying commit, matching the HF blob
+// page) — not the repo HEAD — and are best-effort: empty when absent.
 function treeEntryToInfo(
   repoId: string,
   branch: string,
-  commit: string,
-  commitDate: string,
   entry: HfTreeEntry,
 ): HfFileInfo | null {
   const oid = entry.lfs?.oid ?? '';
@@ -58,32 +61,11 @@ function treeEntryToInfo(
     repoId,
     branch,
     repoPath: entry.path,
-    commit,
-    commitDate,
+    commit: entry.lastCommit?.id ?? '',
+    commitDate: entry.lastCommit?.date ?? '',
     size: entry.lfs?.size ?? entry.size,
     sha256,
   };
-}
-
-// Resolve the commit a branch/tag currently points at (its SHA and timestamp),
-// so a verified file can be pinned to an immutable revision even when it was
-// fetched from a moving ref like `main`. SHA/date degrade to '' if the revision
-// can't be resolved — callers must treat them as best-effort, never required.
-async function fetchRepoCommit(
-  repoId: string,
-  branch: string,
-): Promise<{commit: string; commitDate: string}> {
-  try {
-    const res = await fetch(
-      `https://huggingface.co/api/models/${repoId}/revision/${branch}`,
-      {headers: HEADERS},
-    );
-    if (!res.ok) return {commit: '', commitDate: ''};
-    const data = (await res.json()) as {sha?: string; lastModified?: string};
-    return {commit: data.sha ?? '', commitDate: data.lastModified ?? ''};
-  } catch {
-    return {commit: '', commitDate: ''};
-  }
 }
 
 // Fetch a repo's file tree. repoId/branch are interpolated into the URL raw, so
@@ -131,14 +113,7 @@ async function resolveHfFile(
       (e) => e.type === 'file' && e.path.split('/').pop() === filename,
     );
     if (!match) continue;
-    const {commit, commitDate} = await fetchRepoCommit(candidate.id, branch);
-    const info = treeEntryToInfo(
-      candidate.id,
-      branch,
-      commit,
-      commitDate,
-      match,
-    );
+    const info = treeEntryToInfo(candidate.id, branch, match);
     if (!info) continue; // matched by name but no checksum — keep looking
     return info;
   }
@@ -186,6 +161,5 @@ export async function resolveHfFileByPath(
   if (!entries) return null;
   const match = entries.find((e) => e.type === 'file' && e.path === repoPath);
   if (!match) return null;
-  const {commit, commitDate} = await fetchRepoCommit(repoId, branch);
-  return treeEntryToInfo(repoId, branch, commit, commitDate, match);
+  return treeEntryToInfo(repoId, branch, match);
 }
