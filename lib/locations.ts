@@ -42,8 +42,8 @@ export type RouteView = 'table' | 'lemonade' | 'hf';
 // render. Returns null for unknown/invalid paths (caller should 404).
 // A trailing ['download','lemonade'] or ['download','hf'] selects that view;
 // the segments before it (0 or 1) name the location, resolved like a normal
-// location path. Cold Storage has neither view; the HF view additionally
-// requires the All view or the local peer (downloads run locally).
+// location path. Cold Storage has neither view; every other location (All and
+// any peer) has both.
 export function parseRoute(
   segments: string[] | undefined,
   peers: Peer[],
@@ -64,12 +64,8 @@ export function parseRoute(
     const head = segs.slice(0, -2);
     if (head.length > 1) return null;
     const location = resolveLocation(head, peers);
-    if (location === null) return null;
-    // HF download runs locally: only the All view and the local peer qualify.
-    if (location === ALL_LOCATION) return {location, view: 'hf'};
-    const peer = peers.find((p) => p.address === location);
-    if (peer?.isLocal) return {location, view: 'hf'};
-    return null;
+    if (location === null || location === COLD_STORAGE_LOCATION) return null;
+    return {location, view: 'hf'};
   }
 
   const location = resolveLocation(segs, peers);
@@ -87,8 +83,8 @@ export function lemonadeHref(id: string, peers: Peer[]): string {
     : '/download/lemonade';
 }
 
-// Internal tab id -> Hugging Face download route. Only the All view and the
-// local peer have one; Cold Storage falls back to its table.
+// Internal tab id -> Hugging Face download route. The All view and every peer
+// tab have one; Cold Storage falls back to its table.
 export function hfHref(id: string, peers: Peer[]): string {
   if (id === ALL_LOCATION) return '/download/hf';
   if (id === COLD_STORAGE_LOCATION) return `/${COLD_STORAGE_LOCATION}`;

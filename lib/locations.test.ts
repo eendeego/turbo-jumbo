@@ -87,8 +87,11 @@ test('parseRoute: <local-slug>/download/hf → local peer/hf', () => {
   });
 });
 
-test('parseRoute: remote peer has no hf → null', () => {
-  expect(parseRoute(['remote-two', 'download', 'hf'], peers)).toBeNull();
+test('parseRoute: <remote-slug>/download/hf → remote peer/hf', () => {
+  expect(parseRoute(['remote-two', 'download', 'hf'], peers)).toEqual({
+    location: '192.0.2.2',
+    view: 'hf',
+  });
 });
 
 test('parseRoute: cold-storage has no hf → null', () => {
@@ -99,9 +102,10 @@ test('parseRoute: bad hf shapes → null', () => {
   expect(parseRoute(['download', 'hf', 'extra'], peers)).toBeNull();
 });
 
-test('hfHref: all and local peer', () => {
+test('hfHref: all, local peer, and remote peer', () => {
   expect(hfHref('all', peers)).toBe('/download/hf');
   expect(hfHref('192.0.2.1', peers)).toBe('/my-box/download/hf');
+  expect(hfHref('192.0.2.2', peers)).toBe('/remote-two/download/hf');
 });
 
 test('round-trip hfHref → parseRoute (local peer)', () => {
