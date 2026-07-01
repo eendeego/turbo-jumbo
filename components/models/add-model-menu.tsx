@@ -18,7 +18,7 @@ export function AddModelMenu({
   const router = useRouter();
   return (
     <DropdownMenu
-      button={{label: 'Add model', variant: 'secondary'}}
+      button={{label: 'Add model', variant: 'secondary', size: 'sm'}}
       hasChevron
       items={[
         {
