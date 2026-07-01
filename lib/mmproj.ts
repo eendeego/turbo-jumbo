@@ -8,7 +8,12 @@ import {parseHubCachePath} from '@/lib/hf-cache';
 
 const basename = (p: string) => p.split('/').pop() ?? p;
 
-/** A GGUF projector file (mmproj-F16.gguf, mmproj-BF16.gguf, …). */
+/**
+ * A GGUF projector file (mmproj-F16.gguf, mmproj-BF16.gguf, …). Note
+ * `lib/lemonade.ts` has a separate, looser `isMmproj` (prefix-only) used to
+ * *exclude* projectors when selecting weights; the two aren't shared because
+ * lemonade.ts is client-reachable and this module imports server-only code.
+ */
 export function isMmprojName(name: string): boolean {
   const lower = name.toLowerCase();
   return lower.startsWith('mmproj') && lower.endsWith('.gguf');

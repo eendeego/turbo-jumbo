@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {pickMmproj, hasLocalMmproj} from '@/lib/mmproj';
+import {isMmprojName, pickMmproj, hasLocalMmproj} from '@/lib/mmproj';
 
 test('pickMmproj prefers F16 over BF16 and F32', () => {
   expect(
@@ -52,4 +52,15 @@ test('hasLocalMmproj is false when no mmproj is present', () => {
     'unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf',
   ];
   expect(hasLocalMmproj(paths, 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF')).toBe(false);
+});
+
+test('isMmprojName requires the .gguf suffix', () => {
+  expect(isMmprojName('mmproj-F16.gguf')).toBe(true);
+  expect(isMmprojName('MMPROJ-F16.GGUF')).toBe(true);
+  expect(isMmprojName('mmproj')).toBe(false);
+  expect(isMmprojName('mmproj-readme.txt')).toBe(false);
+});
+
+test('isMmprojName is false for non-projector weights', () => {
+  expect(isMmprojName('Qwen3-Q4_0.gguf')).toBe(false);
 });
