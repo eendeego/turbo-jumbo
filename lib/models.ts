@@ -11,6 +11,10 @@ import {metaPath, pathImpliedRepo} from '@/lib/audit';
 import {parseHubCachePath} from '@/lib/hf-cache';
 import {readSafetensorsDtype} from '@/lib/safetensors';
 import {repoIdFromModelUrl} from '@/lib/model-name';
+import {WEIGHT_EXT_RE, isWeightFile} from '@/lib/weight-files';
+
+// Re-exported so existing `@/lib/models` importers keep working.
+export {isWeightFile};
 
 export type {
   Model,
@@ -55,17 +59,6 @@ const QUANT_TOKEN =
 // "GPT-OSS-20B-…-MXFP4-Aggressive" carries the quant before "-Aggressive".
 const QUANT_RE = new RegExp(`[-_.](${QUANT_TOKEN})(?=[-_.]|$)`, 'gi');
 const SPLIT_RE = /^(.+)-(\d+)-of-(\d+)\.(gguf|safetensors|bin)$/i;
-
-// The model weight formats this app tracks: GGUF, safetensors, and legacy
-// PyTorch `.bin`. Companion files (config.json, tokenizer, *.index.json) are
-// not weights.
-const WEIGHT_EXT_RE = /\.(gguf|safetensors|bin)$/i;
-
-/** Whether a path names a model weight file (by extension), ignoring any
- *  directory prefix. */
-export function isWeightFile(p: string): boolean {
-  return WEIGHT_EXT_RE.test(p);
-}
 
 function stripExtension(filename: string): string {
   return filename.replace(WEIGHT_EXT_RE, '');

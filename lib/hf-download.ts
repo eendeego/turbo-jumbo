@@ -1,4 +1,4 @@
-import {isWeightFile} from '@/lib/models';
+import {isWeightFile} from '@/lib/weight-files';
 
 // In a safetensors model download these are clutter, not part of the model:
 // alternate-format weights (including GGUF), docs, images, and repo metadata.
