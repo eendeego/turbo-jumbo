@@ -595,6 +595,13 @@ export function ModelsTableClient({
 
   const showCheckboxes = onToggleSelected != null;
 
+  // Every selectable file path in the current tab's view, for the select-all
+  // header checkbox. Same toggle semantics as a row: all selected → clear.
+  const allVisiblePaths = useMemo(
+    () => effectiveModels.flatMap((m) => m.quants.flatMap((q) => q.paths)),
+    [effectiveModels],
+  );
+
   // Memoized so row objects keep their identity across unrelated re-renders;
   // Table's per-row memo bails out via shallow compare otherwise (the nested
   // paths/sizeRange arrays would be rebuilt every render).
@@ -678,7 +685,26 @@ export function ModelsTableClient({
       ? [
           {
             key: 'select',
-            header: '',
+            header: (() => {
+              const allSelected =
+                selected != null &&
+                allVisiblePaths.length > 0 &&
+                allVisiblePaths.every((p) => selected.has(p));
+              const someSelected =
+                selected != null &&
+                allVisiblePaths.some((p) => selected.has(p));
+              return (
+                <CheckboxInput
+                  label="Select all rows"
+                  isLabelHidden
+                  value={
+                    allSelected ? true : someSelected ? 'indeterminate' : false
+                  }
+                  onChange={() => onToggleSelected!(allVisiblePaths)}
+                  isDisabled={allVisiblePaths.length === 0}
+                />
+              );
+            })(),
             width: pixel(36),
             align: 'center' as const,
             renderCell: (item: DisplayRow) => {
