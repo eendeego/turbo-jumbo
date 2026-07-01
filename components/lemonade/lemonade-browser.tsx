@@ -191,13 +191,37 @@ function componentEndContent(
   );
 }
 
-// A non-interactive divider titling a modality section in the catalog list.
-function SectionHeader({label, count}: {label: string; count?: number}) {
+// A clickable divider titling a modality section in the catalog list; toggles
+// the section's collapsed state.
+function SectionHeader({
+  label,
+  count,
+  collapsed,
+  onToggle,
+}: {
+  label: string;
+  count?: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   return (
     <ListItem
       label={label}
       description={
         count != null ? `${count} model${count === 1 ? '' : 's'}` : undefined
+      }
+      onClick={onToggle}
+      startContent={
+        <IconButton
+          label={collapsed ? 'Expand' : 'Collapse'}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={collapsed ? 'chevronRight' : 'chevronDown'} />}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+        />
       }
     />
   );
@@ -246,6 +270,10 @@ export function LemonadeBrowser({
   const [extraModels, setExtraModels] = useState<LemonadeComponent[]>([]);
   const [collections, setCollections] = useState<OmniCollection[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Section keys (a CatalogSection, or 'omni') the user has collapsed.
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    new Set(),
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -324,6 +352,14 @@ export function LemonadeBrowser({
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
+      return next;
+    });
+
+  const toggleSection = (key: string) =>
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
 
@@ -544,142 +580,157 @@ export function LemonadeBrowser({
         {models != null && (
           <List hasDividers xstyle={styles.modelList}>
             {visibleCollections.length > 0 && (
-              <SectionHeader label="Omni models" />
+              <SectionHeader
+                label="Omni models"
+                count={visibleCollections.length}
+                collapsed={collapsedSections.has('omni')}
+                onToggle={() => toggleSection('omni')}
+              />
             )}
-            {visibleCollections.map((c) => {
-              const isExpanded = expanded.has(c.name);
-              const aggregate = collectionDownloadStatus(c, inventoryLocations);
-              // Presence in the Lemonade cache per member, driving the cache
-              // marker next to the download-status marker. The header token
-              // dims when the collection is only partially cached.
-              const componentInCache = new Map(
-                c.components.map((comp) => [
-                  comp.name,
-                  componentInLemonadeCache(comp, lemonadeCacheModels),
-                ]),
-              );
-              const cachePresentCount = [...componentInCache.values()].filter(
-                Boolean,
-              ).length;
-              const collInCache = cachePresentCount > 0;
-              const cachePartial =
-                collInCache && cachePresentCount < c.components.length;
-              const collSelection: Selection = {
-                kind: 'collection',
-                collection: c,
-              };
-              return (
-                <Fragment key={c.name}>
-                  <ListItem
-                    label={c.name}
-                    description={`${c.components.length} components`}
-                    isSelected={selectedKey === selectionKey(collSelection)}
-                    onClick={() => setSelection(collSelection)}
-                    startContent={
-                      <IconButton
-                        label={isExpanded ? 'Collapse' : 'Expand'}
-                        variant="ghost"
-                        size="sm"
-                        icon={
-                          <Icon
-                            icon={isExpanded ? 'chevronDown' : 'chevronRight'}
+            {!collapsedSections.has('omni') &&
+              visibleCollections.map((c) => {
+                const isExpanded = expanded.has(c.name);
+                const aggregate = collectionDownloadStatus(
+                  c,
+                  inventoryLocations,
+                );
+                // Presence in the Lemonade cache per member, driving the cache
+                // marker next to the download-status marker. The header token
+                // dims when the collection is only partially cached.
+                const componentInCache = new Map(
+                  c.components.map((comp) => [
+                    comp.name,
+                    componentInLemonadeCache(comp, lemonadeCacheModels),
+                  ]),
+                );
+                const cachePresentCount = [...componentInCache.values()].filter(
+                  Boolean,
+                ).length;
+                const collInCache = cachePresentCount > 0;
+                const cachePartial =
+                  collInCache && cachePresentCount < c.components.length;
+                const collSelection: Selection = {
+                  kind: 'collection',
+                  collection: c,
+                };
+                return (
+                  <Fragment key={c.name}>
+                    <ListItem
+                      label={c.name}
+                      description={`${c.components.length} components`}
+                      isSelected={selectedKey === selectionKey(collSelection)}
+                      onClick={() => setSelection(collSelection)}
+                      startContent={
+                        <IconButton
+                          label={isExpanded ? 'Collapse' : 'Expand'}
+                          variant="ghost"
+                          size="sm"
+                          icon={
+                            <Icon
+                              icon={isExpanded ? 'chevronDown' : 'chevronRight'}
+                            />
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCollection(c.name);
+                          }}
+                        />
+                      }
+                      endContent={
+                        <HStack gap={1} vAlign="center">
+                          <Badge label="omni" variant="purple" />
+                          <StatusMarker info={aggregate} />
+                          <LemonadeCacheMarker
+                            present={collInCache}
+                            muted={cachePartial}
                           />
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleCollection(c.name);
-                        }}
-                      />
-                    }
-                    endContent={
-                      <HStack gap={1} vAlign="center">
-                        <Badge label="omni" variant="purple" />
-                        <StatusMarker info={aggregate} />
-                        <LemonadeCacheMarker
-                          present={collInCache}
-                          muted={cachePartial}
-                        />
-                        {c.suggested && (
-                          <Badge label="suggested" variant="green" />
-                        )}
-                        <Text type="supporting">{formatGb(c.sizeGb)}</Text>
-                      </HStack>
-                    }
-                  />
-                  {isExpanded &&
-                    c.components.map((comp) => {
-                      const compSelection: Selection = {
-                        kind: 'component',
-                        collectionName: c.name,
-                        component: comp,
-                      };
-                      return (
-                        <ListItem
-                          key={comp.name}
-                          label={comp.name}
-                          description={componentSecondary(comp)}
-                          startContent={
-                            <span {...stylex.props(styles.indent)} />
-                          }
-                          isSelected={
-                            selectedKey === selectionKey(compSelection)
-                          }
-                          onClick={() => setSelection(compSelection)}
-                          endContent={componentEndContent(
-                            comp,
-                            componentDownloadStatus(comp, inventoryLocations),
-                            componentInCache.get(comp.name) ?? false,
+                          {c.suggested && (
+                            <Badge label="suggested" variant="green" />
                           )}
-                        />
-                      );
-                    })}
-                </Fragment>
-              );
-            })}
+                          <Text type="supporting">{formatGb(c.sizeGb)}</Text>
+                        </HStack>
+                      }
+                    />
+                    {isExpanded &&
+                      c.components.map((comp) => {
+                        const compSelection: Selection = {
+                          kind: 'component',
+                          collectionName: c.name,
+                          component: comp,
+                        };
+                        return (
+                          <ListItem
+                            key={comp.name}
+                            label={comp.name}
+                            description={componentSecondary(comp)}
+                            startContent={
+                              <span {...stylex.props(styles.indent)} />
+                            }
+                            isSelected={
+                              selectedKey === selectionKey(compSelection)
+                            }
+                            onClick={() => setSelection(compSelection)}
+                            endContent={componentEndContent(
+                              comp,
+                              componentDownloadStatus(comp, inventoryLocations),
+                              componentInCache.get(comp.name) ?? false,
+                            )}
+                          />
+                        );
+                      })}
+                  </Fragment>
+                );
+              })}
             {sections.map((sec) => (
               <Fragment key={sec.key}>
-                <SectionHeader label={sec.label} count={sec.rows.length} />
-                {sec.rows.map((row) =>
-                  row.kind === 'model' ? (
-                    <ListItem
-                      key={`m:${row.model.name}`}
-                      label={row.model.name}
-                      description={`${row.model.repoId}${row.model.variant ? `:${row.model.variant}` : ''}`}
-                      isSelected={selectedKey === `model:${row.model.name}`}
-                      onClick={() =>
-                        setSelection({kind: 'model', model: row.model})
-                      }
-                      endContent={modelEndContent(
-                        row.model,
-                        statusByName.get(row.model.name),
-                        inCacheByName.get(row.model.name) ?? false,
-                      )}
-                    />
-                  ) : (
-                    <ListItem
-                      key={`c:${row.component.name}`}
-                      label={row.component.name}
-                      description={componentSecondary(row.component)}
-                      isSelected={
-                        selectedKey === `standalone:${row.component.name}`
-                      }
-                      onClick={() =>
-                        setSelection({
-                          kind: 'standalone',
-                          component: row.component,
-                        })
-                      }
-                      endContent={componentEndContent(
-                        row.component,
-                        extraStatusByName.get(row.component.name) ?? {
-                          status: 'none',
-                          locations: [],
-                        },
-                        extraInCacheByName.get(row.component.name) ?? false,
-                      )}
-                    />
-                  ),
-                )}
+                <SectionHeader
+                  label={sec.label}
+                  count={sec.rows.length}
+                  collapsed={collapsedSections.has(sec.key)}
+                  onToggle={() => toggleSection(sec.key)}
+                />
+                {!collapsedSections.has(sec.key) &&
+                  sec.rows.map((row) =>
+                    row.kind === 'model' ? (
+                      <ListItem
+                        key={`m:${row.model.name}`}
+                        label={row.model.name}
+                        description={`${row.model.repoId}${row.model.variant ? `:${row.model.variant}` : ''}`}
+                        isSelected={selectedKey === `model:${row.model.name}`}
+                        onClick={() =>
+                          setSelection({kind: 'model', model: row.model})
+                        }
+                        endContent={modelEndContent(
+                          row.model,
+                          statusByName.get(row.model.name),
+                          inCacheByName.get(row.model.name) ?? false,
+                        )}
+                      />
+                    ) : (
+                      <ListItem
+                        key={`c:${row.component.name}`}
+                        label={row.component.name}
+                        description={componentSecondary(row.component)}
+                        isSelected={
+                          selectedKey === `standalone:${row.component.name}`
+                        }
+                        onClick={() =>
+                          setSelection({
+                            kind: 'standalone',
+                            component: row.component,
+                          })
+                        }
+                        endContent={componentEndContent(
+                          row.component,
+                          extraStatusByName.get(row.component.name) ?? {
+                            status: 'none',
+                            locations: [],
+                          },
+                          extraInCacheByName.get(row.component.name) ?? false,
+                        )}
+                      />
+                    ),
+                  )}
               </Fragment>
             ))}
             {sections.length === 0 && visibleCollections.length === 0 && (
