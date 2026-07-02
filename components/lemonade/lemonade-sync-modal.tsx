@@ -1,9 +1,10 @@
 'use client';
 
 import {useEffect, useState} from 'react';
-import {Dialog} from '@astryxdesign/core/Dialog';
+import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
+import {Layout, LayoutContent, LayoutFooter} from '@astryxdesign/core/Layout';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
-import {Heading, Text} from '@astryxdesign/core/Text';
+import {Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
 import {List, ListItem} from '@astryxdesign/core/List';
@@ -158,118 +159,139 @@ export function LemonadeSyncModal({
       width={620}
       purpose="form"
     >
-      <VStack gap={4}>
-        <Heading level={3}>Consolidate with Lemonade</Heading>
-        <Text type="supporting">
-          Moves models that exist only in Lemonade into Turbo Jumbo&apos;s file
-          structure, and deduplicates files Turbo Jumbo already holds — then
-          replaces the Lemonade copies with symbolic links into Turbo Jumbo.
-          Catalog models Turbo Jumbo already has but Lemonade hasn&apos;t
-          downloaded are linked into Lemonade&apos;s cache, and stale links
-          whose files were deleted are removed.
-        </Text>
-
-        {phase === 'loading' && (
-          <Text type="body">Finding models to sync…</Text>
-        )}
-
-        {phase === 'error' && <Text type="body">{error}</Text>}
-
-        {phase === 'preview' &&
-          (preview.length === 0 ? (
-            <Text type="body">
-              Nothing to sync — Lemonade is already consolidated into Turbo
-              Jumbo.
-            </Text>
-          ) : (
-            <VStack gap={3}>
-              {sections.map((s) => (
-                <VStack key={s.title} gap={1}>
-                  <Text type="supporting">{s.title}</Text>
-                  {s.hint && <Text type="supporting">{s.hint}</Text>}
-                  <List hasDividers>
-                    {s.items.map((p) => (
-                      <ListItem
-                        key={p.repoId}
-                        label={p.repoId}
-                        description={s.describe(p)}
-                      />
-                    ))}
-                  </List>
-                </VStack>
-              ))}
-            </VStack>
-          ))}
-
-        {phase === 'running' && (
-          <Text type="body">Moving files and creating links…</Text>
-        )}
-
-        {phase === 'done' && (
-          <VStack gap={2}>
-            <HStack gap={2} vAlign="center">
-              <Badge label={`${counts.linked ?? 0} linked`} variant="success" />
-              {counts.deduplicated ? (
-                <Badge
-                  label={`${counts.deduplicated} deduplicated`}
-                  variant="success"
-                />
-              ) : null}
-              {counts.materialized ? (
-                <Badge
-                  label={`${counts.materialized} linked`}
-                  variant="success"
-                />
-              ) : null}
-              {counts['stale-removed'] ? (
-                <Badge
-                  label={`${counts['stale-removed']} stale link${counts['stale-removed'] === 1 ? '' : 's'} removed`}
-                  variant="success"
-                />
-              ) : null}
-              {counts.skipped ? (
-                <Badge label={`${counts.skipped} skipped`} variant="neutral" />
-              ) : null}
-              {errors.length > 0 ? (
-                <Badge label={`${errors.length} failed`} variant="error" />
-              ) : null}
-            </HStack>
-            <Text type="supporting">
-              Synced {results.length} model{results.length === 1 ? '' : 's'}.
-            </Text>
-            {errors.map((e, i) => (
-              <Text key={i} type="supporting">
-                {e.repoId}/{e.repoPath}: {e.message}
+      {/* Header and footer stay pinned; a long preview scrolls in between, so
+          the action buttons remain reachable however many models are listed. */}
+      <Layout
+        header={<DialogHeader title="Consolidate with Lemonade" />}
+        content={
+          <LayoutContent>
+            <VStack gap={4}>
+              <Text type="supporting">
+                Moves models that exist only in Lemonade into Turbo Jumbo&apos;s
+                file structure, and deduplicates files Turbo Jumbo already holds
+                — then replaces the Lemonade copies with symbolic links into
+                Turbo Jumbo. Catalog models Turbo Jumbo already has but Lemonade
+                hasn&apos;t downloaded are linked into Lemonade&apos;s cache,
+                and stale links whose files were deleted are removed.
               </Text>
-            ))}
-          </VStack>
-        )}
 
-        <HStack gap={2} hAlign="end">
-          {phase === 'done' || phase === 'error' ? (
-            <Button label="Close" variant="primary" onClick={onClose} />
-          ) : (
-            <>
-              <Button
-                label="Cancel"
-                variant="secondary"
-                onClick={onClose}
-                isDisabled={phase === 'running'}
-              />
-              <Button
-                label={
-                  phase === 'running'
-                    ? 'Syncing…'
-                    : `Sync ${actionable.length} model${actionable.length === 1 ? '' : 's'} (${fileCountLabel(totalFiles)})`
-                }
-                variant="primary"
-                onClick={runSync}
-                isDisabled={phase !== 'preview' || actionable.length === 0}
-              />
-            </>
-          )}
-        </HStack>
-      </VStack>
+              {phase === 'loading' && (
+                <Text type="body">Finding models to sync…</Text>
+              )}
+
+              {phase === 'error' && <Text type="body">{error}</Text>}
+
+              {phase === 'preview' &&
+                (preview.length === 0 ? (
+                  <Text type="body">
+                    Nothing to sync — Lemonade is already consolidated into
+                    Turbo Jumbo.
+                  </Text>
+                ) : (
+                  <VStack gap={3}>
+                    {sections.map((s) => (
+                      <VStack key={s.title} gap={1}>
+                        <Text type="supporting">{s.title}</Text>
+                        {s.hint && <Text type="supporting">{s.hint}</Text>}
+                        <List hasDividers>
+                          {s.items.map((p) => (
+                            <ListItem
+                              key={p.repoId}
+                              label={p.repoId}
+                              description={s.describe(p)}
+                            />
+                          ))}
+                        </List>
+                      </VStack>
+                    ))}
+                  </VStack>
+                ))}
+
+              {phase === 'running' && (
+                <Text type="body">Moving files and creating links…</Text>
+              )}
+
+              {phase === 'done' && (
+                <VStack gap={2}>
+                  <HStack gap={2} vAlign="center">
+                    <Badge
+                      label={`${counts.linked ?? 0} linked`}
+                      variant="success"
+                    />
+                    {counts.deduplicated ? (
+                      <Badge
+                        label={`${counts.deduplicated} deduplicated`}
+                        variant="success"
+                      />
+                    ) : null}
+                    {counts.materialized ? (
+                      <Badge
+                        label={`${counts.materialized} linked`}
+                        variant="success"
+                      />
+                    ) : null}
+                    {counts['stale-removed'] ? (
+                      <Badge
+                        label={`${counts['stale-removed']} stale link${counts['stale-removed'] === 1 ? '' : 's'} removed`}
+                        variant="success"
+                      />
+                    ) : null}
+                    {counts.skipped ? (
+                      <Badge
+                        label={`${counts.skipped} skipped`}
+                        variant="neutral"
+                      />
+                    ) : null}
+                    {errors.length > 0 ? (
+                      <Badge
+                        label={`${errors.length} failed`}
+                        variant="error"
+                      />
+                    ) : null}
+                  </HStack>
+                  <Text type="supporting">
+                    Synced {results.length} model
+                    {results.length === 1 ? '' : 's'}.
+                  </Text>
+                  {errors.map((e, i) => (
+                    <Text key={i} type="supporting">
+                      {e.repoId}/{e.repoPath}: {e.message}
+                    </Text>
+                  ))}
+                </VStack>
+              )}
+            </VStack>
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter>
+            <HStack gap={2} hAlign="end">
+              {phase === 'done' || phase === 'error' ? (
+                <Button label="Close" variant="primary" onClick={onClose} />
+              ) : (
+                <>
+                  <Button
+                    label="Cancel"
+                    variant="secondary"
+                    onClick={onClose}
+                    isDisabled={phase === 'running'}
+                  />
+                  <Button
+                    label={
+                      phase === 'running'
+                        ? 'Syncing…'
+                        : `Sync ${actionable.length} model${actionable.length === 1 ? '' : 's'} (${fileCountLabel(totalFiles)})`
+                    }
+                    variant="primary"
+                    onClick={runSync}
+                    isDisabled={phase !== 'preview' || actionable.length === 0}
+                  />
+                </>
+              )}
+            </HStack>
+          </LayoutFooter>
+        }
+      />
     </Dialog>
   );
 }
