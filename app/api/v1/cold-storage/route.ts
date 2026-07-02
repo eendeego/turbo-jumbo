@@ -1,7 +1,7 @@
 import {NextResponse} from 'next/server';
-import {promises as fsp} from 'fs';
 import nodePath from 'path';
 import {coldStorageDir} from '@/lib/config';
+import {deleteFileWithMeta} from '@/lib/delete-file';
 import {logger} from '@/lib/logger';
 import {scanModels} from '@/lib/models';
 import {hasStringFiles, readJsonBody} from '@/lib/request';
@@ -27,7 +27,7 @@ export async function DELETE(req: Request) {
     if (body.dryRun) {
       logger.info(`[dry-run] would delete cold-storage: ${full}`);
     } else {
-      await fsp.rm(full, {force: true});
+      await deleteFileWithMeta(base, nodePath.relative(base, full));
     }
   }
   return Response.json({ok: true, dryRun: body.dryRun ?? false});

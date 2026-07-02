@@ -8,7 +8,7 @@ import {
 import {logger} from '@/lib/logger';
 import {scanModels, annotateColdStorage} from '@/lib/models';
 import {hasStringFiles, readJsonBody} from '@/lib/request';
-import {promises as fsp} from 'fs';
+import {deleteFileWithMeta} from '@/lib/delete-file';
 import nodePath from 'path';
 
 // Proxy a peer's models through the local server: scan locally for the local
@@ -77,7 +77,7 @@ export async function DELETE(
       if (body.dryRun) {
         logger.info(`[dry-run] would delete peer ${peer.name}: ${full}`);
       } else {
-        await fsp.rm(full, {force: true});
+        await deleteFileWithMeta(base, nodePath.relative(base, full));
       }
     }
     return Response.json({ok: true, dryRun: body.dryRun ?? false});
