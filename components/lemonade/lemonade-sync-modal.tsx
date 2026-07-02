@@ -100,7 +100,12 @@ export function LemonadeSyncModal({
   const fileCountLabel = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
   // Group the preview by action so each model is listed as its own row, the same
   // way across imports, deduplications, and links — never folded into a count.
-  const sections = [
+  const sections: Array<{
+    title: string;
+    hint?: string; // guidance shown under the title, for non-actionable groups
+    items: Preview[];
+    describe: (p: Preview) => string;
+  }> = [
     {
       title: 'Importing into Turbo Jumbo',
       items: preview.filter((p) => p.moveCount > 0),
@@ -121,9 +126,9 @@ export function LemonadeSyncModal({
     },
     {
       title: 'Skipped — cannot link into Lemonade',
+      hint: 'These models have no recorded revision. Audit them to record one, then consolidate again.',
       items: preview.filter((p) => p.blocked),
-      describe: () =>
-        'no revision recorded — audit the model to record one, then re-run',
+      describe: () => 'no revision recorded',
     },
   ].filter((s) => s.items.length > 0);
   const counts = results
@@ -172,6 +177,7 @@ export function LemonadeSyncModal({
               {sections.map((s) => (
                 <VStack key={s.title} gap={1}>
                   <Text type="supporting">{s.title}</Text>
+                  {s.hint && <Text type="supporting">{s.hint}</Text>}
                   <List hasDividers>
                     {s.items.map((p) => (
                       <ListItem
