@@ -4,10 +4,8 @@ import {useCallback, useMemo, useState} from 'react';
 import {useRouter, usePathname} from 'next/navigation';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {TopNav, TopNavHeading} from '@astryxdesign/core/TopNav';
-import {NavIcon} from '@astryxdesign/core/NavIcon';
 import {HStack} from '@astryxdesign/core/Stack';
 import {Button} from '@astryxdesign/core/Button';
-import {CubeIcon} from '@heroicons/react/24/outline';
 import type {Peer as PeerConfig} from '@/lib/config';
 import {locationHref, parseRoute, ALL_LOCATION} from '@/lib/locations';
 import {
@@ -94,8 +92,15 @@ export function AppChrome({
               <TopNavHeading
                 heading="Turbo Jumbo"
                 logo={
-                  <NavIcon
-                    icon={<CubeIcon style={{width: 16, height: 16}} />}
+                  // The app mark, doubling as the favicon (app/icon.svg — Next
+                  // serves it at /icon.svg), so nav and tab always match.
+                  // eslint-disable-next-line @next/next/no-img-element -- next/image can't optimize a 24px SVG
+                  <img
+                    src="/icon.svg"
+                    alt=""
+                    width={24}
+                    height={24}
+                    style={{display: 'block'}}
                   />
                 }
               />

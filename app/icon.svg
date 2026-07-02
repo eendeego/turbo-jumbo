@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Turbo Jumbo mark: a charging elephant (the heavyweight cargo) with speed
+       lines. Served by Next as the favicon; the top nav shows it via /icon.svg. -->
+  <rect width="32" height="32" rx="7" fill="#114B57"/>
+  <path d="M3.5 11h4.5M2.5 15.5h3.5M3.5 20h4.5" stroke="#F2A33C" stroke-width="2.3" stroke-linecap="round" fill="none"/>
+  <circle cx="18.5" cy="14.5" r="7.5" fill="#F6EFE4"/>
+  <path d="M24 17 C26 19.5 26 22.5 23.5 25" stroke="#F6EFE4" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+  <circle cx="16" cy="14" r="3.8" fill="#114B57"/>
+  <circle cx="22" cy="12.5" r="1.2" fill="#114B57"/>
+</svg>
