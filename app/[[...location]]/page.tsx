@@ -9,8 +9,7 @@ import {
 } from '@/lib/config';
 import {scanModels} from '@/lib/models';
 import {parseRoute} from '@/lib/locations';
-import {getModelsTableData} from '@/components/models/models-table';
-import {HomeClient} from '@/components/home/home-client';
+import {HomeView} from '@/components/home/home-view';
 import {LemonadeClient} from '@/components/lemonade/lemonade-client';
 import {HfDownloadClient} from '@/components/hf-download/hf-download-client';
 
@@ -32,14 +31,11 @@ export default async function Home({
   if (route === null) notFound();
   const {location: activeLocation, view} = route;
 
-  const coldModels = scanModels(coldStorageDir);
-  const localModels = scanModels(localModelsDir, lemonadeDir);
-  const peerConfigs = config.peers.map((p) => ({
-    ...p,
-    isLocal: p === localPeer,
-  }));
-
   if (view === 'hf') {
+    const peerConfigs = config.peers.map((p) => ({
+      ...p,
+      isLocal: p === localPeer,
+    }));
     return (
       <HfDownloadClient
         activeLocation={activeLocation}
@@ -51,6 +47,12 @@ export default async function Home({
   }
 
   if (view === 'lemonade') {
+    const coldModels = scanModels(coldStorageDir);
+    const localModels = scanModels(localModelsDir, lemonadeDir);
+    const peerConfigs = config.peers.map((p) => ({
+      ...p,
+      isLocal: p === localPeer,
+    }));
     // Lemonade's own model cache lives outside the managed storage; scan it so
     // the Lemonade browser can flag catalog entries already present there.
     const lemonadeCacheModels = lemonadeDir ? scanModels(lemonadeDir) : [];
@@ -68,17 +70,5 @@ export default async function Home({
     );
   }
 
-  const modelsTableData = getModelsTableData(localModels, coldModels);
-  return (
-    <HomeClient
-      activeLocation={activeLocation}
-      coldModels={coldModels}
-      localModelsPath={localModelsDir ?? null}
-      hfTokenSet={!!process.env.HF_TOKEN}
-      modelsTableData={modelsTableData}
-      peerConfigs={peerConfigs}
-      localPeerAddress={localPeer?.address ?? null}
-      localPeerModels={localModels}
-    />
-  );
+  return <HomeView location={activeLocation} />;
 }
