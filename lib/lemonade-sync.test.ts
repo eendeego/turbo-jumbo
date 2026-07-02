@@ -218,7 +218,14 @@ test('in a partially-synced model, acts only on the un-synced file', async () =>
 
   // Only the un-synced file is counted as work.
   expect(await previewLemonadeSync(tj, lem)).toEqual([
-    {repoId: 'org/part', rev, moveCount: 1, dedupCount: 0, linkCount: 0},
+    {
+      repoId: 'org/part',
+      rev,
+      moveCount: 1,
+      dedupCount: 0,
+      linkCount: 0,
+      staleCount: 0,
+    },
   ]);
 
   const [result] = await syncLemonadeToTurboJumbo(tj, lem);
@@ -239,6 +246,62 @@ test('in a partially-synced model, acts only on the un-synced file', async () =>
   expect((await fsp.lstat(path.join(snap, 'new.bin'))).isSymbolicLink()).toBe(
     true,
   );
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('preview counts a dangling snapshot link as stale', async () => {
+  const {root, tj, lem} = await mkdirs();
+  const rev = 'stale-rev';
+  // One healthy link, one whose Turbo Jumbo target is then deleted.
+  await syncedRepo(lem, tj, 'org', 'stale', rev, {
+    'kept.bin': 'KEPT',
+    'gone.bin': 'GONE',
+  });
+  await fsp.rm(path.join(tj, 'org/stale/gone.bin'));
+
+  expect(await previewLemonadeSync(tj, lem)).toEqual([
+    {
+      repoId: 'org/stale',
+      rev,
+      moveCount: 0,
+      dedupCount: 0,
+      linkCount: 0,
+      staleCount: 1,
+    },
+  ]);
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('sync removes a dangling snapshot link and leaves healthy links alone', async () => {
+  const {root, tj, lem} = await mkdirs();
+  const rev = 'stale-run';
+  await syncedRepo(lem, tj, 'org', 'stale', rev, {
+    'kept.bin': 'KEPT',
+    'gone.bin': 'GONE',
+  });
+  await fsp.rm(path.join(tj, 'org/stale/gone.bin'));
+
+  const [result] = await syncLemonadeToTurboJumbo(tj, lem);
+  expect(result.repoId).toBe('org/stale');
+  expect(result.files).toContainEqual({
+    repoPath: 'gone.bin',
+    status: 'stale-removed',
+  });
+  expect(result.files).toContainEqual({
+    repoPath: 'kept.bin',
+    status: 'already-linked',
+  });
+
+  const snap = path.join(lem, `models--org--stale/snapshots/${rev}`);
+  // The dangling link is gone; the healthy one still resolves.
+  expect(existsSync(path.join(snap, 'gone.bin'))).toBe(false);
+  expect(
+    (await fsp.lstat(path.join(snap, 'gone.bin')).catch(() => null)) === null,
+  ).toBe(true);
+  expect(await fsp.readFile(path.join(snap, 'kept.bin'), 'utf8')).toBe('KEPT');
+
+  // Idempotent: with the stale link cleared, a re-run finds nothing.
+  expect(await syncLemonadeToTurboJumbo(tj, lem)).toEqual([]);
   await fsp.rm(root, {recursive: true, force: true});
 });
 
@@ -281,7 +344,14 @@ test('materializes a catalog model Turbo Jumbo has but Lemonade lacks (symlinks 
 
   // Preview lists it as a link, not a move/dedup.
   expect(await previewLemonadeSync(tj, lem, ['org/cat'])).toEqual([
-    {repoId: 'org/cat', rev, moveCount: 0, dedupCount: 0, linkCount: 2},
+    {
+      repoId: 'org/cat',
+      rev,
+      moveCount: 0,
+      dedupCount: 0,
+      linkCount: 2,
+      staleCount: 0,
+    },
   ]);
 
   const [result] = await syncLemonadeToTurboJumbo(tj, lem, ['org/cat']);
@@ -330,6 +400,7 @@ test('does not materialize when Turbo Jumbo lacks the model or a recorded revisi
       moveCount: 0,
       dedupCount: 0,
       linkCount: 0,
+      staleCount: 0,
       blocked: 'no-revision',
     },
   ]);
@@ -349,6 +420,7 @@ test('a model without a sidecar at all is likewise surfaced as blocked', async (
       moveCount: 0,
       dedupCount: 0,
       linkCount: 0,
+      staleCount: 0,
       blocked: 'no-revision',
     },
   ]);

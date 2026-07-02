@@ -30,6 +30,7 @@ export type SyncFileStatus =
   | 'deduplicated' // an identical Turbo Jumbo copy existed — Lemonade dup deleted, symlinked
   | 'materialized' // Turbo Jumbo had it, Lemonade didn't — created a Lemonade symlink
   | 'already-linked' // the Lemonade entry was already a symlink — left alone
+  | 'stale-removed' // the entry was a dangling symlink (target gone) — deleted
   | 'skipped' // Turbo Jumbo holds a *different* file — left alone
   | 'error';
 
@@ -173,6 +174,7 @@ export interface LemonadeSyncPreview {
   moveCount: number; // Lemonade-only files that would move into Turbo Jumbo
   dedupCount: number; // files Turbo Jumbo already holds — Lemonade copy deleted
   linkCount: number; // files to materialize as Lemonade symlinks into Turbo Jumbo
+  staleCount: number; // dangling snapshot symlinks (target gone) to delete
   // A model the sync wants to materialize but can't: its sidecar records no
   // repoCommit, so there's no revision to name the snapshot dir. Surfaced so
   // "nothing to sync" isn't conflated with "can't sync"; a run skips it.
@@ -197,18 +199,21 @@ export async function previewLemonadeSync(
     );
     let moveCount = 0;
     let dedupCount = 0;
+    let staleCount = 0;
     for (const entry of entries) {
       const {action} = await planFile(tj, repo.repoId, entry);
       if (action === 'move') moveCount++;
       else if (action === 'dedup') dedupCount++;
+      else if (action === 'stale') staleCount++;
     }
-    if (moveCount + dedupCount > 0)
+    if (moveCount + dedupCount + staleCount > 0)
       out.push({
         repoId: repo.repoId,
         rev: repo.rev,
         moveCount,
         dedupCount,
         linkCount: 0,
+        staleCount,
       });
   }
   // Catalog models to materialize into Lemonade.
@@ -222,6 +227,7 @@ export async function previewLemonadeSync(
         moveCount: 0,
         dedupCount: 0,
         linkCount: 0,
+        staleCount: 0,
         blocked: 'no-revision',
       });
     } else {
@@ -231,6 +237,7 @@ export async function previewLemonadeSync(
         moveCount: 0,
         dedupCount: 0,
         linkCount: plan.repoPaths.length,
+        staleCount: 0,
       });
     }
   }
@@ -242,8 +249,10 @@ export async function previewLemonadeSync(
 //  - move:           no Turbo Jumbo copy yet — relocate the real file there
 //  - dedup:          an identical (same-size) Turbo Jumbo copy exists — drop ours
 //  - skip-differs:   a Turbo Jumbo copy exists but differs in size — leave it
-//  - already-linked: the entry is already a symlink
-type FileAction = 'move' | 'dedup' | 'skip-differs' | 'already-linked';
+//  - already-linked: the entry is already a symlink that still resolves
+//  - stale:          the entry is a dangling symlink (its target is gone)
+type FileAction =
+  'move' | 'dedup' | 'skip-differs' | 'already-linked' | 'stale';
 
 interface FilePlan {
   dst: string; // the Turbo Jumbo path this entry maps to
@@ -259,7 +268,15 @@ async function planFile(
   entry: SnapshotEntry,
 ): Promise<FilePlan> {
   const dst = nodePath.join(tj, repoId, entry.repoPath);
-  if (entry.isSymlink) return {dst, action: 'already-linked'};
+  if (entry.isSymlink) {
+    // stat follows the link: a failure means the target no longer exists (e.g.
+    // the Turbo Jumbo file it pointed at was deleted) — the link is stale.
+    const resolves = await fsp
+      .stat(entry.full)
+      .then(() => true)
+      .catch(() => false);
+    return {dst, action: resolves ? 'already-linked' : 'stale'};
+  }
   const dstStat = await fsp.stat(dst).catch(() => null);
   if (!dstStat) return {dst, action: 'move'};
   const srcSize = (await fsp.stat(entry.full)).size;
@@ -401,7 +418,9 @@ export async function materializeLemonadeModel(
  * identical (same-size) copy of is **deduplicated** — the Lemonade copy is
  * deleted and replaced with a symlink; a file Turbo Jumbo holds a *different*
  * copy of, or one already symlinked, is left untouched (no overwrite, no data
- * loss). Moved files are recorded in `tjmodel.json` with the snapshot revision
+ * loss); a **stale** symlink — one whose target no longer exists — is deleted,
+ * since it only misleads Lemonade's cache scan. Moved files are recorded in
+ * `tjmodel.json` with the snapshot revision
  * as the model's `repoCommit`; deduplicated files already have a Turbo Jumbo
  * sidecar and aren't rewritten.
  */
@@ -420,6 +439,13 @@ export async function syncLemonadeRepo(
       const {dst, action} = await planFile(tj, repo.repoId, entry);
       if (action === 'already-linked') {
         files.push({repoPath: entry.repoPath, status: 'already-linked'});
+        continue;
+      }
+      if (action === 'stale') {
+        // The link's target is gone (e.g. its Turbo Jumbo file was deleted);
+        // a dangling link only misleads Lemonade's cache scan, so drop it.
+        await fsp.unlink(entry.full);
+        files.push({repoPath: entry.repoPath, status: 'stale-removed'});
         continue;
       }
       if (action === 'skip-differs') {
@@ -498,7 +524,10 @@ export async function syncLemonadeToTurboJumbo(
     const result = await syncLemonadeRepo(tjBase, repo);
     if (
       result.files.some(
-        (f) => f.status === 'linked' || f.status === 'deduplicated',
+        (f) =>
+          f.status === 'linked' ||
+          f.status === 'deduplicated' ||
+          f.status === 'stale-removed',
       )
     ) {
       out.push(result);

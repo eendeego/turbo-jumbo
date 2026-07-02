@@ -16,6 +16,7 @@ interface Preview {
   moveCount: number;
   dedupCount: number;
   linkCount: number;
+  staleCount: number;
   blocked?: 'no-revision';
 }
 interface FileResult {
@@ -25,6 +26,7 @@ interface FileResult {
     | 'deduplicated'
     | 'materialized'
     | 'already-linked'
+    | 'stale-removed'
     | 'skipped'
     | 'error';
   message?: string;
@@ -94,7 +96,7 @@ export function LemonadeSyncModal({
   // Blocked models are shown but never synced, so every count excludes them.
   const actionable = preview.filter((p) => !p.blocked);
   const totalFiles = actionable.reduce(
-    (n, p) => n + p.moveCount + p.dedupCount + p.linkCount,
+    (n, p) => n + p.moveCount + p.dedupCount + p.linkCount + p.staleCount,
     0,
   );
   const fileCountLabel = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
@@ -123,6 +125,12 @@ export function LemonadeSyncModal({
       items: preview.filter((p) => p.linkCount > 0),
       describe: (p: Preview) =>
         `${fileCountLabel(p.linkCount)} · ${p.rev.slice(0, 12)}`,
+    },
+    {
+      title: 'Removing stale Lemonade links (target no longer exists)',
+      items: preview.filter((p) => p.staleCount > 0),
+      describe: (p: Preview) =>
+        `${fileCountLabel(p.staleCount)} · ${p.rev.slice(0, 12)}`,
     },
     {
       title: 'Skipped — cannot link into Lemonade',
@@ -157,7 +165,8 @@ export function LemonadeSyncModal({
           structure, and deduplicates files Turbo Jumbo already holds — then
           replaces the Lemonade copies with symbolic links into Turbo Jumbo.
           Catalog models Turbo Jumbo already has but Lemonade hasn&apos;t
-          downloaded are linked into Lemonade&apos;s cache.
+          downloaded are linked into Lemonade&apos;s cache, and stale links
+          whose files were deleted are removed.
         </Text>
 
         {phase === 'loading' && (
@@ -209,6 +218,12 @@ export function LemonadeSyncModal({
               {counts.materialized ? (
                 <Badge
                   label={`${counts.materialized} linked`}
+                  variant="success"
+                />
+              ) : null}
+              {counts['stale-removed'] ? (
+                <Badge
+                  label={`${counts['stale-removed']} stale link${counts['stale-removed'] === 1 ? '' : 's'} removed`}
                   variant="success"
                 />
               ) : null}
