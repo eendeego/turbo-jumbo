@@ -16,6 +16,7 @@ interface Preview {
   moveCount: number;
   dedupCount: number;
   linkCount: number;
+  blocked?: 'no-revision';
 }
 interface FileResult {
   repoPath: string;
@@ -90,27 +91,39 @@ export function LemonadeSyncModal({
     }
   }
 
-  const totalFiles = preview.reduce(
+  // Blocked models are shown but never synced, so every count excludes them.
+  const actionable = preview.filter((p) => !p.blocked);
+  const totalFiles = actionable.reduce(
     (n, p) => n + p.moveCount + p.dedupCount + p.linkCount,
     0,
   );
+  const fileCountLabel = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
   // Group the preview by action so each model is listed as its own row, the same
   // way across imports, deduplications, and links — never folded into a count.
   const sections = [
     {
       title: 'Importing into Turbo Jumbo',
       items: preview.filter((p) => p.moveCount > 0),
-      count: (p: Preview) => p.moveCount,
+      describe: (p: Preview) =>
+        `${fileCountLabel(p.moveCount)} · ${p.rev.slice(0, 12)}`,
     },
     {
       title: 'Deduplicating (already in Turbo Jumbo)',
       items: preview.filter((p) => p.dedupCount > 0),
-      count: (p: Preview) => p.dedupCount,
+      describe: (p: Preview) =>
+        `${fileCountLabel(p.dedupCount)} · ${p.rev.slice(0, 12)}`,
     },
     {
       title: 'Linking into Lemonade (already in Turbo Jumbo)',
       items: preview.filter((p) => p.linkCount > 0),
-      count: (p: Preview) => p.linkCount,
+      describe: (p: Preview) =>
+        `${fileCountLabel(p.linkCount)} · ${p.rev.slice(0, 12)}`,
+    },
+    {
+      title: 'Skipped — cannot link into Lemonade',
+      items: preview.filter((p) => p.blocked),
+      describe: () =>
+        'no revision recorded — audit the model to record one, then re-run',
     },
   ].filter((s) => s.items.length > 0);
   const counts = results
@@ -164,7 +177,7 @@ export function LemonadeSyncModal({
                       <ListItem
                         key={p.repoId}
                         label={p.repoId}
-                        description={`${s.count(p)} file${s.count(p) === 1 ? '' : 's'} · ${p.rev.slice(0, 12)}`}
+                        description={s.describe(p)}
                       />
                     ))}
                   </List>
@@ -226,11 +239,11 @@ export function LemonadeSyncModal({
                 label={
                   phase === 'running'
                     ? 'Syncing…'
-                    : `Sync ${preview.length} model${preview.length === 1 ? '' : 's'} (${totalFiles} file${totalFiles === 1 ? '' : 's'})`
+                    : `Sync ${actionable.length} model${actionable.length === 1 ? '' : 's'} (${fileCountLabel(totalFiles)})`
                 }
                 variant="primary"
                 onClick={runSync}
-                isDisabled={phase !== 'preview' || preview.length === 0}
+                isDisabled={phase !== 'preview' || actionable.length === 0}
               />
             </>
           )}

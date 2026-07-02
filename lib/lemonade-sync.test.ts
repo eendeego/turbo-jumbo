@@ -307,7 +307,9 @@ test('materializes a catalog model Turbo Jumbo has but Lemonade lacks (symlinks 
 
 test('does not materialize when Turbo Jumbo lacks the model or a recorded revision', async () => {
   const {root, tj, lem} = await mkdirs();
-  // In TJ but no repoCommit recorded → can't name the snapshot dir → skipped.
+  // In TJ but no repoCommit recorded → can't name the snapshot dir. The model
+  // is surfaced as blocked in the preview (not silently omitted), but a run
+  // still won't touch it.
   await write(tj, 'org/norev/m.bin', 'X');
   await write(
     tj,
@@ -321,9 +323,36 @@ test('does not materialize when Turbo Jumbo lacks the model or a recorded revisi
   // Not in TJ at all.
   const repoIds = ['org/norev', 'org/absent'];
 
-  expect(await previewLemonadeSync(tj, lem, repoIds)).toEqual([]);
+  expect(await previewLemonadeSync(tj, lem, repoIds)).toEqual([
+    {
+      repoId: 'org/norev',
+      rev: '',
+      moveCount: 0,
+      dedupCount: 0,
+      linkCount: 0,
+      blocked: 'no-revision',
+    },
+  ]);
   expect(await syncLemonadeToTurboJumbo(tj, lem, repoIds)).toEqual([]);
   expect(existsSync(path.join(lem, 'models--org--norev'))).toBe(false);
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('a model without a sidecar at all is likewise surfaced as blocked', async () => {
+  const {root, tj, lem} = await mkdirs();
+  await write(tj, 'org/bare/m.bin', 'X');
+
+  expect(await previewLemonadeSync(tj, lem, ['org/bare'])).toEqual([
+    {
+      repoId: 'org/bare',
+      rev: '',
+      moveCount: 0,
+      dedupCount: 0,
+      linkCount: 0,
+      blocked: 'no-revision',
+    },
+  ]);
+  expect(await syncLemonadeToTurboJumbo(tj, lem, ['org/bare'])).toEqual([]);
   await fsp.rm(root, {recursive: true, force: true});
 });
 

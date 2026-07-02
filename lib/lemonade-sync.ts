@@ -169,10 +169,14 @@ export async function findLemonadeOnlyRepos(
 
 export interface LemonadeSyncPreview {
   repoId: string;
-  rev: string;
+  rev: string; // empty when blocked — there is no revision to show
   moveCount: number; // Lemonade-only files that would move into Turbo Jumbo
   dedupCount: number; // files Turbo Jumbo already holds — Lemonade copy deleted
   linkCount: number; // files to materialize as Lemonade symlinks into Turbo Jumbo
+  // A model the sync wants to materialize but can't: its sidecar records no
+  // repoCommit, so there's no revision to name the snapshot dir. Surfaced so
+  // "nothing to sync" isn't conflated with "can't sync"; a run skips it.
+  blocked?: 'no-revision';
 }
 
 /** The models a sync would change, split into files to move, deduplicate, or
@@ -210,7 +214,17 @@ export async function previewLemonadeSync(
   // Catalog models to materialize into Lemonade.
   for (const repoId of catalogRepoIds) {
     const plan = await planMaterialize(tj, lemonadeBase, repoId);
-    if (plan)
+    if (!plan) continue;
+    if (plan.rev === null) {
+      out.push({
+        repoId,
+        rev: '',
+        moveCount: 0,
+        dedupCount: 0,
+        linkCount: 0,
+        blocked: 'no-revision',
+      });
+    } else {
       out.push({
         repoId,
         rev: plan.rev,
@@ -218,6 +232,7 @@ export async function previewLemonadeSync(
         dedupCount: 0,
         linkCount: plan.repoPaths.length,
       });
+    }
   }
   return out;
 }
@@ -305,21 +320,22 @@ async function listTjFiles(tjModelDir: string): Promise<string[]> {
   return out;
 }
 
-/** What materializing `repoId` into Lemonade would entail, or null when there's
- *  nothing to do: Lemonade already has a cache entry, Turbo Jumbo doesn't hold
- *  the model, or no revision is recorded to name the snapshot dir. Shared by the
- *  preview and the executor so they agree. */
+/** What materializing `repoId` into Lemonade would entail. Null when there's
+ *  nothing to do: Lemonade already has a cache entry, or Turbo Jumbo doesn't
+ *  hold the model. `rev: null` when the model is a candidate but its sidecar
+ *  records no repoCommit — nothing can name the snapshot dir, so it's blocked
+ *  rather than actionable. Shared by the preview and the executor so they
+ *  agree. */
 async function planMaterialize(
   tj: string,
   lemonadeBase: string,
   repoId: string,
-): Promise<{rev: string; repoPaths: string[]} | null> {
+): Promise<{rev: string | null; repoPaths: string[]} | null> {
   if (await exists(lemonadeRepoDir(lemonadeBase, repoId))) return null;
   const repoPaths = await listTjFiles(nodePath.join(tj, repoId));
   if (repoPaths.length === 0) return null;
   const sidecar = await readModelSidecar(tj, repoId);
-  if (!sidecar?.repoCommit) return null;
-  return {rev: sidecar.repoCommit, repoPaths};
+  return {rev: sidecar?.repoCommit ?? null, repoPaths};
 }
 
 /**
@@ -337,7 +353,7 @@ export async function materializeLemonadeModel(
 ): Promise<SyncModelResult | null> {
   const tj = nodePath.resolve(tjBase);
   const plan = await planMaterialize(tj, lemonadeBase, repoId);
-  if (!plan) return null;
+  if (!plan || plan.rev === null) return null;
   const {rev, repoPaths} = plan;
   const snapshotDir = nodePath.join(
     lemonadeRepoDir(lemonadeBase, repoId),
