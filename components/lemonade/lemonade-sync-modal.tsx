@@ -8,6 +8,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
 import {List, ListItem} from '@astryxdesign/core/List';
+import {CopyNameButton} from '@/components/controls/copy-name-button';
 
 // Mirrors the API shapes in lib/lemonade-sync.ts (kept local so this client
 // component never imports the server module).
@@ -199,6 +200,7 @@ export function LemonadeSyncModal({
                               key={p.repoId}
                               label={p.repoId}
                               description={s.describe(p)}
+                              endContent={<CopyNameButton name={p.repoId} />}
                             />
                           ))}
                         </List>

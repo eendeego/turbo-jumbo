@@ -1,17 +1,16 @@
 'use client';
 
-import {useState, type ReactNode} from 'react';
+import {type ReactNode} from 'react';
 import * as stylex from '@stylexjs/stylex';
 import {HStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
-import {IconButton} from '@astryxdesign/core/IconButton';
 import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {Link} from '@astryxdesign/core/Link';
 import {VStack} from '@astryxdesign/core/Stack';
-import {copyToClipboard} from '@/lib/clipboard';
+import {CopyNameButton} from '@/components/controls/copy-name-button';
 import {modelDisplayName} from '@/lib/model-name';
 import type {RepoFileState} from '@/lib/repo-files';
 import {formatSize, type DisplayRow} from '@/lib/model-row';
@@ -39,30 +38,6 @@ function FileStateMarker({state}: {state: RepoFileState}) {
         ? ({label: 'missing', variant: 'neutral'} as const)
         : ({label: 'invalid', variant: 'red'} as const);
   return <Badge label={label} variant={variant} />;
-}
-
-/**
- * A small clipboard icon that copies a model or file name. Flips to a check
- * mark for a moment after a successful copy so the click registers visibly.
- */
-function CopyNameButton({name}: {name: string}) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    copyToClipboard(name).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
-  return (
-    <IconButton
-      label={`Copy name ${name}`}
-      icon={<Icon icon={copied ? 'check' : 'copy'} size="sm" />}
-      variant="ghost"
-      size="sm"
-      tooltip={copied ? 'Copied' : 'Copy name'}
-      onClick={copy}
-    />
-  );
 }
 
 /** The Hugging Face commit page URL for a sidecar's model and a commit sha. */
