@@ -119,9 +119,7 @@ test('applyFileMeta sets repoCommit only when the destination has none', async (
   const {root, dst} = await tmpBases();
   // Fresh destination: the forwarded head lands.
   await applyFileMeta(dst, 'org/repo/a.gguf', meta(), {id: 'srchead'});
-  expect((await readModelSidecar(dst, 'org/repo'))?.repoCommit).toBe(
-    'srchead',
-  );
+  expect((await readModelSidecar(dst, 'org/repo'))?.repoCommit).toBe('srchead');
 
   // Destination already has an observation: a copy must not clobber it.
   const dst2 = path.join(root, 'dst2');
