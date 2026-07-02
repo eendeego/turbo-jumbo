@@ -261,6 +261,17 @@ export async function POST(req: Request) {
               fail(`push ${source} → ${dest}`, `HTTP ${res.status}`);
               continue;
             }
+            // The push carried each file's provenance to the destination;
+            // surface any per-file meta failures it reported (best effort —
+            // the byte copies themselves succeeded).
+            const {metaErrors} = (await res
+              .json()
+              .catch(() => ({}) as {metaErrors?: string[]})) as {
+              metaErrors?: string[];
+            };
+            for (const e of metaErrors ?? []) {
+              errors.push(`push ${source} → ${dest}: ${e}`);
+            }
             filesDone += groupFiles.length;
             bytesDone += pushBytes;
             fileDone = pushBytes;
@@ -379,6 +390,23 @@ export async function POST(req: Request) {
                     bytesDone += chunkEnd - offset;
                     emit();
                   }
+                }
+                // Bytes are up; hand the destination the file's provenance so
+                // it names and audits the copy without a re-hash. Best effort:
+                // failure is reported but the upload stands.
+                try {
+                  const payload = await readFileMetaWithRepoHead(
+                    localBase,
+                    f.path,
+                  );
+                  if (payload)
+                    await sendFileMeta(dest, f.path, payload, signal);
+                } catch (err) {
+                  if (signal.aborted) throw err;
+                  fail(
+                    `meta ${f.path} → ${dest}`,
+                    err instanceof Error ? err.message : String(err),
+                  );
                 }
                 filesDone++;
                 fileDone = f.size;

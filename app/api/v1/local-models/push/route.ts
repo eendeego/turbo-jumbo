@@ -1,4 +1,5 @@
 import {localModelsDir} from '@/lib/config';
+import {readFileMetaWithRepoHead, sendFileMeta} from '@/lib/copy-meta';
 import {logger} from '@/lib/logger';
 import {hasStringFiles, readJsonBody} from '@/lib/request';
 import nodePath from 'path';
@@ -26,6 +27,21 @@ export async function POST(req: Request) {
 
   logger.info(`[push] start: ${files.length} file(s) → ${toPeer}`);
 
+  // Once a file's bytes are up, hand the destination its provenance so it
+  // names and audits the copy without a re-hash. Best effort: a meta failure
+  // is reported to the caller but doesn't fail the push.
+  const metaErrors: string[] = [];
+  const sendMetaFor = async (file: string) => {
+    try {
+      const payload = await readFileMetaWithRepoHead(base, file);
+      if (payload) await sendFileMeta(toPeer, file, payload);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`[push] meta failed for ${file} → ${toPeer}: ${msg}`);
+      metaErrors.push(`${file}: meta: ${msg}`);
+    }
+  };
+
   for (const file of files) {
     const full = nodePath.resolve(base, file);
     if (!full.startsWith(base + nodePath.sep))
@@ -48,6 +64,7 @@ export async function POST(req: Request) {
           status: 502,
         });
       }
+      await sendMetaFor(file);
       continue;
     }
 
@@ -78,9 +95,13 @@ export async function POST(req: Request) {
         });
       }
     }
+    await sendMetaFor(file);
   }
 
   logger.info(`[push] done: ${files.length} file(s) → ${toPeer}`);
 
-  return Response.json({ok: true});
+  return Response.json({
+    ok: true,
+    ...(metaErrors.length ? {metaErrors} : {}),
+  });
 }
