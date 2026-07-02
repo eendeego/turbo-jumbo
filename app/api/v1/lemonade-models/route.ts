@@ -6,7 +6,7 @@ import {
   type LemonadeModel,
   type OmniCollection,
   type OmniManifestRef,
-} from '@/lib/lemonade';
+} from '@/lib/lemonade/lemonade';
 
 const CATALOG_URL = LEMONADE_CATALOG_URL;
 

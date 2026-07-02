@@ -1,4 +1,4 @@
-import {ALL_LOCATION} from '@/lib/locations';
+import {ALL_LOCATION} from '@/lib/storage/locations';
 import {HfDownloadModalRoute} from '@/components/hf-download/hf-download-modal-route';
 
 // Soft navigation to /download/hf: fill the @modal slot with the download

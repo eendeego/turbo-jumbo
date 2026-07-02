@@ -1,7 +1,7 @@
 import {config, localPeer} from '@/lib/config';
-import {logger} from '@/lib/logger';
-import {isObject, readJsonBody} from '@/lib/request';
-import {streamHfDownload} from '@/lib/hf-download-stream';
+import {logger} from '@/lib/util/logger';
+import {isObject, readJsonBody} from '@/lib/util/request';
+import {streamHfDownload} from '@/lib/hf/hf-download-stream';
 
 // Run an HF download on a specific peer. The local peer runs it directly via
 // the shared streamer; a remote peer runs it on itself — we forward the request

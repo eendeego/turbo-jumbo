@@ -1,6 +1,6 @@
 import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
-import {logger} from '@/lib/logger';
-import {isObject, isStringArray, readJsonBody} from '@/lib/request';
+import {logger} from '@/lib/util/logger';
+import {isObject, isStringArray, readJsonBody} from '@/lib/util/request';
 import nodePath from 'path';
 import {promises as fsp} from 'fs';
 import {execFile} from 'child_process';

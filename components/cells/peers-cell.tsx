@@ -4,8 +4,8 @@ import {HStack} from '@astryxdesign/core/Stack';
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
 import type {Peer as PeerConfig} from '@/lib/config';
-import {fileBasename, fileJoinKey} from '@/lib/peer-paths';
-import type {DisplayRow, PeerPresence} from '@/lib/model-row';
+import {fileBasename, fileJoinKey} from '@/lib/peers/peer-paths';
+import type {DisplayRow, PeerPresence} from '@/lib/models/model-row';
 
 /** First letter of a peer name, for the compact badge/header initials. */
 const peerInitial = (name: string) => (name[0] ?? '?').toUpperCase();
@@ -47,7 +47,7 @@ export function PeersCell({
       {peers.map((peer) => {
         // Joined by file key, not model name: names are derived per host and can
         // disagree for the same file, but a generic weight name is qualified by
-        // the model so different repos don't collide (see lib/peer-paths.ts).
+        // the model so different repos don't collide (see lib/peers/peer-paths.ts).
         const keys = peerKeys.get(peer.address);
         const hasPeer =
           keys != null &&

@@ -8,10 +8,10 @@ import {Icon} from '@astryxdesign/core/Icon';
 import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
-import type {AuditResult, AuditStatus, UpdateResult} from '@/lib/audit';
-import type {RowAudit} from '@/lib/row-audit';
-import type {RepoFile} from '@/lib/repo-files';
-import {formatSize} from '@/lib/model-row';
+import type {AuditResult, AuditStatus, UpdateResult} from '@/lib/audit/audit';
+import type {RowAudit} from '@/lib/audit/row-audit';
+import type {RepoFile} from '@/lib/models/repo-files';
+import {formatSize} from '@/lib/models/model-row';
 
 const styles = stylex.create({
   // Cached (sidecar-derived) audit verdicts are toned down vs fresh results.

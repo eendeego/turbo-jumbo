@@ -11,14 +11,14 @@ import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {Link} from '@astryxdesign/core/Link';
 import {VStack} from '@astryxdesign/core/Stack';
 import {CopyNameButton} from '@/components/controls/copy-name-button';
-import {modelDisplayName} from '@/lib/model-name';
-import type {RepoFileState} from '@/lib/repo-files';
-import {formatSize, type DisplayRow} from '@/lib/model-row';
+import {modelDisplayName} from '@/lib/models/model-name';
+import type {RepoFileState} from '@/lib/models/repo-files';
+import {formatSize, type DisplayRow} from '@/lib/models/model-row';
 import {
   MIXED_COMMIT,
   type FileProvenance,
   type SidecarSummary,
-} from '@/lib/sidecar-types';
+} from '@/lib/models/sidecar-types';
 
 const styles = stylex.create({
   indent1: {paddingInlineStart: '1.5rem'},

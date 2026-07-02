@@ -5,7 +5,10 @@ import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
-import {lemonadeStatusTooltip, type LemonadeDownloadInfo} from '@/lib/lemonade';
+import {
+  lemonadeStatusTooltip,
+  type LemonadeDownloadInfo,
+} from '@/lib/lemonade/lemonade';
 
 // A clickable divider titling a modality section in the catalog list; toggles
 // the section's collapsed state.

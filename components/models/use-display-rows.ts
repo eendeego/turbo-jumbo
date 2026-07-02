@@ -1,16 +1,16 @@
 import {useMemo} from 'react';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
-import type {RepoFile} from '@/lib/repo-files';
-import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peer-paths';
-import {isDiffusersRepo} from '@/lib/diffusers';
-import {coldStorageRollup} from '@/lib/cold-storage-rollup';
+import type {RepoFile} from '@/lib/models/repo-files';
+import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peers/peer-paths';
+import {isDiffusersRepo} from '@/lib/models/diffusers';
+import {coldStorageRollup} from '@/lib/storage/cold-storage-rollup';
 import {
   augmentWithPeerOnlyQuants,
   buildDisplayRows,
   type DisplayRow,
   type ModelRow,
-} from '@/lib/model-row';
+} from '@/lib/models/model-row';
 
 /**
  * The table's data-derivation pipeline: turn the location-filtered models, the
@@ -18,7 +18,7 @@ import {
  * renders, plus the lookups its header/cells need. Memoized so row objects keep
  * their identity across unrelated re-renders (Table's per-row memo bails out via
  * shallow compare otherwise). The pure row assembly lives in
- * `lib/model-row.buildDisplayRows`; this hook is the React glue.
+ * `lib/models/model-row.buildDisplayRows`; this hook is the React glue.
  */
 export function useDisplayRows({
   models,
@@ -42,7 +42,7 @@ export function useDisplayRows({
 } {
   // Lookup: peerAddress -> Set<file join key>. Files are matched across hosts by
   // key because model names are derived per host and can disagree for the same
-  // file (see lib/peer-paths.ts).
+  // file (see lib/peers/peer-paths.ts).
   const peerKeys = useMemo(() => {
     const map = new Map<string, Set<string>>();
     for (const [address, lo] of peerModels) {

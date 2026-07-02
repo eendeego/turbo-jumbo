@@ -1,7 +1,7 @@
 import type {Metadata} from 'next';
 import {notFound} from 'next/navigation';
 import {config, localPeer} from '@/lib/config';
-import {parseRoute} from '@/lib/locations';
+import {parseRoute} from '@/lib/storage/locations';
 import {HomeView} from '@/components/home/home-view';
 
 export function generateMetadata(): Metadata {

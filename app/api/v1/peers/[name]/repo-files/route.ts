@@ -1,6 +1,6 @@
 import {config, localPeer, localModelsDir} from '@/lib/config';
-import {logger} from '@/lib/logger';
-import {repoFileStatuses} from '@/lib/repo-files';
+import {logger} from '@/lib/util/logger';
+import {repoFileStatuses} from '@/lib/models/repo-files';
 
 const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 

@@ -1,10 +1,10 @@
 import {NextResponse} from 'next/server';
 import nodePath from 'path';
 import {localModelsDir, coldStorageDir, lemonadeDir} from '@/lib/config';
-import {deleteFileWithMeta} from '@/lib/delete-file';
-import {logger} from '@/lib/logger';
-import {scanModels, annotateColdStorage} from '@/lib/models';
-import {hasStringFiles, readJsonBody} from '@/lib/request';
+import {deleteFileWithMeta} from '@/lib/storage/delete-file';
+import {logger} from '@/lib/util/logger';
+import {scanModels, annotateColdStorage} from '@/lib/models/models';
+import {hasStringFiles, readJsonBody} from '@/lib/util/request';
 
 export function GET(req: Request) {
   logger.trace('[models] list requested');

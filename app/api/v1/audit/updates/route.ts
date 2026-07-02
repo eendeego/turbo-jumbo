@@ -1,8 +1,11 @@
-import {scanModels} from '@/lib/models';
-import {auditFileUpdate, type UpdateResult} from '@/lib/audit';
-import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
-import {isObject, readJsonBody} from '@/lib/request';
-import {clearHfCache} from '@/lib/hf-infer';
+import {scanModels} from '@/lib/models/models';
+import {auditFileUpdate, type UpdateResult} from '@/lib/audit/audit';
+import {
+  proxyAuditRequest,
+  resolveAuditLocation,
+} from '@/lib/audit/audit-location';
+import {isObject, readJsonBody} from '@/lib/util/request';
+import {clearHfCache} from '@/lib/hf/hf-infer';
 
 // Concurrent head-commit checks. Network-bound and tree-cached per repo (quants
 // of one model share a fetch), so this can be higher than the hashing audit's.

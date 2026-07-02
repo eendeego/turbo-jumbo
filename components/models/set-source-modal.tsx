@@ -7,7 +7,7 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Button} from '@astryxdesign/core/Button';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
-import type {AuditProgressEvent} from '@/lib/audit';
+import type {AuditProgressEvent} from '@/lib/audit/audit';
 import {formatBytes} from '@/components/models/model-list';
 
 interface SetSourceModalProps {

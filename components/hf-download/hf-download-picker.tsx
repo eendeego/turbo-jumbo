@@ -14,15 +14,15 @@ import {
   buildHfCommand,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
-import {copyToClipboard} from '@/lib/clipboard';
-import type {DownloadTarget} from '@/lib/download-target';
+import {copyToClipboard} from '@/lib/util/clipboard';
+import type {DownloadTarget} from '@/lib/hf/download-target';
 import {
   formatBytes,
   diskSpaceWarnings,
   type DownloadDiskUsage,
-} from '@/lib/disk-space';
-import {defaultDownloadSelection} from '@/lib/hf-download';
-import {parseHfUrl} from '@/lib/hf-url';
+} from '@/lib/storage/disk-space';
+import {defaultDownloadSelection} from '@/lib/hf/hf-download';
+import {parseHfUrl} from '@/lib/hf/hf-url';
 
 type HfFile = {path: string; size: number};
 

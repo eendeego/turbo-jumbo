@@ -1,12 +1,12 @@
-import {streamCopyResumable} from '@/lib/audit';
+import {streamCopyResumable} from '@/lib/audit/audit';
 import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
 import {
   propagateFileMeta,
   readFileMetaWithRepoHead,
   sendFileMeta,
-} from '@/lib/copy-meta';
-import {logger} from '@/lib/logger';
-import {isObject, readJsonBody} from '@/lib/request';
+} from '@/lib/storage/copy-meta';
+import {logger} from '@/lib/util/logger';
+import {isObject, readJsonBody} from '@/lib/util/request';
 import {promises as fsp} from 'fs';
 import {createReadStream} from 'fs';
 import nodePath from 'path';

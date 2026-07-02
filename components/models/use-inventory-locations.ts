@@ -2,11 +2,11 @@
 
 import {useMemo} from 'react';
 import type {Peer as PeerConfig} from '@/lib/config';
-import type {Model} from '@/lib/models';
-import type {InventoryLocation} from '@/lib/lemonade';
+import type {Model} from '@/lib/models/models';
+import type {InventoryLocation} from '@/lib/lemonade/lemonade';
 import type {PeerModels} from '@/components/peers/peer';
 import {usePeerModels} from '@/components/peers/use-peer-models';
-import {AsyncState} from '@/lib/async-state';
+import {AsyncState} from '@/lib/util/async-state';
 
 // Wraps usePeerModels and derives the inventory the Lemonade browser checks
 // catalog entries against: every configured peer (local seeded from server

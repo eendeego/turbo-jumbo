@@ -1,18 +1,21 @@
 import path from 'path';
-import {duplicateBasenames, scanModels} from '@/lib/models';
+import {duplicateBasenames, scanModels} from '@/lib/models/models';
 import {
   auditFile,
   duplicateResult,
   type AuditProgressEvent,
   type AuditResult,
   type AuditStartEvent,
-} from '@/lib/audit';
-import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
-import {hasOptionalStringFiles, readJsonBody} from '@/lib/request';
-import {hashProgressEmitter} from '@/lib/audit-progress';
-import {clearHfCache} from '@/lib/hf-infer';
-import {detectMissingMmproj} from '@/lib/mmproj';
-import {detectMissingExpectedFiles} from '@/lib/incomplete-models';
+} from '@/lib/audit/audit';
+import {
+  proxyAuditRequest,
+  resolveAuditLocation,
+} from '@/lib/audit/audit-location';
+import {hasOptionalStringFiles, readJsonBody} from '@/lib/util/request';
+import {hashProgressEmitter} from '@/lib/audit/audit-progress';
+import {clearHfCache} from '@/lib/hf/hf-infer';
+import {detectMissingMmproj} from '@/lib/audit/mmproj';
+import {detectMissingExpectedFiles} from '@/lib/audit/incomplete-models';
 
 // How many files to audit at once. Each job reads an entire (multi-GB) file to
 // hash it, so this is capped low: too high thrashes a single disk and the runs

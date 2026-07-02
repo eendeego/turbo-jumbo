@@ -1,15 +1,18 @@
 import path from 'path';
-import {scanModels} from '@/lib/models';
+import {scanModels} from '@/lib/models/models';
 import {
   expectedRelPath,
   moveFileWithMeta,
   refreshMetaSource,
   resolveSource,
   type FixResult,
-} from '@/lib/audit';
-import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
-import {hasOptionalStringFiles, readJsonBody} from '@/lib/request';
-import {clearHfCache} from '@/lib/hf-infer';
+} from '@/lib/audit/audit';
+import {
+  proxyAuditRequest,
+  resolveAuditLocation,
+} from '@/lib/audit/audit-location';
+import {hasOptionalStringFiles, readJsonBody} from '@/lib/util/request';
+import {clearHfCache} from '@/lib/hf/hf-infer';
 
 /**
  * Relocate misplaced model files into their HuggingFace layout

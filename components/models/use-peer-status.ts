@@ -1,7 +1,7 @@
 'use client';
 
 import {useEffect, useState} from 'react';
-import {subscribeToPeerEvents} from '@/lib/ws-client';
+import {subscribeToPeerEvents} from '@/lib/peers/ws-client';
 
 // Tracks which peers are currently unreachable, keyed by address. The server
 // monitors remote peers and broadcasts `peer-up`/`peer-down` over the WebSocket

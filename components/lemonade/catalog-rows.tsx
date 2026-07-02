@@ -7,9 +7,9 @@ import type {
   LemonadeComponent,
   LemonadeDownloadInfo,
   LemonadeModel,
-} from '@/lib/lemonade';
-import {formatGb, uniq} from '@/lib/lemonade-catalog';
-import {sortLabelsForDisplay} from '@/lib/lemonade-labels';
+} from '@/lib/lemonade/lemonade';
+import {formatGb, uniq} from '@/lib/lemonade/lemonade-catalog';
+import {sortLabelsForDisplay} from '@/lib/lemonade/lemonade-labels';
 import {ModelLabelIcon} from '@/components/lemonade/model-label-icon';
 import {
   IncompleteMarker,

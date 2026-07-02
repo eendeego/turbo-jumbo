@@ -2,11 +2,11 @@
 
 import {useCallback, useEffect, useState} from 'react';
 import {usePathname, useRouter} from 'next/navigation';
-import {locationHref} from '@/lib/locations';
+import {locationHref} from '@/lib/storage/locations';
 import type {Peer as PeerConfig} from '@/lib/config';
-import type {Model} from '@/lib/models';
-import {LEMONADE_CATALOG_URL} from '@/lib/lemonade';
-import {downloadTarget} from '@/lib/download-target';
+import type {Model} from '@/lib/models/models';
+import {LEMONADE_CATALOG_URL} from '@/lib/lemonade/lemonade';
+import {downloadTarget} from '@/lib/hf/download-target';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {VStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';

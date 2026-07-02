@@ -1,7 +1,7 @@
 import {NextResponse} from 'next/server';
 import {lemonadeDir} from '@/lib/config';
-import {logger} from '@/lib/logger';
-import {scanModels} from '@/lib/models';
+import {logger} from '@/lib/util/logger';
+import {scanModels} from '@/lib/models/models';
 
 // Lemonade keeps its own hub-cache of models it has pulled, separate from the
 // turbo-jumbo storage the rest of the app manages. scanModels normally skips

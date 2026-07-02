@@ -10,7 +10,7 @@ import {Badge} from '@astryxdesign/core/Badge';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {CopyNameButton} from '@/components/controls/copy-name-button';
 
-// Mirrors the API shapes in lib/lemonade-sync.ts (kept local so this client
+// Mirrors the API shapes in lib/lemonade/lemonade-sync.ts (kept local so this client
 // component never imports the server module).
 interface Preview {
   repoId: string;

@@ -3,7 +3,7 @@ import {
   useDownloadRunner,
   type DownloadRequest,
 } from '@/components/hf-download/download-runner';
-import type {DownloadTarget} from '@/lib/download-target';
+import type {DownloadTarget} from '@/lib/hf/download-target';
 import {
   collectionDownloadPlan,
   matchVariantFiles,
@@ -13,8 +13,12 @@ import {
   type Checkpoint,
   type InventoryLocation,
   type LemonadeModel,
-} from '@/lib/lemonade';
-import {uniq, type HfFile, type Selection} from '@/lib/lemonade-catalog';
+} from '@/lib/lemonade/lemonade';
+import {
+  uniq,
+  type HfFile,
+  type Selection,
+} from '@/lib/lemonade/lemonade-catalog';
 
 /**
  * The Lemonade download flow: resolve a selection's files (one repo for a GGUF

@@ -2,9 +2,9 @@
 
 import {useCallback} from 'react';
 import {usePathname, useRouter} from 'next/navigation';
-import {locationHref} from '@/lib/locations';
+import {locationHref} from '@/lib/storage/locations';
 import type {Peer as PeerConfig} from '@/lib/config';
-import {downloadTarget} from '@/lib/download-target';
+import {downloadTarget} from '@/lib/hf/download-target';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {VStack} from '@astryxdesign/core/Stack';
 import {HfDownloadPicker} from '@/components/hf-download/hf-download-picker';

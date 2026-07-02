@@ -1,5 +1,5 @@
 import {config} from '@/lib/config';
-import {resolveLocation, COLD_STORAGE_LOCATION} from '@/lib/locations';
+import {resolveLocation, COLD_STORAGE_LOCATION} from '@/lib/storage/locations';
 import {HfDownloadModalRoute} from '@/components/hf-download/hf-download-modal-route';
 
 // Soft navigation to /<peer>/download/hf. Invalid locations render no modal —

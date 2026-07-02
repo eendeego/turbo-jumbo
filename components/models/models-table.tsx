@@ -1,15 +1,15 @@
-import type {Model, ModelFile} from '@/lib/model-types';
-import {compareByRepoName, isMmprojFilename} from '@/lib/model-name';
-import {normalizeModelNames} from '@/lib/models';
-import {isDiffusersRepo, diffusersComponentKey} from '@/lib/diffusers';
-import {fileJoinKey} from '@/lib/peer-paths';
-import {coldStorageRollup} from '@/lib/cold-storage-rollup';
+import type {Model, ModelFile} from '@/lib/models/model-types';
+import {compareByRepoName, isMmprojFilename} from '@/lib/models/model-name';
+import {normalizeModelNames} from '@/lib/models/models';
+import {isDiffusersRepo, diffusersComponentKey} from '@/lib/models/diffusers';
+import {fileJoinKey} from '@/lib/peers/peer-paths';
+import {coldStorageRollup} from '@/lib/storage/cold-storage-rollup';
 import {
   modelDirForRepo,
   fileProvenance,
   summarizeFiles,
-} from '@/lib/model-sidecar';
-import type {SidecarSummary, TjModelFile} from '@/lib/sidecar-types';
+} from '@/lib/models/model-sidecar';
+import type {SidecarSummary, TjModelFile} from '@/lib/models/sidecar-types';
 import type {ModelRow, QuantInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",

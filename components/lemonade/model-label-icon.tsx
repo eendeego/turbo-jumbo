@@ -13,7 +13,7 @@ import {
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {Icon, type IconType} from '@astryxdesign/core/Icon';
-import {LABEL_DESCRIPTIONS} from '@/lib/lemonade-labels';
+import {LABEL_DESCRIPTIONS} from '@/lib/lemonade/lemonade-labels';
 
 // One Heroicon per capability label. Deliberately distinct metaphors from
 // lemonade's lucide set (../lemonade ModalityIcon): Eye→Photo, Flame→Star,

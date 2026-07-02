@@ -2,11 +2,11 @@
 
 import {useEffect, useState, useCallback, useRef} from 'react';
 import type {Peer as PeerConfig} from '@/lib/config';
-import type {Model} from '@/lib/model-types';
+import type {Model} from '@/lib/models/model-types';
 import type {PeerModels} from '@/components/peers/peer';
-import {AsyncState} from '@/lib/async-state';
-import {clientLog} from '@/lib/client-log';
-import {subscribeToPeerEvents} from '@/lib/ws-client';
+import {AsyncState} from '@/lib/util/async-state';
+import {clientLog} from '@/lib/util/client-log';
+import {subscribeToPeerEvents} from '@/lib/peers/ws-client';
 
 // Shared peer state: fetches the peer list, polls each peer's models through
 // the same-origin proxy, and reacts to peer-down WebSocket notifications. Lets

@@ -7,8 +7,8 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
-import type {Model} from '@/lib/model-types';
-import {modelDisplayName} from '@/lib/model-name';
+import type {Model} from '@/lib/models/model-types';
+import {modelDisplayName} from '@/lib/models/model-name';
 import {filePaths} from '@/components/models/model-list';
 
 export interface FileInfo {

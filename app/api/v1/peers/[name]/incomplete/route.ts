@@ -1,6 +1,6 @@
 import {config, localPeer, localModelsDir, lemonadeDir} from '@/lib/config';
-import {logger} from '@/lib/logger';
-import {findIncompleteRepos} from '@/lib/incomplete-models';
+import {logger} from '@/lib/util/logger';
+import {findIncompleteRepos} from '@/lib/audit/incomplete-models';
 
 // Repo ids with an incomplete local copy on the given peer. The local peer is
 // computed directly; a remote peer is proxied to its own endpoint (peers run

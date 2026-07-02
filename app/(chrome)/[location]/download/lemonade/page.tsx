@@ -1,7 +1,7 @@
 import type {Metadata} from 'next';
 import {notFound} from 'next/navigation';
 import {config, localPeer} from '@/lib/config';
-import {resolveLocation, COLD_STORAGE_LOCATION} from '@/lib/locations';
+import {resolveLocation, COLD_STORAGE_LOCATION} from '@/lib/storage/locations';
 import {HomeView} from '@/components/home/home-view';
 import {LemonadeModalRoute} from '@/components/lemonade/lemonade-modal-route';
 

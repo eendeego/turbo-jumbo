@@ -8,12 +8,12 @@ import {Spinner} from '@astryxdesign/core/Spinner';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Banner} from '@astryxdesign/core/Banner';
 import type {Peer as PeerConfig} from '@/lib/config';
-import type {Model} from '@/lib/model-types';
+import type {Model} from '@/lib/models/model-types';
 import {
   type CopyProgress,
   readCopyAndReportErrors,
   buildFileSizes,
-} from '@/lib/copy-progress';
+} from '@/lib/storage/copy-progress';
 import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
 import {
@@ -26,7 +26,7 @@ import {
   ConflictsModal,
   type ConflictItem,
 } from '@/components/models/conflicts-modal';
-import type {AsyncState} from '@/lib/async-state';
+import type {AsyncState} from '@/lib/util/async-state';
 
 export type PeerModels = AsyncState<Model[]>;
 

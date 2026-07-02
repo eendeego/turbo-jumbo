@@ -1,6 +1,6 @@
 import {NextResponse} from 'next/server';
 import {localModelsDir} from '@/lib/config';
-import {repoFileStatuses} from '@/lib/repo-files';
+import {repoFileStatuses} from '@/lib/models/repo-files';
 
 const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 

@@ -1,19 +1,22 @@
 import path from 'path';
 import {existsSync} from 'fs';
-import {duplicateBasenames, scanModels} from '@/lib/models';
+import {duplicateBasenames, scanModels} from '@/lib/models/models';
 import {
   cachedResultFromMeta,
   duplicateResult,
   readMetaResolved,
   type AuditResult,
-} from '@/lib/audit';
+} from '@/lib/audit/audit';
 import {
   entryToMeta,
   findModelSidecarDirs,
   readModelSidecar,
-} from '@/lib/model-sidecar';
-import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
-import {isObject, readJsonBody} from '@/lib/request';
+} from '@/lib/models/model-sidecar';
+import {
+  proxyAuditRequest,
+  resolveAuditLocation,
+} from '@/lib/audit/audit-location';
+import {isObject, readJsonBody} from '@/lib/util/request';
 
 /**
  * Return the last-known audit verdicts for a location, derived purely from the

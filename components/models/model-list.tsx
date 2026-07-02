@@ -6,8 +6,8 @@ import {Badge} from '@astryxdesign/core/Badge';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Text} from '@astryxdesign/core/Text';
-import type {Model, ModelFile} from '@/lib/model-types';
-import {shardPath, shardSize} from '@/lib/model-types';
+import type {Model, ModelFile} from '@/lib/models/model-types';
+import {shardPath, shardSize} from '@/lib/models/model-types';
 
 export function formatBytes(bytes: number): string {
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;

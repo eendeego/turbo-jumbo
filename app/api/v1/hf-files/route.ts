@@ -1,4 +1,4 @@
-import {repoDownloadFiles} from '@/lib/hf-download';
+import {repoDownloadFiles} from '@/lib/hf/hf-download';
 
 const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BRANCH_RE = /^[A-Za-z0-9_./-]+$/;

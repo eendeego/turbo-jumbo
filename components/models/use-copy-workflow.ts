@@ -1,7 +1,10 @@
 import {useMemo, useState, type Dispatch, type SetStateAction} from 'react';
-import type {Model} from '@/lib/models';
-import type {AsyncState} from '@/lib/async-state';
-import {readCopyAndReportErrors, type CopyProgress} from '@/lib/copy-progress';
+import type {Model} from '@/lib/models/models';
+import type {AsyncState} from '@/lib/util/async-state';
+import {
+  readCopyAndReportErrors,
+  type CopyProgress,
+} from '@/lib/storage/copy-progress';
 import {type CopyDestinations} from '@/components/models/copy-modal';
 import {type ConflictItem} from '@/components/models/conflicts-modal';
 

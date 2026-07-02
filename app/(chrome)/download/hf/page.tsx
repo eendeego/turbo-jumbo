@@ -1,6 +1,6 @@
 import type {Metadata} from 'next';
 import {localPeer} from '@/lib/config';
-import {ALL_LOCATION} from '@/lib/locations';
+import {ALL_LOCATION} from '@/lib/storage/locations';
 import {HomeView} from '@/components/home/home-view';
 import {HfDownloadModalRoute} from '@/components/hf-download/hf-download-modal-route';
 

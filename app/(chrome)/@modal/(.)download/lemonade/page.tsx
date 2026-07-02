@@ -1,4 +1,4 @@
-import {ALL_LOCATION} from '@/lib/locations';
+import {ALL_LOCATION} from '@/lib/storage/locations';
 import {LemonadeModalRoute} from '@/components/lemonade/lemonade-modal-route';
 
 // Soft navigation to /download/lemonade: fill the @modal slot with the

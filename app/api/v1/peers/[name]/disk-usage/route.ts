@@ -1,6 +1,6 @@
 import {config, localPeer, localModelsDir, coldStorageDir} from '@/lib/config';
-import {logger} from '@/lib/logger';
-import {downloadDiskUsage} from '@/lib/disk-usage';
+import {logger} from '@/lib/util/logger';
+import {downloadDiskUsage} from '@/lib/storage/disk-usage';
 
 // Free/total bytes of a specific peer's models filesystem. The local peer reads
 // its own statfs; a remote peer is asked over its own /api/v1/disk-usage, so a

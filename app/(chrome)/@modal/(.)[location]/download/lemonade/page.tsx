@@ -1,5 +1,5 @@
 import {config} from '@/lib/config';
-import {resolveLocation, COLD_STORAGE_LOCATION} from '@/lib/locations';
+import {resolveLocation, COLD_STORAGE_LOCATION} from '@/lib/storage/locations';
 import {LemonadeModalRoute} from '@/components/lemonade/lemonade-modal-route';
 
 // Soft navigation to /<peer>/download/lemonade. Invalid locations render no

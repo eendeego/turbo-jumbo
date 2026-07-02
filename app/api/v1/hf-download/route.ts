@@ -1,6 +1,6 @@
 import {localModelsDir} from '@/lib/config';
-import {isObject, readJsonBody} from '@/lib/request';
-import {streamHfDownload} from '@/lib/hf-download-stream';
+import {isObject, readJsonBody} from '@/lib/util/request';
+import {streamHfDownload} from '@/lib/hf/hf-download-stream';
 
 export async function POST(req: Request) {
   if (!localModelsDir) {

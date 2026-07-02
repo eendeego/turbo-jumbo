@@ -9,7 +9,7 @@ import {Button} from '@astryxdesign/core/Button';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {CommandLineIcon} from '@heroicons/react/24/outline';
-import type {CopyProgress} from '@/lib/copy-progress';
+import type {CopyProgress} from '@/lib/storage/copy-progress';
 import {formatBytes, formatSpeed} from '@/components/models/model-list';
 
 const formatBytePair = (v: number, m: number) =>

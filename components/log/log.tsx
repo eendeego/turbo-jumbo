@@ -8,7 +8,7 @@ import {
   LEVELS,
   type LogEntry,
   type LogLevel,
-} from '@/lib/client-log';
+} from '@/lib/util/client-log';
 
 // Deliberately off-brand retro "terminal" palette. This console is not built
 // from Astryx surface components — it is a raw fixed overlay styled entirely

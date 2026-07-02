@@ -3,7 +3,7 @@
 import {useRouter} from 'next/navigation';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import type {Peer as PeerConfig} from '@/lib/config';
-import {hfHref, lemonadeHref} from '@/lib/locations';
+import {hfHref, lemonadeHref} from '@/lib/storage/locations';
 
 // "Add model" dropdown: a single trigger that navigates to either download
 // source's route. Shown wherever downloads can be initiated (the All view and

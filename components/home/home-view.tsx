@@ -5,7 +5,7 @@ import {
   lemonadeDir,
   localPeer,
 } from '@/lib/config';
-import {scanModels} from '@/lib/models';
+import {scanModels} from '@/lib/models/models';
 import {getModelsTableData} from '@/components/models/models-table';
 import {HomeClient} from '@/components/home/home-client';
 

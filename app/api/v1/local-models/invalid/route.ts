@@ -1,6 +1,6 @@
 import {NextResponse} from 'next/server';
 import {localModelsDir, lemonadeDir} from '@/lib/config';
-import {findReposWithInvalidFiles} from '@/lib/incomplete-models';
+import {findReposWithInvalidFiles} from '@/lib/audit/incomplete-models';
 
 // Repo ids present in this host's storage with at least one local file that
 // audits invalid (used by the models table to flag a model whose download is

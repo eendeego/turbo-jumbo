@@ -5,7 +5,7 @@ import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {Link} from '@astryxdesign/core/Link';
-import type {AuditResult, RevisionCheck} from '@/lib/audit';
+import type {AuditResult, RevisionCheck} from '@/lib/audit/audit';
 import {formatSize} from '@/components/models/models-table-client';
 
 const RESULT_LABEL: Record<RevisionCheck['result'], string> = {

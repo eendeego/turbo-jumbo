@@ -1,7 +1,7 @@
 import {test, expect} from 'bun:test';
 import {buildModelRows} from '@/components/models/models-table';
-import type {Model} from '@/lib/models';
-import type {SidecarSummary, TjModelFile} from '@/lib/model-sidecar';
+import type {Model} from '@/lib/models/models';
+import type {SidecarSummary, TjModelFile} from '@/lib/models/model-sidecar';
 
 function single(
   filename: string,

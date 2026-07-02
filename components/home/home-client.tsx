@@ -6,8 +6,12 @@ import {VStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
 import type {Peer as PeerConfig} from '@/lib/config';
-import type {Model} from '@/lib/models';
-import {fileJoinKey, fileSizesByKey, withPeerPaths} from '@/lib/peer-paths';
+import type {Model} from '@/lib/models/models';
+import {
+  fileJoinKey,
+  fileSizesByKey,
+  withPeerPaths,
+} from '@/lib/peers/peer-paths';
 import type {ModelRow} from '@/components/models/models-table-client';
 import {
   ModelsTableClient,
@@ -32,7 +36,7 @@ import {
   DownloadModal,
   useDownloadRunner,
 } from '@/components/hf-download/download-runner';
-import type {AuditResult, HfSummary} from '@/lib/audit';
+import type {AuditResult, HfSummary} from '@/lib/audit/audit';
 import {useConsole} from '@/components/chrome/console-context';
 
 // A stable empty set, so locations with no incomplete repos don't hand the

@@ -7,7 +7,7 @@ import {TopNav, TopNavHeading} from '@astryxdesign/core/TopNav';
 import {HStack} from '@astryxdesign/core/Stack';
 import {Button} from '@astryxdesign/core/Button';
 import type {Peer as PeerConfig} from '@/lib/config';
-import {locationHref, parseRoute, ALL_LOCATION} from '@/lib/locations';
+import {locationHref, parseRoute, ALL_LOCATION} from '@/lib/storage/locations';
 import {
   LocationTabs,
   type LocationTab,

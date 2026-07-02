@@ -2,8 +2,8 @@ import {createServer} from 'node:http';
 import {parse} from 'node:url';
 import {readFileSync} from 'node:fs';
 import next from 'next';
-import {initWsServer, handleWsUpgrade, WS_PATH} from './lib/ws-server';
-import {startPeerMonitor} from './lib/peer-monitor';
+import {initWsServer, handleWsUpgrade, WS_PATH} from './lib/peers/ws-server';
+import {startPeerMonitor} from './lib/peers/peer-monitor';
 
 // Load the HuggingFace token from a mounted secret file, if configured, so the
 // `hf` CLI can authenticate without the token living in the environment/image.

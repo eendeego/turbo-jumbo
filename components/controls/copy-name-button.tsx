@@ -3,7 +3,7 @@
 import {useState} from 'react';
 import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
-import {copyToClipboard} from '@/lib/clipboard';
+import {copyToClipboard} from '@/lib/util/clipboard';
 
 /**
  * A small clipboard icon that copies a model or file name. Flips to a check

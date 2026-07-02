@@ -1,8 +1,8 @@
-import {streamCopyResumable} from '@/lib/audit';
+import {streamCopyResumable} from '@/lib/audit/audit';
 import {coldStorageDir, localModelsDir} from '@/lib/config';
-import {propagateFileMeta} from '@/lib/copy-meta';
-import {logger} from '@/lib/logger';
-import {hasStringFiles, readJsonBody} from '@/lib/request';
+import {propagateFileMeta} from '@/lib/storage/copy-meta';
+import {logger} from '@/lib/util/logger';
+import {hasStringFiles, readJsonBody} from '@/lib/util/request';
 import nodePath from 'path';
 import {promises as fsp} from 'fs';
 

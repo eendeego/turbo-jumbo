@@ -1,10 +1,10 @@
 import {NextResponse} from 'next/server';
 import nodePath from 'path';
 import {coldStorageDir} from '@/lib/config';
-import {deleteFileWithMeta} from '@/lib/delete-file';
-import {logger} from '@/lib/logger';
-import {scanModels} from '@/lib/models';
-import {hasStringFiles, readJsonBody} from '@/lib/request';
+import {deleteFileWithMeta} from '@/lib/storage/delete-file';
+import {logger} from '@/lib/util/logger';
+import {scanModels} from '@/lib/models/models';
+import {hasStringFiles, readJsonBody} from '@/lib/util/request';
 
 export function GET() {
   const models = scanModels(coldStorageDir);

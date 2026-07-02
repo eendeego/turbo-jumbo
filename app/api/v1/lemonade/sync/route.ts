@@ -1,5 +1,5 @@
 import {NextResponse} from 'next/server';
-import {previewSync, runSync} from '@/lib/lemonade-sync-run';
+import {previewSync, runSync} from '@/lib/lemonade/lemonade-sync-run';
 
 // Sync Lemonade and Turbo Jumbo: GET previews the changes (read-only); POST
 // executes them. Pass 1 consolidates Lemonade's on-disk cache into Turbo Jumbo

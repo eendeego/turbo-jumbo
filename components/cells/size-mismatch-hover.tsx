@@ -4,7 +4,7 @@ import {HStack, VStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
-import {formatSize, type SizeBreakdownGroup} from '@/lib/model-row';
+import {formatSize, type SizeBreakdownGroup} from '@/lib/models/model-row';
 
 // The hovercard shown on a size-mismatch warning icon: each location and the
 // size it holds, grouped by file when a model row spans several mismatches.

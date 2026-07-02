@@ -3,15 +3,18 @@ import {
   auditFile,
   type AuditProgressEvent,
   type AuditResult,
-} from '@/lib/audit';
-import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
-import {isObject, readJsonBody} from '@/lib/request';
-import {hashProgressEmitter} from '@/lib/audit-progress';
+} from '@/lib/audit/audit';
+import {
+  proxyAuditRequest,
+  resolveAuditLocation,
+} from '@/lib/audit/audit-location';
+import {isObject, readJsonBody} from '@/lib/util/request';
+import {hashProgressEmitter} from '@/lib/audit/audit-progress';
 import {
   canonicalBranch,
   parseHfFileUrl,
   resolveHfFileByPath,
-} from '@/lib/hf-infer';
+} from '@/lib/hf/hf-infer';
 
 // SHA256 progress events are thinned to one per this interval (the final 100%
 // event is always sent) — same cadence as the audit route.

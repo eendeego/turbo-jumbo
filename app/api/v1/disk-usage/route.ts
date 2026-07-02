@@ -1,6 +1,6 @@
 import {localModelsDir, coldStorageDir} from '@/lib/config';
-import {logger} from '@/lib/logger';
-import {downloadDiskUsage} from '@/lib/disk-usage';
+import {logger} from '@/lib/util/logger';
+import {downloadDiskUsage} from '@/lib/storage/disk-usage';
 
 // Free/total bytes of the filesystems a download touches — the local models
 // directory (where it lands) and cold storage (the optional copy target) — so

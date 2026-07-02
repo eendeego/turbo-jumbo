@@ -8,17 +8,17 @@ import {Button} from '@astryxdesign/core/Button';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {Banner} from '@astryxdesign/core/Banner';
-import {HF_HUB_ENABLE_HF_TRANSFER} from '@/lib/hf';
+import {HF_HUB_ENABLE_HF_TRANSFER} from '@/lib/hf/hf';
 import {
   parseNotices,
   parseProgress,
   parseSize,
   type DownloadProgress,
-} from '@/lib/download-output';
+} from '@/lib/hf/download-output';
 
 export type TermState = {lines: string[]; col: number};
 
-export type {DownloadProgress} from '@/lib/download-output';
+export type {DownloadProgress} from '@/lib/hf/download-output';
 
 export type DownloadRequest = {
   repoId: string;

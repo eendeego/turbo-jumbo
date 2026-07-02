@@ -6,7 +6,7 @@ import {Icon} from '@astryxdesign/core/Icon';
 import {Button} from '@astryxdesign/core/Button';
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
-import {formatSize, type DisplayRow} from '@/lib/model-row';
+import {formatSize, type DisplayRow} from '@/lib/models/model-row';
 
 export function ColdStorageCell({
   row,

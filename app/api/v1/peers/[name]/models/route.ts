@@ -5,10 +5,10 @@ import {
   coldStorageDir,
   lemonadeDir,
 } from '@/lib/config';
-import {logger} from '@/lib/logger';
-import {scanModels, annotateColdStorage} from '@/lib/models';
-import {hasStringFiles, readJsonBody} from '@/lib/request';
-import {deleteFileWithMeta} from '@/lib/delete-file';
+import {logger} from '@/lib/util/logger';
+import {scanModels, annotateColdStorage} from '@/lib/models/models';
+import {hasStringFiles, readJsonBody} from '@/lib/util/request';
+import {deleteFileWithMeta} from '@/lib/storage/delete-file';
 import nodePath from 'path';
 
 // Proxy a peer's models through the local server: scan locally for the local

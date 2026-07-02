@@ -14,9 +14,13 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
-import type {AuditProgressEvent, AuditResult, UpdateResult} from '@/lib/audit';
-import {rowAudit, rowUpdates} from '@/lib/row-audit';
-import type {RepoFile} from '@/lib/repo-files';
+import type {
+  AuditProgressEvent,
+  AuditResult,
+  UpdateResult,
+} from '@/lib/audit/audit';
+import {rowAudit, rowUpdates} from '@/lib/audit/row-audit';
+import type {RepoFile} from '@/lib/models/repo-files';
 import {
   augmentWithPeerOnlyQuants,
   formatSize,
@@ -26,7 +30,7 @@ import {
   type ModelRow,
   type QuantInfo,
   type ShardInfo,
-} from '@/lib/model-row';
+} from '@/lib/models/model-row';
 import {AuditCell, UpdateBadge} from '@/components/cells/audit-cell';
 import {NameCell} from '@/components/cells/name-cell';
 import {PeersCell} from '@/components/cells/peers-cell';
@@ -34,7 +38,7 @@ import {ColdStorageCell} from '@/components/cells/cold-storage-cell';
 import {SizeMismatchHover} from '@/components/cells/size-mismatch-hover';
 import {useDisplayRows} from '@/components/models/use-display-rows';
 
-// The model-row data layer (types + pure helpers) lives in lib/model-row; these
+// The model-row data layer (types + pure helpers) lives in lib/models/model-row; these
 // are re-exported here for existing importers (peer-paths, home-client,
 // revisions-modal).
 export {augmentWithPeerOnlyQuants, formatSize};

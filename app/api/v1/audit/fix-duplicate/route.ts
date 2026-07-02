@@ -1,9 +1,15 @@
 import path from 'path';
-import {duplicateBasenames, scanModels} from '@/lib/models';
-import {fixDuplicateGroup, type DuplicateFixResult} from '@/lib/fix-duplicates';
-import {proxyAuditRequest, resolveAuditLocation} from '@/lib/audit-location';
-import {hasOptionalStringFiles, readJsonBody} from '@/lib/request';
-import {clearHfCache} from '@/lib/hf-infer';
+import {duplicateBasenames, scanModels} from '@/lib/models/models';
+import {
+  fixDuplicateGroup,
+  type DuplicateFixResult,
+} from '@/lib/audit/fix-duplicates';
+import {
+  proxyAuditRequest,
+  resolveAuditLocation,
+} from '@/lib/audit/audit-location';
+import {hasOptionalStringFiles, readJsonBody} from '@/lib/util/request';
+import {clearHfCache} from '@/lib/hf/hf-infer';
 
 /**
  * Resolve duplicate groups down to one verified copy each (see

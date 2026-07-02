@@ -1,6 +1,6 @@
 import {config, localPeer, localModelsDir, lemonadeDir} from '@/lib/config';
-import {logger} from '@/lib/logger';
-import {findReposWithInvalidFiles} from '@/lib/incomplete-models';
+import {logger} from '@/lib/util/logger';
+import {findReposWithInvalidFiles} from '@/lib/audit/incomplete-models';
 
 // Repo ids with at least one invalid local file on the given peer. The local
 // peer is computed directly; a remote peer is proxied to its own endpoint (peers

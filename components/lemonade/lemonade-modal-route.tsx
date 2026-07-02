@@ -5,7 +5,7 @@ import {
   lemonadeDir,
   localPeer,
 } from '@/lib/config';
-import {scanModels} from '@/lib/models';
+import {scanModels} from '@/lib/models/models';
 import {LemonadeModal} from '@/components/lemonade/lemonade-modal';
 
 // Server side of the Lemonade download modal: scans the stores the modal

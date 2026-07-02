@@ -1,7 +1,7 @@
 import {localModelsDir} from '@/lib/config';
-import {readFileMetaWithRepoHead, sendFileMeta} from '@/lib/copy-meta';
-import {logger} from '@/lib/logger';
-import {hasStringFiles, readJsonBody} from '@/lib/request';
+import {readFileMetaWithRepoHead, sendFileMeta} from '@/lib/storage/copy-meta';
+import {logger} from '@/lib/util/logger';
+import {hasStringFiles, readJsonBody} from '@/lib/util/request';
 import nodePath from 'path';
 import {promises as fsp} from 'fs';
 import {createReadStream} from 'fs';

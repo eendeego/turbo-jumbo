@@ -1,7 +1,7 @@
 import {NextResponse} from 'next/server';
 import {config, localPeer} from '@/lib/config';
-import {logger} from '@/lib/logger';
-import {previewSync, runSync} from '@/lib/lemonade-sync-run';
+import {logger} from '@/lib/util/logger';
+import {previewSync, runSync} from '@/lib/lemonade/lemonade-sync-run';
 
 // Consolidate Lemonade into Turbo Jumbo on a specific peer. The local peer runs
 // it directly against its own config; a remote peer runs it on itself — we

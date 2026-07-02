@@ -6,15 +6,15 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
-import {readNdjson} from '@/lib/ndjson';
+import {readNdjson} from '@/lib/util/ndjson';
 import type {
   AuditProgressEvent,
   AuditResult,
   AuditStartEvent,
   FixResult,
   UpdateResult,
-} from '@/lib/audit';
-import type {DuplicateFixResult} from '@/lib/fix-duplicates';
+} from '@/lib/audit/audit';
+import type {DuplicateFixResult} from '@/lib/audit/fix-duplicates';
 
 // The location's last-known audit verdicts, derived server-side from the
 // `.tjmeta.json` sidecars — no hashing, no network beyond this call.

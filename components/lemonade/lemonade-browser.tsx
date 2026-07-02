@@ -15,9 +15,12 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {Icon} from '@astryxdesign/core/Icon';
 import {Banner} from '@astryxdesign/core/Banner';
 import {DownloadModal} from '@/components/hf-download/download-runner';
-import type {DownloadTarget} from '@/lib/download-target';
-import {diskSpaceWarnings, type DownloadDiskUsage} from '@/lib/disk-space';
-import type {Model} from '@/lib/models';
+import type {DownloadTarget} from '@/lib/hf/download-target';
+import {
+  diskSpaceWarnings,
+  type DownloadDiskUsage,
+} from '@/lib/storage/disk-space';
+import type {Model} from '@/lib/models/models';
 import {
   catalogSection,
   collectionDownloadStatus,
@@ -31,7 +34,7 @@ import {
   type LemonadeDownloadInfo,
   type LemonadeModel,
   type OmniCollection,
-} from '@/lib/lemonade';
+} from '@/lib/lemonade/lemonade';
 import {
   checkpointsIncomplete,
   formatGb,
@@ -39,7 +42,7 @@ import {
   selectionLabel,
   type CatalogRow,
   type Selection,
-} from '@/lib/lemonade-catalog';
+} from '@/lib/lemonade/lemonade-catalog';
 import {
   IncompleteMarker,
   LemonadeCacheMarker,

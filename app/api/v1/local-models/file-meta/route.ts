@@ -1,7 +1,7 @@
-import {applyFileMeta, type RepoHead} from '@/lib/copy-meta';
+import {applyFileMeta, type RepoHead} from '@/lib/storage/copy-meta';
 import {localModelsDir} from '@/lib/config';
-import {isObject, readJsonBody} from '@/lib/request';
-import type {TjMeta} from '@/lib/tjmeta';
+import {isObject, readJsonBody} from '@/lib/util/request';
+import type {TjMeta} from '@/lib/models/tjmeta';
 import nodePath from 'path';
 
 type FileMetaRequest = {
@@ -34,7 +34,7 @@ function isRepoHead(v: unknown): v is RepoHead {
 
 /**
  * Receive one copied file's provenance from the peer that sent its bytes and
- * merge it into this host's sidecars (see lib/copy-meta.ts). The counterpart
+ * merge it into this host's sidecars (see lib/storage/copy-meta.ts). The counterpart
  * of `sendFileMeta`; the byte transfer itself goes through `upload`.
  */
 export async function POST(req: Request) {
