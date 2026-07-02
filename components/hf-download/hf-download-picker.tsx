@@ -1,6 +1,7 @@
 'use client';
 
 import {useEffect, useMemo, useState} from 'react';
+import * as stylex from '@stylexjs/stylex';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
@@ -24,6 +25,13 @@ import {defaultDownloadSelection} from '@/lib/hf-download';
 import {parseHfUrl} from '@/lib/hf-url';
 
 type HfFile = {path: string; size: number};
+
+const styles = stylex.create({
+  // Fixed-height body, matching the Lemonade browser: the dialog must not
+  // resize as the file list loads or the filter narrows.
+  pickerBody: {height: '55vh', minHeight: 0},
+  fileList: {flexGrow: 1, minHeight: 0, overflowY: 'auto'},
+});
 
 /**
  * The Hugging Face download picker, the body of the HF download modal (title
@@ -220,6 +228,7 @@ export function HfDownloadPicker({
   if (showTerminal) {
     return (
       <DownloadModal
+        title={parsed ? `Downloading ${parsed.repoId}…` : undefined}
         term={term}
         progress={progress}
         running={running}
@@ -232,7 +241,7 @@ export function HfDownloadPicker({
 
   return (
     <VStack gap={4}>
-      <VStack gap={3}>
+      <VStack gap={3} xstyle={styles.pickerBody}>
         <TextInput
           label="Hugging Face URL"
           isLabelHidden
@@ -249,6 +258,11 @@ export function HfDownloadPicker({
         {filesError && (
           <Text type="supporting" color="accent">
             Error: {filesError}
+          </Text>
+        )}
+        {!hasFiles && !filesLoading && !filesError && (
+          <Text type="supporting">
+            Enter a Hugging Face URL or org/repo to list its files.
           </Text>
         )}
         {hasFiles && (
@@ -268,7 +282,7 @@ export function HfDownloadPicker({
           </HStack>
         )}
         {hasFiles && (
-          <List hasDividers>
+          <List hasDividers xstyle={styles.fileList}>
             {visibleFiles.map((f) => (
               <ListItem
                 key={f.path}
@@ -281,7 +295,9 @@ export function HfDownloadPicker({
                   />
                 }
                 label={f.path.split('/').pop()}
-                description={formatBytes(f.size)}
+                endContent={
+                  <Text type="supporting">{formatBytes(f.size)}</Text>
+                }
               />
             ))}
             {visibleFiles.length === 0 && (
@@ -315,30 +331,31 @@ export function HfDownloadPicker({
           title={`Not enough disk space — ${spaceWarnings.join('; ')}.`}
         />
       )}
-      {hasFiles && (
-        <HStack gap={2} hAlign="between" vAlign="center">
-          <Text type="supporting">
-            {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} ·{' '}
-            {formatBytes(totalSize)}
-          </Text>
-          <HStack gap={2} hAlign="end">
-            <Button
-              label={copied ? 'Copied' : 'Copy command'}
-              variant="secondary"
-              size="sm"
-              onClick={handleCopy}
-              isDisabled={command == null}
-            />
-            <Button
-              label="Run"
-              variant="primary"
-              size="sm"
-              onClick={startDownload}
-              isDisabled={selectedFiles.length === 0}
-            />
-          </HStack>
+      <HStack gap={2} hAlign="between" vAlign="center">
+        <Text type="supporting">
+          {selectedFiles.length === 0
+            ? 'Nothing selected'
+            : `${selectedFiles.length} file${
+                selectedFiles.length !== 1 ? 's' : ''
+              } · ${formatBytes(totalSize)}`}
+        </Text>
+        <HStack gap={2} hAlign="end">
+          <Button
+            label={copied ? 'Copied' : 'Copy command'}
+            variant="secondary"
+            size="sm"
+            onClick={handleCopy}
+            isDisabled={command == null}
+          />
+          <Button
+            label="Download"
+            variant="primary"
+            size="sm"
+            onClick={startDownload}
+            isDisabled={selectedFiles.length === 0}
+          />
         </HStack>
-      )}
+      </HStack>
     </VStack>
   );
 }
