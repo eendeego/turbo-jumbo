@@ -1,7 +1,6 @@
 'use client';
 
 import {HStack} from '@astryxdesign/core/Stack';
-import {Text} from '@astryxdesign/core/Text';
 import {Badge} from '@astryxdesign/core/Badge';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
 import type {Peer as PeerConfig} from '@/lib/config';
@@ -62,28 +61,6 @@ export function PeersCell({
             : 'present';
         return <PeerBadge key={peer.address} peer={peer} status={status} />;
       })}
-    </HStack>
-  );
-}
-
-/**
- * The Peers column header: the label plus the peer initials as a legend
- * (local in blue), full names on hover — so the cells can stay letters.
- */
-export function PeersHeader({peers}: {peers: PeerConfig[]}) {
-  return (
-    <HStack gap={2} vAlign="center">
-      <Text>Peers</Text>
-      <HStack gap={1} vAlign="center">
-        {peers.map((p) => (
-          <HoverCard key={p.address} placement="above" content={p.name}>
-            <Badge
-              label={peerInitial(p.name)}
-              variant={p.isLocal ? 'blue' : 'neutral'}
-            />
-          </HoverCard>
-        ))}
-      </HStack>
     </HStack>
   );
 }

@@ -29,7 +29,7 @@ import {
 } from '@/lib/model-row';
 import {AuditCell, UpdateBadge} from '@/components/cells/audit-cell';
 import {NameCell} from '@/components/cells/name-cell';
-import {PeersCell, PeersHeader} from '@/components/cells/peers-cell';
+import {PeersCell} from '@/components/cells/peers-cell';
 import {ColdStorageCell} from '@/components/cells/cold-storage-cell';
 import {SizeMismatchHover} from '@/components/cells/size-mismatch-hover';
 import {useDisplayRows} from '@/components/models/use-display-rows';
@@ -301,7 +301,7 @@ export function ModelsTableClient({
       ? [
           {
             key: 'peers',
-            header: <PeersHeader peers={peers} />,
+            header: 'Peers',
             width: pixel(peersColumnWidth(peers.length)),
             align: 'center' as const,
             renderCell: (item: DisplayRow) =>
