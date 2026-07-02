@@ -1,4 +1,5 @@
 import {coldStorageDir, localModelsDir} from '@/lib/config';
+import {propagateFileMeta} from '@/lib/copy-meta';
 import {logger} from '@/lib/logger';
 import {hasStringFiles, readJsonBody} from '@/lib/request';
 import nodePath from 'path';
@@ -91,6 +92,7 @@ export async function POST(req: Request) {
       let bytesDone = 0;
       let fileDone = 0;
       let fileTotal = 0;
+      const errors: string[] = [];
 
       const emit = () =>
         safeEnqueue(
@@ -102,6 +104,7 @@ export async function POST(req: Request) {
               fileTotal,
               bytesDone,
               bytesTotal,
+              errors,
             }) + '\n',
           ),
         );
@@ -147,6 +150,16 @@ export async function POST(req: Request) {
 
           filesDone++;
           fileDone = fileTotal;
+          // Bytes are down; carry the file's provenance so the local copy
+          // names and audits without a re-hash. Best effort: a meta failure
+          // is reported but the copy stands.
+          try {
+            await propagateFileMeta(coldBase, localBase, file);
+          } catch (err) {
+            errors.push(
+              `${file}: meta: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
           emit();
         }
 

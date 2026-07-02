@@ -1,5 +1,10 @@
 import {streamCopyResumable} from '@/lib/audit';
 import {config, localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
+import {
+  propagateFileMeta,
+  readFileMetaWithRepoHead,
+  sendFileMeta,
+} from '@/lib/copy-meta';
 import {logger} from '@/lib/logger';
 import {isObject, readJsonBody} from '@/lib/request';
 import {promises as fsp} from 'fs';
@@ -294,6 +299,7 @@ export async function POST(req: Request) {
             let buf = '';
             const baseBytesDone = bytesDone;
             const baseFilesDone = filesDone;
+            let peerErrors: string[] = [];
             try {
               for (;;) {
                 const {done, value} = await reader.read();
@@ -306,10 +312,12 @@ export async function POST(req: Request) {
                   const p = JSON.parse(line) as {
                     bytesDone: number;
                     filesDone: number;
+                    errors?: string[];
                   };
                   fileDone = p.bytesDone;
                   bytesDone = baseBytesDone + p.bytesDone;
                   filesDone = baseFilesDone + p.filesDone;
+                  if (p.errors) peerErrors = p.errors;
                   emit();
                 }
               }
@@ -320,6 +328,10 @@ export async function POST(req: Request) {
                 err instanceof Error ? err.message : String(err),
               );
             }
+            for (const e of peerErrors) {
+              errors.push(`cold→local → ${dest}: ${e}`);
+            }
+            if (peerErrors.length > 0) emit();
             continue;
           }
 
@@ -537,6 +549,18 @@ export async function POST(req: Request) {
                     }
                   },
                 });
+
+                // Bytes are down; carry the file's provenance so the
+                // destination names and audits it without a re-hash. Best
+                // effort: a meta failure is reported but the copy stands.
+                try {
+                  await propagateFileMeta(srcBase, destBase, f.path);
+                } catch (err) {
+                  fail(
+                    `meta ${source} → ${dest}: ${f.path}`,
+                    err instanceof Error ? err.message : String(err),
+                  );
+                }
               } else {
                 // Unreachable: every remote source is handled above (pushed by
                 // the source peer to cold storage or to the destination peer).
