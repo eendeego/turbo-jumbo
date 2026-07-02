@@ -32,7 +32,7 @@ Next.js 16 **App Router** + React 19, served by a **custom server** (`server.ts`
 - **WebSocket server** at `/ws` (`lib/ws-server.ts`). `server.ts` suppresses Next's own `upgrade` handler (which would otherwise match `/ws` via the catch-all route and kill the socket) and routes upgrades itself — `/ws` to our server, everything else (e.g. Next dev HMR) back to Next.
 - **Peer monitor** (`lib/peer-monitor.ts`), started at boot. Polls each remote peer's `/api/v1/local-models` every `peer_check_interval` seconds and broadcasts `peer-up`/`peer-down` (`lib/ws-messages.ts`) to connected browsers, so the UI tracks peer reachability live.
 
-**Directory layout:** `app/` holds only routing (layouts, pages, and `app/api/v1/` route handlers). Non-routing React components live in `components/`; non-React shared logic and its tests in `lib/`. Within both, group modules into subdirectories by feature or theme (e.g. `components/lemonade/`, `components/cells/`) rather than letting files accumulate at the top level. Path alias `@/*` resolves to the repo root. TypeScript strict mode.
+**Directory layout:** `app/` holds only routing (layouts, pages, and `app/api/v1/` route handlers). Non-routing React components live in `components/`; non-React shared logic and its tests in `lib/`. Group modules into subdirectories by feature or theme rather than letting files accumulate at the top level — this applies to `components/` (e.g. `components/lemonade/`, `components/cells/`) and equally to `lib/` (e.g. `lib/audit/`, `lib/hf/`). Path alias `@/*` resolves to the repo root. TypeScript strict mode.
 
 ### Configuration (`lib/config.ts`, `config.schema.json`)
 
