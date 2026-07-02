@@ -26,6 +26,8 @@ const styles = stylex.create({
   indent2: {paddingInlineStart: '3rem'},
   // Full sha256 hashes wrap inside the hovercard instead of stretching it.
   hash: {fontFamily: 'monospace', wordBreak: 'break-all', maxWidth: 340},
+  // Long filenames wrap in the hovercard header instead of stretching it.
+  name: {wordBreak: 'break-all', maxWidth: 340},
 });
 
 // Per-file status token in a whole-repo model's expanded file list.
@@ -40,14 +42,12 @@ function FileStateMarker({state}: {state: RepoFileState}) {
 }
 
 /**
- * A small clipboard icon that copies a model's name. Flips to a check mark for a
- * moment after a successful copy so the click registers visibly.
+ * A small clipboard icon that copies a model or file name. Flips to a check
+ * mark for a moment after a successful copy so the click registers visibly.
  */
 function CopyNameButton({name}: {name: string}) {
   const [copied, setCopied] = useState(false);
-  const copy = (e: {stopPropagation: () => void}) => {
-    // Sits next to the row's toggle button; don't expand/collapse on copy.
-    e.stopPropagation();
+  const copy = () => {
     copyToClipboard(name).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
@@ -55,38 +55,12 @@ function CopyNameButton({name}: {name: string}) {
   };
   return (
     <IconButton
-      label={`Copy model name ${name}`}
+      label={`Copy name ${name}`}
       icon={<Icon icon={copied ? 'check' : 'copy'} size="sm" />}
       variant="ghost"
       size="sm"
       tooltip={copied ? 'Copied' : 'Copy name'}
       onClick={copy}
-    />
-  );
-}
-
-/**
- * A small "open in new tab" icon linking to a model's Hugging Face page. Only
- * meaningful for `org/repo` models, whose name is the repo id; the repo URL is
- * the sidecar `modelUrl` (`https://huggingface.co/<repoId>`) reconstructed here.
- */
-function OpenHfButton({repoId}: {repoId: string}) {
-  return (
-    <IconButton
-      label={`Open ${repoId} on Hugging Face`}
-      icon={<Icon icon="externalLink" size="sm" />}
-      variant="ghost"
-      size="sm"
-      tooltip="Open on Hugging Face"
-      onClick={(e) => {
-        // Sits next to the row's toggle button; don't expand/collapse on click.
-        e.stopPropagation();
-        window.open(
-          `https://huggingface.co/${repoId}`,
-          '_blank',
-          'noopener,noreferrer',
-        );
-      }}
     />
   );
 }
@@ -216,13 +190,29 @@ function FileProvenanceInfo({
 /**
  * Wrap a file row's label in its provenance hovercard: a split quant's
  * aggregate card, a single file's full provenance, or plain text when neither.
+ * Like the model hovercard, the first line is the name with a copy button.
  */
 function FileHover({row, children}: {row: DisplayRow; children: ReactNode}) {
+  // Single-file quant rows label themselves with the quant, not the filename.
+  const name = row.filename ?? row.label;
+  const nameHeader = (
+    <HStack gap={1} vAlign="center">
+      <Text type="body" xstyle={styles.name}>
+        {name}
+      </Text>
+      <CopyNameButton name={name} />
+    </HStack>
+  );
   if (row.provenanceAggregate) {
     return (
       <HoverCard
         placement="above"
-        content={<SidecarInfo sidecar={row.provenanceAggregate} />}
+        content={
+          <VStack gap={1}>
+            {nameHeader}
+            <SidecarInfo sidecar={row.provenanceAggregate} />
+          </VStack>
+        }
       >
         {children}
       </HoverCard>
@@ -233,10 +223,13 @@ function FileHover({row, children}: {row: DisplayRow; children: ReactNode}) {
       <HoverCard
         placement="above"
         content={
-          <FileProvenanceInfo
-            provenance={row.provenance}
-            modelUrl={`https://huggingface.co/${row.parentName}`}
-          />
+          <VStack gap={1}>
+            {nameHeader}
+            <FileProvenanceInfo
+              provenance={row.provenance}
+              modelUrl={`https://huggingface.co/${row.parentName}`}
+            />
+          </VStack>
         }
       >
         {children}
@@ -340,44 +333,40 @@ export function NameCell({
     );
   }
 
-  // Model row. Show the repo segment of an org/repo identity; the full repo
-  // (when the name carries one) and the sidecar provenance live in the
-  // hovercard — shown only when there's something to say.
-  const nameButton = (
-    <Button
-      label={modelDisplayName(row.label)}
-      variant="ghost"
-      size="sm"
-      icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
-      onClick={() => onToggle(row.parentName)}
-    />
-  );
+  // Model row. Show the repo segment of an org/repo identity; the full name
+  // (linked to Hugging Face when it's an org/repo id), a copy-name button, and
+  // the sidecar provenance live in the hovercard.
   return (
     <HStack gap={2} vAlign="center">
-      {row.label.includes('/') || row.sidecar ? (
-        <HoverCard
-          placement="above"
-          content={
-            <VStack gap={1}>
-              {row.label.includes('/') && (
-                <InfoRow label="Repository">
-                  <Link
-                    href={`https://huggingface.co/${row.label}`}
-                    isExternalLink
-                  >
-                    {row.label}
-                  </Link>
-                </InfoRow>
+      <HoverCard
+        placement="above"
+        content={
+          <VStack gap={1}>
+            <HStack gap={1} vAlign="center">
+              {row.label.includes('/') ? (
+                <Link
+                  href={`https://huggingface.co/${row.label}`}
+                  isExternalLink
+                >
+                  {row.label}
+                </Link>
+              ) : (
+                <Text type="body">{row.label}</Text>
               )}
-              {row.sidecar && <SidecarInfo sidecar={row.sidecar} />}
-            </VStack>
-          }
-        >
-          {nameButton}
-        </HoverCard>
-      ) : (
-        nameButton
-      )}
+              <CopyNameButton name={row.label} />
+            </HStack>
+            {row.sidecar && <SidecarInfo sidecar={row.sidecar} />}
+          </VStack>
+        }
+      >
+        <Button
+          label={modelDisplayName(row.label)}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={isExpanded ? 'chevronDown' : 'chevronRight'} />}
+          onClick={() => onToggle(row.parentName)}
+        />
+      </HoverCard>
       {row.orgSuffix && <Text type="supporting">({row.orgSuffix})</Text>}
       {incomplete && <Badge variant="error" label="incomplete" />}
       {invalid && (
@@ -385,8 +374,6 @@ export function NameCell({
           <Badge variant="error" label="invalid" />
         </HoverCard>
       )}
-      <CopyNameButton name={row.label} />
-      {row.label.includes('/') && <OpenHfButton repoId={row.label} />}
     </HStack>
   );
 }
