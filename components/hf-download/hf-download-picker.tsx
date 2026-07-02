@@ -2,7 +2,7 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
-import {Heading, Text} from '@astryxdesign/core/Text';
+import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Button} from '@astryxdesign/core/Button';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
@@ -26,18 +26,16 @@ import {parseHfUrl} from '@/lib/hf-url';
 type HfFile = {path: string; size: number};
 
 /**
- * The Hugging Face download picker, inlined as a route's body (no dialog
- * chrome): a URL field, the resolved file list with a filter and cold-storage
- * options, and a Copy/Run footer. `onClose` returns to the location's table.
+ * The Hugging Face download picker, the body of the HF download modal (title
+ * and close button live in the dialog header): a URL field, the resolved file
+ * list with a filter and cold-storage options, and a Copy/Run footer.
  */
 export function HfDownloadPicker({
   target,
   hfTokenSet,
-  onClose,
 }: {
   target: DownloadTarget;
   hfTokenSet: boolean;
-  onClose: () => void;
 }) {
   const [url, setUrl] = useState('');
   const [sendToCold, setSendToCold] = useState(false);
@@ -234,16 +232,6 @@ export function HfDownloadPicker({
 
   return (
     <VStack gap={4}>
-      <HStack vAlign="center">
-        <StackItem size="fill">
-          <Heading level={2}>
-            {parsed
-              ? `Download from ${parsed.repoId}`
-              : 'Add from Hugging Face'}
-          </Heading>
-        </StackItem>
-        <Button label="Back" variant="secondary" size="sm" onClick={onClose} />
-      </HStack>
       <VStack gap={3}>
         <TextInput
           label="Hugging Face URL"
