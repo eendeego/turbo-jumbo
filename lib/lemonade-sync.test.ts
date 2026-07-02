@@ -370,8 +370,94 @@ test('materializes a catalog model Turbo Jumbo has but Lemonade lacks (symlinks 
   // Our sidecar isn't mirrored into Lemonade.
   expect(existsSync(path.join(snap, 'tjmodel.json'))).toBe(false);
 
-  // Idempotent: the cache entry now exists, so a re-run does nothing.
+  // Idempotent: every file is now linked, so a re-run does nothing.
   expect(await syncLemonadeToTurboJumbo(tj, lem, ['org/cat'])).toEqual([]);
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('materializes files missing from an existing cache entry into its snapshot', async () => {
+  const {root, tj, lem} = await mkdirs();
+  // An existing, healthy cache entry for one file…
+  await syncedRepo(lem, tj, 'org', 'grow', 'entry-rev', {'kept.bin': 'KEPT'});
+  // …while Turbo Jumbo also holds a file the entry lacks. The sidecar records a
+  // different repoCommit: the entry's own revision must win, so the new link
+  // joins the existing snapshot instead of opening a second one.
+  await write(tj, 'org/grow/new.gguf', 'NEW');
+  await write(
+    tj,
+    'org/grow/tjmodel.json',
+    JSON.stringify({
+      modelUrl: 'https://huggingface.co/org/grow',
+      repoId: 'org/grow',
+      repoCommit: 'sidecar-rev',
+      files: [],
+    }),
+  );
+
+  expect(await previewLemonadeSync(tj, lem, ['org/grow'])).toEqual([
+    {
+      repoId: 'org/grow',
+      rev: 'entry-rev',
+      moveCount: 0,
+      dedupCount: 0,
+      linkCount: 1,
+      staleCount: 0,
+    },
+  ]);
+
+  const [result] = await syncLemonadeToTurboJumbo(tj, lem, ['org/grow']);
+  expect(result.rev).toBe('entry-rev');
+  expect(result.files).toEqual([
+    {repoPath: 'new.gguf', status: 'materialized'},
+  ]);
+
+  const snap = path.join(lem, 'models--org--grow/snapshots/entry-rev');
+  const link = path.join(snap, 'new.gguf');
+  expect((await fsp.lstat(link)).isSymbolicLink()).toBe(true);
+  expect(await fsp.readFile(link, 'utf8')).toBe('NEW');
+  // The pre-existing link is untouched.
+  expect(await fsp.readFile(path.join(snap, 'kept.bin'), 'utf8')).toBe('KEPT');
+
+  // Idempotent: with the entry complete, a re-run does nothing.
+  expect(await syncLemonadeToTurboJumbo(tj, lem, ['org/grow'])).toEqual([]);
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('one sync clears a stale link and links the replacement file in', async () => {
+  const {root, tj, lem} = await mkdirs();
+  const rev = 'phi-rev';
+  // The Phi-4 shape: the entry's only link went dangling (its quant was deleted
+  // from Turbo Jumbo), while Turbo Jumbo holds a different quant.
+  await syncedRepo(lem, tj, 'org', 'phi', rev, {'old-Q6.gguf': 'OLD'});
+  await fsp.rm(path.join(tj, 'org/phi/old-Q6.gguf'));
+  await write(tj, 'org/phi/new-Q4.gguf', 'NEW');
+  await write(
+    tj,
+    'org/phi/tjmodel.json',
+    JSON.stringify({
+      modelUrl: 'https://huggingface.co/org/phi',
+      repoId: 'org/phi',
+      repoCommit: rev,
+      files: [],
+    }),
+  );
+
+  const results = await syncLemonadeToTurboJumbo(tj, lem, ['org/phi']);
+  const files = results.flatMap((r) => r.files);
+  expect(files).toContainEqual({
+    repoPath: 'old-Q6.gguf',
+    status: 'stale-removed',
+  });
+  expect(files).toContainEqual({
+    repoPath: 'new-Q4.gguf',
+    status: 'materialized',
+  });
+
+  const snap = path.join(lem, `models--org--phi/snapshots/${rev}`);
+  expect(existsSync(path.join(snap, 'old-Q6.gguf'))).toBe(false);
+  expect(await fsp.readFile(path.join(snap, 'new-Q4.gguf'), 'utf8')).toBe(
+    'NEW',
+  );
   await fsp.rm(root, {recursive: true, force: true});
 });
 

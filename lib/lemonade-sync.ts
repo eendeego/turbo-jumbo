@@ -14,8 +14,9 @@ import {
 //  - a file only in Lemonade is moved into Turbo Jumbo and symlinked back;
 //  - a file Turbo Jumbo already holds an identical copy of has its Lemonade
 //    duplicate deleted and symlinked;
-//  - a catalog model Turbo Jumbo has but Lemonade hasn't cached is materialized
-//    into the Lemonade cache as symlinks (see materializeLemonadeModel).
+//  - a catalog model's Turbo Jumbo files that Lemonade hasn't cached are
+//    materialized into the Lemonade cache as symlinks, whether the cache entry
+//    is absent or merely incomplete (see materializeLemonadeModel).
 
 const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
@@ -337,31 +338,48 @@ async function listTjFiles(tjModelDir: string): Promise<string[]> {
   return out;
 }
 
-/** What materializing `repoId` into Lemonade would entail. Null when there's
- *  nothing to do: Lemonade already has a cache entry, or Turbo Jumbo doesn't
- *  hold the model. `rev: null` when the model is a candidate but its sidecar
- *  records no repoCommit — nothing can name the snapshot dir, so it's blocked
- *  rather than actionable. Shared by the preview and the executor so they
- *  agree. */
+/** What materializing `repoId` into Lemonade would entail: the Turbo Jumbo
+ *  files its cache snapshot doesn't hold yet — per-file, so an existing entry
+ *  gains the files it lacks (e.g. a quant downloaded after the entry was
+ *  created). The snapshot revision is the existing entry's own (refs/main or
+ *  its sole snapshot), so new links join it rather than opening a second
+ *  snapshot; a fresh entry uses the sidecar's recorded repoCommit. Null when
+ *  there's nothing to do: Turbo Jumbo doesn't hold the model, or every file is
+ *  already in the snapshot (a resolving symlink or real file counts; presence
+ *  follows links, so a dangling one reads as absent and gets replaced once the
+ *  consolidation pass has cleared it). `rev: null` when the model is a
+ *  candidate but no revision can name the snapshot dir, so it's blocked rather
+ *  than actionable. Shared by the preview and the executor so they agree. */
 async function planMaterialize(
   tj: string,
   lemonadeBase: string,
   repoId: string,
 ): Promise<{rev: string | null; repoPaths: string[]} | null> {
-  if (await exists(lemonadeRepoDir(lemonadeBase, repoId))) return null;
-  const repoPaths = await listTjFiles(nodePath.join(tj, repoId));
-  if (repoPaths.length === 0) return null;
-  const sidecar = await readModelSidecar(tj, repoId);
-  return {rev: sidecar?.repoCommit ?? null, repoPaths};
+  const tjPaths = await listTjFiles(nodePath.join(tj, repoId));
+  if (tjPaths.length === 0) return null;
+  const repoDir = lemonadeRepoDir(lemonadeBase, repoId);
+  const rev =
+    (await resolveRev(repoDir)) ??
+    (await readModelSidecar(tj, repoId))?.repoCommit ??
+    null;
+  if (rev === null) return {rev, repoPaths: tjPaths};
+  const snapshotDir = nodePath.join(repoDir, 'snapshots', rev);
+  const repoPaths: string[] = [];
+  for (const p of tjPaths) {
+    if (!(await exists(nodePath.join(snapshotDir, p)))) repoPaths.push(p);
+  }
+  return repoPaths.length > 0 ? {rev, repoPaths} : null;
 }
 
 /**
  * Mirror a Turbo-Jumbo-resident model into Lemonade's cache as symlinks: for a
- * model Lemonade's catalog lists and Turbo Jumbo already holds but Lemonade
- * hasn't cached, recreate `models--<org>--<repo>/snapshots/<rev>/<repoPath>` as
- * links to the Turbo Jumbo files, plus `refs/main`, so Lemonade sees it as
- * downloaded. The revision is the model's recorded `repoCommit` (the repo HEAD).
- * Returns null when there's nothing to do (see `planMaterialize`).
+ * model Lemonade's catalog lists and Turbo Jumbo holds, create
+ * `models--<org>--<repo>/snapshots/<rev>/<repoPath>` links to the Turbo Jumbo
+ * files the snapshot doesn't hold yet, plus `refs/main`, so Lemonade sees it as
+ * downloaded — filling gaps in an existing cache entry as well as creating a
+ * fresh one. The revision is the entry's own when one exists, else the model's
+ * recorded `repoCommit` (the repo HEAD). Returns null when there's nothing to
+ * do (see `planMaterialize`).
  */
 export async function materializeLemonadeModel(
   tjBase: string,
