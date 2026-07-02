@@ -1,16 +1,8 @@
 import type {Metadata} from 'next';
 import {notFound} from 'next/navigation';
-import {
-  config,
-  localModelsDir,
-  coldStorageDir,
-  lemonadeDir,
-  localPeer,
-} from '@/lib/config';
-import {scanModels} from '@/lib/models';
+import {config, localModelsDir, localPeer} from '@/lib/config';
 import {parseRoute} from '@/lib/locations';
 import {HomeView} from '@/components/home/home-view';
-import {LemonadeClient} from '@/components/lemonade/lemonade-client';
 import {HfDownloadClient} from '@/components/hf-download/hf-download-client';
 
 export function generateMetadata(): Metadata {
@@ -46,29 +38,7 @@ export default async function Home({
     );
   }
 
-  if (view === 'lemonade') {
-    const coldModels = scanModels(coldStorageDir);
-    const localModels = scanModels(localModelsDir, lemonadeDir);
-    const peerConfigs = config.peers.map((p) => ({
-      ...p,
-      isLocal: p === localPeer,
-    }));
-    // Lemonade's own model cache lives outside the managed storage; scan it so
-    // the Lemonade browser can flag catalog entries already present there.
-    const lemonadeCacheModels = lemonadeDir ? scanModels(lemonadeDir) : [];
-    return (
-      <LemonadeClient
-        activeLocation={activeLocation}
-        coldModels={coldModels}
-        localModelsPath={localModelsDir ?? ''}
-        hfTokenSet={!!process.env.HF_TOKEN}
-        peerConfigs={peerConfigs}
-        localPeerAddress={localPeer?.address ?? null}
-        localPeerModels={localModels}
-        lemonadeCacheModels={lemonadeCacheModels}
-      />
-    );
-  }
-
+  // The lemonade view is owned by the explicit /download/lemonade routes (and
+  // their @modal interceptors), so this page never receives it.
   return <HomeView location={activeLocation} />;
 }
