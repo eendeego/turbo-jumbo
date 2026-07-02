@@ -312,7 +312,10 @@ function lemonadeRepoDir(lemonadeBase: string, repoId: string): string {
 }
 
 /** Real model files under a Turbo Jumbo model dir, as repo-relative paths, with
- *  our own sidecars (`tjmodel.json`, `*.tjmeta.json`) excluded. */
+ *  our own sidecars (`tjmodel.json`, `*.tjmeta.json`) and the hf CLI's
+ *  `.cache/` download metadata excluded — bookkeeping, not model content, so it
+ *  is never linked into Lemonade and never makes a weightless dir (the husk a
+ *  deletion leaves behind) count as a held model. */
 async function listTjFiles(tjModelDir: string): Promise<string[]> {
   const out: string[] = [];
   async function walk(dir: string): Promise<void> {
@@ -325,6 +328,7 @@ async function listTjFiles(tjModelDir: string): Promise<string[]> {
     for (const e of entries) {
       const full = nodePath.join(dir, e.name);
       if (e.isDirectory()) {
+        if (nodePath.relative(tjModelDir, full) === '.cache') continue;
         await walk(full);
         continue;
       }

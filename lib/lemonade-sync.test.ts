@@ -461,6 +461,60 @@ test('one sync clears a stale link and links the replacement file in', async () 
   await fsp.rm(root, {recursive: true, force: true});
 });
 
+test('materialize ignores hf-CLI .cache metadata alongside the weights', async () => {
+  const {root, tj, lem} = await mkdirs();
+  const rev = 'cache-rev';
+  await tjModel(tj, 'org/hascache', rev, {'model.gguf': 'WEIGHTS'});
+  await write(
+    tj,
+    'org/hascache/.cache/huggingface/download/model.gguf.metadata',
+    'META',
+  );
+
+  expect(await previewLemonadeSync(tj, lem, ['org/hascache'])).toEqual([
+    {
+      repoId: 'org/hascache',
+      rev,
+      moveCount: 0,
+      dedupCount: 0,
+      linkCount: 1,
+      staleCount: 0,
+    },
+  ]);
+
+  const [result] = await syncLemonadeToTurboJumbo(tj, lem, ['org/hascache']);
+  expect(result.files).toEqual([
+    {repoPath: 'model.gguf', status: 'materialized'},
+  ]);
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('a dir holding only .cache metadata and sidecars is not a candidate', async () => {
+  const {root, tj, lem} = await mkdirs();
+  // The husk a deletion leaves behind: sidecars + hf-CLI download metadata,
+  // no weights. It must not appear in the preview at all — not even blocked.
+  await write(
+    tj,
+    'org/ghost/tjmodel.json',
+    JSON.stringify({
+      modelUrl: 'https://huggingface.co/org/ghost',
+      repoId: 'org/ghost',
+      files: [{path: 'model.gguf'}],
+    }),
+  );
+  await write(tj, 'org/ghost/model.gguf.tjmeta.json', '{}');
+  await write(
+    tj,
+    'org/ghost/.cache/huggingface/download/model.gguf.metadata',
+    'META',
+  );
+
+  expect(await previewLemonadeSync(tj, lem, ['org/ghost'])).toEqual([]);
+  expect(await syncLemonadeToTurboJumbo(tj, lem, ['org/ghost'])).toEqual([]);
+  expect(existsSync(path.join(lem, 'models--org--ghost'))).toBe(false);
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
 test('does not materialize when Turbo Jumbo lacks the model or a recorded revision', async () => {
   const {root, tj, lem} = await mkdirs();
   // In TJ but no repoCommit recorded → can't name the snapshot dir. The model
