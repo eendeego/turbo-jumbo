@@ -22,3 +22,22 @@
   z-index: 2;
   background: var(--color-background-surface);
 }
+
+/*
+ * Hover cards must not trap the pointer. The Astryx HoverCard layer is a
+ * top-layer [popover] element that sits over neighboring table rows; by
+ * default hovering it keeps the card open (its mouseenter cancels the hide
+ * timer) and steals hover from the table beneath. Letting events pass through
+ * restores row hover/triggers under the card and lets it auto-hide once the
+ * pointer leaves the trigger. Interactive content inside a card gets pointer
+ * events back — entering it still refires the card's mouseenter (the target
+ * is inside the card subtree), so the card stays open while it's being used.
+ * The popover wrapper has no stable class (StyleX hashes), hence :has().
+ */
+[popover]:has(> .astryx-hovercard) {
+  pointer-events: none;
+}
+
+.astryx-hovercard :is(a, button, input, select, textarea, [role='button']) {
+  pointer-events: auto;
+}
