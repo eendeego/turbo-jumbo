@@ -1,24 +1,9 @@
-import {WebSocket} from 'ws';
 import {config, localPeer} from '@/lib/config';
 import type {Model} from '@/lib/models/models';
-import {getWsServer} from './ws-server';
-import type {WsMessage} from './ws-messages';
+import {publishPeerEvent} from './peer-event-hub';
 import {logger} from '@/lib/util/logger';
 
 const peerStatus = new Map<string, 'up' | 'down'>();
-const peerModelsCache = new Map<string, Model[]>();
-
-function sendMsg(ws: WebSocket, msg: WsMessage): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
-  }
-}
-
-function broadcast(msg: WsMessage): void {
-  const wss = getWsServer();
-  if (!wss) return;
-  for (const client of wss.clients) sendMsg(client, msg);
-}
 
 async function checkPeer(address: string): Promise<void> {
   try {
@@ -30,47 +15,36 @@ async function checkPeer(address: string): Promise<void> {
 
     const prev = peerStatus.get(address);
     peerStatus.set(address, 'up');
-    peerModelsCache.set(address, models);
 
     if (prev !== 'up') {
       logger.info(`[monitor] peer up: ${address}`);
-      broadcast({type: 'peer-up', address, models});
+      publishPeerEvent({type: 'peer-up', address, models});
     }
   } catch {
     const prev = peerStatus.get(address);
     peerStatus.set(address, 'down');
-    peerModelsCache.delete(address);
 
     if (prev === 'up') {
       logger.info(`[monitor] peer down: ${address}`);
-      broadcast({type: 'peer-down', address});
+      publishPeerEvent({type: 'peer-down', address});
     }
   }
 }
 
-// Poll each remote peer's /api/v1/local-models and broadcast peer-up/peer-down
-// to connected browsers, so the UI tracks reachability live.
+// Guard against a second monitor loop if instrumentation ever re-runs in the
+// same process (e.g. across dev-server reloads).
+const STARTED_KEY = Symbol.for('turbo-jumbo.peer-monitor-started');
+
+// Poll each remote peer's /api/v1/local-models and publish peer-up/peer-down
+// events (fanned out to browsers by /api/v1/events), so the UI tracks
+// reachability live.
 export function startPeerMonitor(): void {
   const remotePeers = config.peers.filter((p) => p !== localPeer);
   if (remotePeers.length === 0) return;
 
-  const wss = getWsServer();
-  if (!wss) return;
-
-  // Send the current known state to each newly connected browser client.
-  wss.on('connection', (ws) => {
-    for (const [address, status] of peerStatus) {
-      if (status === 'up') {
-        sendMsg(ws, {
-          type: 'peer-up',
-          address,
-          models: peerModelsCache.get(address) ?? [],
-        });
-      } else {
-        sendMsg(ws, {type: 'peer-down', address});
-      }
-    }
-  });
+  const g = globalThis as {[STARTED_KEY]?: boolean};
+  if (g[STARTED_KEY]) return;
+  g[STARTED_KEY] = true;
 
   const poll = () => {
     for (const peer of remotePeers) void checkPeer(peer.address);

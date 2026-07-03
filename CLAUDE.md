@@ -9,7 +9,7 @@ Turbo Jumbo: a tool to download AI models (from HuggingFace) and transfer them b
 ## Commands
 
 ```bash
-bun dev        # Start dev server at http://localhost:3000 (runs server.ts, not `next dev`)
+bun dev        # Start dev server at http://localhost:3000
 bun build      # Production build
 bun start      # Run production build
 bun test       # Run all tests (bun's test runner; .test.ts files are co-located in lib/)
@@ -27,10 +27,10 @@ jj commit -m "<message>"  # Commit (this repo uses Jujutsu, not git)
 
 ## Architecture
 
-Next.js 16 **App Router** + React 19, served by a **custom server** (`server.ts`) rather than `next dev`/`next start`. Run via `bun server.ts`. The custom server exists to add two things Next can't host alone:
+Next.js 16 **App Router** + React 19, served by plain `next dev`/`next start` (no custom server). Live peer notifications ride on two Next-native pieces:
 
-- **WebSocket server** at `/ws` (`lib/peers/ws-server.ts`). `server.ts` suppresses Next's own `upgrade` handler (which would otherwise match `/ws` via the catch-all route and kill the socket) and routes upgrades itself — `/ws` to our server, everything else (e.g. Next dev HMR) back to Next.
-- **Peer monitor** (`lib/peers/peer-monitor.ts`), started at boot. Polls each remote peer's `/api/v1/local-models` every `peer_check_interval` seconds and broadcasts `peer-up`/`peer-down` (`lib/peers/ws-messages.ts`) to connected browsers, so the UI tracks peer reachability live.
+- **Peer monitor** (`lib/peers/peer-monitor.ts`), started once at server boot from `instrumentation.ts`. Polls each remote peer's `/api/v1/local-models` every `peer_check_interval` seconds and publishes `peer-up`/`peer-down` events (`lib/peers/peer-event-types.ts`) into an in-process hub (`lib/peers/peer-event-hub.ts`; state lives on `globalThis` because instrumentation and route handlers are separate module graphs).
+- **SSE stream** at `/api/v1/events` (a streaming Route Handler): replays the hub's current peer state on connect, then forwards events. Browsers subscribe through `lib/peers/peer-event-client.ts`, which multiplexes all client-side subscribers over one auto-reconnecting `EventSource`. WebSockets are deliberately avoided: Next's router owns HTTP `upgrade` handling and kills upgrades on paths that match a route (the `[[...location]]` catch-all matches everything).
 
 **Directory layout:** `app/` holds only routing (layouts, pages, and `app/api/v1/` route handlers). Non-routing React components live in `components/`; non-React shared logic and its tests in `lib/`. Group modules into subdirectories by feature or theme rather than letting files accumulate at the top level — this applies to `components/` (e.g. `components/lemonade/`, `components/cells/`) and equally to `lib/` (e.g. `lib/audit/`, `lib/hf/`). Path alias `@/*` resolves to the repo root. TypeScript strict mode.
 

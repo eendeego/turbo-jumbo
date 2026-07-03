@@ -1,10 +1,10 @@
 'use client';
 
 import {useEffect, useState} from 'react';
-import {subscribeToPeerEvents} from '@/lib/peers/ws-client';
+import {subscribeToPeerEvents} from '@/lib/peers/peer-event-client';
 
 // Tracks which peers are currently unreachable, keyed by address. The server
-// monitors remote peers and broadcasts `peer-up`/`peer-down` over the WebSocket
+// monitors remote peers and publishes `peer-up`/`peer-down` on the SSE stream
 // (and replays the current state to each newly connected client), so this is a
 // thin subscription that just collects the down set. Used by the app chrome to
 // flag the matching location tab — it needs the status, not the models, so it
