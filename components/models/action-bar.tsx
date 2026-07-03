@@ -123,6 +123,13 @@ export function ActionBar({
                 label={auditing ? 'Auditing…' : 'Audit'}
                 variant="secondary"
                 size="sm"
+                // With a tooltip the disabled button stays focusable
+                // (aria-disabled), so the explanation is reachable.
+                tooltip={
+                  auditSupported
+                    ? undefined
+                    : 'Audit is only implemented per location — switch to a peer or cold-storage tab'
+                }
                 // Unlike the other actions, Audit works without a selection:
                 // it then just loads the location's cached (sidecar) verdicts.
                 isDisabled={
