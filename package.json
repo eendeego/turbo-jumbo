@@ -2,6 +2,7 @@
   "name": "turbo-jumbo",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "bun server.ts",
     "build": "next build",
