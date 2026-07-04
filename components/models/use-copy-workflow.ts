@@ -22,7 +22,6 @@ export function useCopyWorkflow({
   refreshModels,
   setError,
   coldModels,
-  localPeerModels,
   localPeerAddress,
   seededPeerModels,
 }: {
@@ -32,7 +31,6 @@ export function useCopyWorkflow({
   refreshModels: () => Promise<void>;
   setError: Dispatch<SetStateAction<string | null>>;
   coldModels: Model[];
-  localPeerModels: Model[];
   localPeerAddress: string | null;
   seededPeerModels: Map<string, AsyncState<Model[]>>;
 }) {
@@ -72,14 +70,22 @@ export function useCopyWorkflow({
       }
     };
     indexModels(coldModels, 'cold-storage');
-    if (localPeerAddress) indexModels(localPeerModels, localPeerAddress);
+    // The local peer resolves from the same polled map the table renders
+    // from (seeded from server data until the first poll lands), so anything
+    // selectable is copyable — server-rendered props alone go stale the
+    // moment a download finishes, and copies would silently resolve to zero
+    // source files.
+    if (localPeerAddress) {
+      const lo = seededPeerModels.get(localPeerAddress);
+      if (lo?.type === 'value') indexModels(lo.value, localPeerAddress);
+    }
     for (const [addr, lo] of seededPeerModels) {
       if (addr === localPeerAddress) continue;
       if (lo.type !== 'value') continue;
       indexModels(lo.value, addr);
     }
     return sources;
-  }, [coldModels, localPeerModels, localPeerAddress, seededPeerModels]);
+  }, [coldModels, localPeerAddress, seededPeerModels]);
 
   function buildSourceFilesFor(
     paths: Iterable<string>,
@@ -99,6 +105,15 @@ export function useCopyWorkflow({
 
   async function onCopy(destinations: CopyDestinations) {
     setConfirmingCopy(false);
+    // Refuse rather than quietly copy a subset (or nothing): every selected
+    // path must resolve to a source.
+    const sourceFiles = buildSourceFiles();
+    if (sourceFiles.length < selected.size) {
+      setError(
+        'Some selected files have no known source yet — wait for the table to refresh and retry.',
+      );
+      return;
+    }
     setChecking(true);
     setError(null);
     let hasConflicts = false;
@@ -108,7 +123,7 @@ export function useCopyWorkflow({
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          files: buildSourceFiles(),
+          files: sourceFiles,
           toColdStorage: destinations.toColdStorage,
           toPeers: destinations.toPeers,
         }),

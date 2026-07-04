@@ -395,7 +395,6 @@ export function HomeClient({
     refreshModels,
     setError,
     coldModels,
-    localPeerModels,
     localPeerAddress,
     seededPeerModels,
   });
