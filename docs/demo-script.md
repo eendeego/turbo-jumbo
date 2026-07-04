@@ -6,6 +6,9 @@ beat names what the viewer should take away, then the exact on-screen action.
 [`bin/record-demo.ts`](../bin/record-demo.ts) records it (its header says how
 to run it; mechanics and selector gotchas live in `~/tj/CLAUDE.md`); this
 file is the source of truth for _what_ gets recorded — keep the two in sync.
+For the whole pipeline in one command — server up, record, accelerate,
+mp4 — run [`bin/make-demo.sh`](../bin/make-demo.sh); artifacts land in
+`demo-out/`.
 
 ## Ground rules
 

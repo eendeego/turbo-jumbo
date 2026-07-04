@@ -50,6 +50,9 @@ next-env.d.ts
 # container image artifact from `bun docker:build`
 *.tar.gz
 
+# demo recordings from bin/make-demo.sh
+/demo-out
+
 # local config (copy config.yaml.sample to config.yaml and edit)
 /config.yaml
 
