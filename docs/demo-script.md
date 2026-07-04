@@ -3,9 +3,9 @@
 The storyline for the recorded product demo (~2¾ min — network- and
 disk-speed dependent — 1440×900, dark mode). Each
 beat names what the viewer should take away, then the exact on-screen action.
-The automation that records this lives outside the repo (see `~/tj/CLAUDE.md`,
-"Recording a video demo"); this file is the source of truth for _what_ gets
-recorded.
+[`bin/record-demo.ts`](../bin/record-demo.ts) records it (its header says how
+to run it; mechanics and selector gotchas live in `~/tj/CLAUDE.md`); this
+file is the source of truth for _what_ gets recorded — keep the two in sync.
 
 ## Ground rules
 
@@ -24,7 +24,8 @@ recorded.
   `{"files": ["unsloth/Qwen3.6-35B-A3B-MTP-GGUF/mmproj-F16.gguf"]}`): beat 10
   needs its audit to find the model Incomplete, and the beat itself
   re-downloads the mmproj — so every take starts from the same gap and ends
-  repaired.
+  repaired. (`bin/record-demo.ts` does this, and clears any leftover demo
+  model from an interrupted take, in its pre-flight.)
 
 ## Beats
 
@@ -97,9 +98,9 @@ recorded.
 
 ## Post-production: accelerating the waits
 
-The recorder logs a timestamped `STEP:` line per beat; the video starts ≈ at
-the beat-1 line, so `video time = log time − beat-1 time`. After each retake,
-refresh [demo-script-timestamps.md](demo-script-timestamps.md) from that log,
+`bin/record-demo.ts` prints a video-relative beat-timestamp table when a
+take finishes. After each retake,
+refresh [demo-script-timestamps.md](demo-script-timestamps.md) from it,
 pick the pure-wait windows (nothing interactive inside), and run
 [`bin/demo-postprod.sh`](../bin/demo-postprod.sh):
 
