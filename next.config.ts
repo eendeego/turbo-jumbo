@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
   // Lets an isolated dev/build run write to its own dir (e.g. .next-verify)
   // instead of clobbering the primary .next used by a running dev server.
   distDir: process.env.NEXT_DIST_DIR ?? '.next',
+  // Lets screenshot/video captures hide the dev-tools indicator bubble.
+  devIndicators: process.env.NEXT_DEV_INDICATORS === '0' ? false : undefined,
 };
 
 // The StyleX SWC loader transforms stylex.create / xstyle calls in app code.
