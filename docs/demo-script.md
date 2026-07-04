@@ -19,6 +19,12 @@ recorded.
   disabled (`NEXT_DEV_INDICATORS=0`).
 - Record with both peers up: beat 6 copies to the remote peer, and the Peers
   column should show two live badges throughout.
+- Before rolling, delete `mmproj-F16.gguf` from the local
+  `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` (`DELETE /api/v1/local-models` with
+  `{"files": ["unsloth/Qwen3.6-35B-A3B-MTP-GGUF/mmproj-F16.gguf"]}`): beat 10
+  needs its audit to find the model Incomplete, and the beat itself
+  re-downloads the mmproj — so every take starts from the same gap and ends
+  repaired.
 
 ## Beats
 
