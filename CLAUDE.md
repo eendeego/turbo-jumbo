@@ -57,7 +57,7 @@ The audit verifies on-disk files against HuggingFace: resolves each file at its 
 
 ### Downloads
 
-HuggingFace downloads shell out to the `hf` CLI with `hf-transfer` (see `Dockerfile`); progress is tracked by polling bytes-on-disk (`lib/hf/hf-download*.ts`, `components/download-runner.tsx`). **Lemonade** is a separate model-server cache the app can browse and sync into (`lib/lemonade/`, `components/lemonade/`).
+HuggingFace downloads shell out to the `hf` CLI, which inherits the server's environment (`HF_TOKEN`, Xet acceleration via `HF_XET_HIGH_PERFORMANCE` — set in `.envrc` for dev and in the `Dockerfile`); progress is tracked by polling bytes-on-disk (`lib/hf/hf-download*.ts`, `components/download-runner.tsx`). **Lemonade** is a separate model-server cache the app can browse and sync into (`lib/lemonade/`, `components/lemonade/`).
 
 ## UI conventions
 

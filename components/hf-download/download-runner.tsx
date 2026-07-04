@@ -8,7 +8,6 @@ import {Button} from '@astryxdesign/core/Button';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {Banner} from '@astryxdesign/core/Banner';
-import {HF_HUB_ENABLE_HF_TRANSFER} from '@/lib/hf/hf';
 import {
   parseNotices,
   parseProgress,
@@ -30,15 +29,13 @@ export type DownloadRequest = {
 
 /**
  * The `hf` command line the server runs for a download request, mirroring the
- * `/api/v1/hf-download` route (HF_HUB_ENABLE_HF_TRANSFER, `--local-dir`, an
- * explicit `--revision`). Shown so a user can copy and reproduce a run.
+ * `/api/v1/hf-download` route (`--local-dir`, an explicit `--revision`; env
+ * like HF_XET_HIGH_PERFORMANCE is inherited from the server's environment).
+ * Shown so a user can copy and reproduce a run.
  */
 export function buildHfCommand(req: DownloadRequest, localDir: string): string {
   const includes = req.filePaths.map((fp) => `--include "${fp}"`).join(' ');
-  const prefix = HF_HUB_ENABLE_HF_TRANSFER
-    ? 'HF_HUB_ENABLE_HF_TRANSFER=1 '
-    : '';
-  return `${prefix}hf download ${req.repoId} ${includes} --local-dir ${localDir} --revision ${req.branch}`;
+  return `hf download ${req.repoId} ${includes} --local-dir ${localDir} --revision ${req.branch}`;
 }
 
 // Apply a raw output chunk to the terminal buffer, honouring \r (carriage

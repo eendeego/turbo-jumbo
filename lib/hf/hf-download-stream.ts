@@ -16,7 +16,6 @@ import {
   modelDirForRepo,
   removeFileMeta,
 } from '@/lib/models/model-sidecar';
-import {HF_HUB_ENABLE_HF_TRANSFER} from '@/lib/hf/hf';
 
 const ANSI_RE = /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07]*\x07|[^[\]])/g;
 function stripAnsi(s: string): string {
@@ -291,11 +290,11 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
 
       // `-e` makes `script` exit with the wrapped command's status; without it
       // `script` always exits 0, hiding an `hf download` failure.
-      const proc = spawn('script', ['-e', '-q', '-c', cmd, '/dev/null'], {
-        env: HF_HUB_ENABLE_HF_TRANSFER
-          ? {...process.env, HF_HUB_ENABLE_HF_TRANSFER: '1'}
-          : process.env,
-      });
+      // The spawn inherits the server's environment: transfer acceleration
+      // (HF_XET_HIGH_PERFORMANCE) and HF_TOKEN come from there (.envrc in
+      // dev, ENV in the Dockerfile) rather than app code — forcing the
+      // deprecated HF_HUB_ENABLE_HF_TRANSFER here made every download warn.
+      const proc = spawn('script', ['-e', '-q', '-c', cmd, '/dev/null']);
 
       // hf prints no progress while downloading, so synthesize it: size the bar
       // from the repo's file sizes, then poll bytes-on-disk and emit a
