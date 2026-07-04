@@ -95,6 +95,32 @@ recorded.
 11. **Rest** (~2s)
     End on the All tab, nothing selected, cursor parked out of the way.
 
+## Post-production: accelerating the waits
+
+The recorder logs a timestamped `STEP:` line per beat; the video starts ≈ at
+the beat-1 line, so `video time = log time − beat-1 time`. After each retake,
+refresh [demo-script-timestamps.md](demo-script-timestamps.md) from that log,
+pick the pure-wait windows (nothing interactive inside), and re-time them
+with the system ffmpeg (`/usr/bin/ffmpeg` — NOT Playwright's bundled one,
+which lacks `setpts`/`concat`). These recordings have no audio, so a single
+`trim`/`setpts`/`concat` pass is all it takes:
+
+```bash
+ffmpeg -i demo.webm -filter_complex "\
+[0:v]trim=0:124,setpts=PTS-STARTPTS[v0];\
+[0:v]trim=124:141,setpts=(PTS-STARTPTS)/8[v1];\
+[0:v]trim=141,setpts=PTS-STARTPTS[v2];\
+[v0][v1][v2]concat=n=3:v=1[out]" \
+  -map "[out]" -c:v libvpx -crf 10 -b:v 8M -deadline good -cpu-used 2 \
+  demo-fast.webm
+```
+
+One `trim` stanza per window (contiguous, and keep `n=` in sync). Use 4× for
+stretches with visible progress (transfer bars) so motion stays legible, 8×
+for static waits (table polls, hashing). Leave a ~1 s margin on both sides of
+each window so no interaction gets sped up. Keep the `-b:v 8M` ceiling: VP8's
+constrained-quality mode defaults to 256 kbit/s and smears the UI text.
+
 ## Beats considered and cut
 
 - **Peer badge hovercard** (peer name + reachability): worth adding once both
