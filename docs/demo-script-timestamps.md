@@ -40,4 +40,9 @@ stretches of the raw recording; everything interactive stays 1×:
 | 2:45 – 3:34 | 8×    | The ~35 GB audit hash (progress ticks)   |
 | 3:42 – 3:52 | 4×    | mmproj redownload (progress bar visible) |
 
-Produced with the recipe in demo-script.md's Post-production section.
+Produced by demo-script.md's Post-production step:
+
+```bash
+bin/demo-postprod.sh turbo-jumbo-demo-v2.webm \
+  -w 124:141:8 -w 165:214:8 -w 222.5:232:4
+```
