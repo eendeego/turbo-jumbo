@@ -99,6 +99,13 @@ export function ActionBar({
               label={copying ? 'Copying…' : checking ? 'Checking…' : 'Copy to…'}
               variant="secondary"
               size="sm"
+              // Like the Audit tooltip, only explains the no-selection case;
+              // a running action already explains itself via the label.
+              tooltip={
+                noneSelected
+                  ? 'Copying needs a selection — check some files in the table first'
+                  : undefined
+              }
               isDisabled={
                 noneSelected ||
                 copying ||
@@ -113,6 +120,11 @@ export function ActionBar({
               label={deleting ? 'Deleting…' : 'Delete…'}
               variant="destructive"
               size="sm"
+              tooltip={
+                noneSelected
+                  ? 'Deleting needs a selection — check some files in the table first'
+                  : undefined
+              }
               isDisabled={
                 noneSelected || deleting || copying || auditing || fixing
               }
