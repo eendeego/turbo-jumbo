@@ -11,6 +11,11 @@ are actually the bytes HuggingFace promised.
 
 ![The models table: every model and quantization across peers and cold storage](docs/screenshot.png)
 
+Two-minute narrated tour — a real download, a copy to a peer and cold
+storage, audits, deletes, and a Lemonade consolidation, all live:
+
+https://github.com/user-attachments/assets/7804eb94-ba09-439a-8eb5-e21a5898cfa5
+
 ## How you end up needing this
 
 It starts innocently. You download one small model, just to try it. Then the
