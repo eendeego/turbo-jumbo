@@ -23,7 +23,7 @@ Writing rules, learned the hard way:
 | Start (s) | Line                                                                                                    |
 | --------- | ------------------------------------------------------------------------------------------------------- |
 | 0.6       | This is Turbo Jumbo: one inventory for every AI model across this machine, its peers, and cold storage. |
-| 9.9       | Multiple quantizations per model are supported, each with its own size and status.                      |
+| 9.9       | Multiple quantizations per model are supported.                                                         |
 | 16.7      | Adding a model from Hugging Face: type the repo, tick a file, and download.                             |
 | 23.1      | Seconds later, it's part of the inventory.                                                              |
 | 35.3      | Copying to the peer and to cold storage is one operation.                                               |
