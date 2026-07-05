@@ -116,7 +116,7 @@ if (await has(peerApi(remotePeer.name, 'models'))) {
 
 // Beat 10 needs the audit to find the model Incomplete: remove the mmproj
 // the previous take re-downloaded (the beat repairs it again on camera).
-if ((await (await api('/api/v1/local-models')).text()).includes('mmproj-F16')) {
+if ((await (await api('/api/v1/local-models')).text()).includes(AUDIT_MMPROJ)) {
   console.log('pre-flight: deleting the mmproj so the audit finds a gap');
   await del('/api/v1/local-models', [AUDIT_MMPROJ]);
 }
@@ -405,7 +405,7 @@ try {
   await pause(2000);
 
   step('beat 10: audit finds a problem, Download mmproj');
-  await glideClick(tab(`${localPeer.name} (local)`));
+  await glideClick(tab(localPeer.name));
   await pause(2500);
   const auditRow = page.locator('tr', {hasText: AUDIT_MODEL}).first();
   const auditCheck = auditRow.getByRole('checkbox').first();

@@ -1,48 +1,50 @@
 # Demo recording timestamps
 
-Beat timeline of the current demo recording, `turbo-jumbo-demo-v2.webm`
-(recorded 2026-07-04, 4:04 raw). Times are video-relative; they come from the
-recorder's `STEP:` log lines (the video starts ≈ at the beat-1 line). Redo
-this table after every retake — see "Post-production" in
+Beat timeline of the current demo recording,
+`demo-out/turbo-jumbo-demo-2026-07-05.webm` (4:09 raw). Times are
+video-relative, from the beat table `bin/record-demo.ts` prints. Redo this
+file after every retake — see "Post-production" in
 [demo-script.md](demo-script.md).
 
 | Video time | Event                                                |
 | ---------- | ---------------------------------------------------- |
 | 0:00       | Beat 1 — inventory at a glance (All tab)             |
-| 0:06       | Beat 2 — scroll through the table                    |
+| 0:07       | Beat 2 — scroll through the table                    |
 | 0:09       | Beat 3 — expand a multi-quant model                  |
-| 0:14       | Beat 4 — disabled Copy tooltip                       |
-| 0:17       | Beat 5 — Add model → From Hugging Face               |
-| 0:28       | · HF download runs (~3 s with Xet) + close, reload   |
-| 0:43       | · the new gemma row is in the table                  |
+| 0:15       | Beat 4 — disabled Copy tooltip                       |
+| 0:18       | Beat 5 — Add model → From Hugging Face               |
+| 0:29       | · HF download runs (~3 s with Xet) + close, reload   |
+| 0:44       | · the new gemma row is in the table                  |
 | 0:45       | Beat 6 — select, Copy to… the remote peer + Cold storage      |
-| 0:54       | · copy runs (~10 s), badge flips Complete            |
-| 1:09       | Beat 7 — audit the copy on the remote peer, Cold Storage stop |
-| 1:26       | Beat 8 — Delete… from all locations                  |
-| 1:38       | Beat 9 — Add model → From Lemonade, download         |
-| 2:03       | · waiting for the table poll (row appears ~2:23)     |
-| 2:24       | · select the row, Delete…, confirm                   |
-| 2:37       | Beat 10 — local peer tab, select Qwen3.6-35B-A3B-MTP, Audit |
-| 2:44       | · audit hashes ~35 GB (runs to ~3:35, live % shown)  |
-| 3:37       | · hover Incomplete, press Download mmproj            |
-| 3:41       | · mmproj redownload (899 MB, done ~3:52), Close      |
-| 3:59       | Beat 11 — rest on All                                |
-| 4:04       | End                                                  |
+| 0:54       | · copy runs, badge flips Complete                    |
+| 1:14       | Beat 7 — audit the copy on the remote peer, Cold Storage stop |
+| 1:30       | Beat 8 — Delete… from all locations                  |
+| 1:42       | Beat 9 — Add model → From Lemonade, download         |
+| 2:07       | · waiting for the table poll, then select and delete |
+| 2:41       | Beat 10 — local peer tab, select Qwen3.6-35B-A3B-MTP, Audit |
+| 2:48       | · audit hashes ~35 GB (live % shown)                 |
+| 3:45       | · hover Incomplete, Download mmproj (899 MB), Close  |
+| 4:04       | Beat 11 — rest on All                                |
+| 4:09       | End                                                  |
 
 ## Accelerated cut
 
-`turbo-jumbo-demo-v2-fast.webm` (~3:00) speeds up the three pure-wait
-stretches of the raw recording; everything interactive stays 1×:
+`turbo-jumbo-demo-2026-07-05-fast.webm` / `.mp4` (3:03) speed up the three
+pure-wait stretches; everything interactive stays 1×:
 
 | Raw window  | Speed | What it is                               |
 | ----------- | ----- | ---------------------------------------- |
-| 2:04 – 2:21 | 8×    | Lemonade row wait (static table poll)    |
-| 2:45 – 3:34 | 8×    | The ~35 GB audit hash (progress ticks)   |
-| 3:42 – 3:52 | 4×    | mmproj redownload (progress bar visible) |
+| 2:08 – 2:25 | 8×    | Lemonade row wait (static table poll)    |
+| 2:49 – 3:38 | 8×    | The ~35 GB audit hash (progress ticks)   |
+| 3:47 – 3:57 | 4×    | mmproj redownload (progress bar visible) |
 
 Produced by demo-script.md's Post-production step:
 
 ```bash
-bin/demo-postprod.sh turbo-jumbo-demo-v2.webm \
-  -w 124:141:8 -w 165:214:8 -w 222.5:232:4
+bin/demo-postprod.sh demo-out/turbo-jumbo-demo-2026-07-05.webm \
+  -w 128:145:8 -w 168.9:218:8 -w 226.5:236.6:4
 ```
+
+The narrated variants (`…-fast-narrated.webm` / `.mp4`) add the
+[demo-narration.md](demo-narration.md) voice-over, whose offsets are timed
+to this cut.
