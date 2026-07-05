@@ -1,7 +1,9 @@
 # Setup and operations
 
 Everything you need to develop, configure, and deploy Turbo Jumbo. For what the
-tool is and why it exists, see the [README](../README.md).
+tool is and why it exists, see the [README](../README.md). For the developer
+workstation's toolchain — the `hf` downloader, ffmpeg, demo and narration
+tooling — see [dev-setup.md](dev-setup.md).
 
 ## Development
 
