@@ -568,6 +568,104 @@ test('a model without a sidecar at all is likewise surfaced as blocked', async (
   await fsp.rm(root, {recursive: true, force: true});
 });
 
+test('materializes a sidecar-less model from its files own tjmeta commits', async () => {
+  const {root, tj, lem} = await mkdirs();
+  // A fresh download: real file + per-file tjmeta, no tjmodel.json yet.
+  const rev = 'feedface1111';
+  await write(tj, 'org/fresh/model.gguf', 'WEIGHTS');
+  await write(
+    tj,
+    'org/fresh/model.gguf.tjmeta.json',
+    JSON.stringify({sourceCommit: rev}),
+  );
+
+  expect(await previewLemonadeSync(tj, lem, ['org/fresh'])).toEqual([
+    {
+      repoId: 'org/fresh',
+      rev,
+      moveCount: 0,
+      dedupCount: 0,
+      linkCount: 1,
+      staleCount: 0,
+    },
+  ]);
+
+  const [result] = await syncLemonadeToTurboJumbo(tj, lem, ['org/fresh']);
+  expect(result.rev).toBe(rev);
+  expect(result.files).toEqual([
+    {repoPath: 'model.gguf', status: 'materialized'},
+  ]);
+  const link = path.join(lem, `models--org--fresh/snapshots/${rev}/model.gguf`);
+  expect((await fsp.lstat(link)).isSymbolicLink()).toBe(true);
+  expect(await fsp.readFile(link, 'utf8')).toBe('WEIGHTS');
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('materializes from a sidecar with only a file-derived sourceCommit', async () => {
+  const {root, tj, lem} = await mkdirs();
+  // The Lemonade-download flow writes tjmodel.json with sourceCommit (derived
+  // from the files) but no repo-level repoCommit.
+  const rev = 'deadbeef2222';
+  await write(tj, 'org/lem/model.gguf', 'WEIGHTS');
+  await write(
+    tj,
+    'org/lem/tjmodel.json',
+    JSON.stringify({
+      modelUrl: 'https://huggingface.co/org/lem',
+      repoId: 'org/lem',
+      sourceCommit: rev,
+      files: [{path: 'model.gguf', sourceCommit: rev}],
+    }),
+  );
+
+  expect(await previewLemonadeSync(tj, lem, ['org/lem'])).toEqual([
+    {
+      repoId: 'org/lem',
+      rev,
+      moveCount: 0,
+      dedupCount: 0,
+      linkCount: 1,
+      staleCount: 0,
+    },
+  ]);
+  const [result] = await syncLemonadeToTurboJumbo(tj, lem, ['org/lem']);
+  expect(result.rev).toBe(rev);
+  expect(result.files).toEqual([
+    {repoPath: 'model.gguf', status: 'materialized'},
+  ]);
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+test('stays blocked when the files tjmeta commits disagree', async () => {
+  const {root, tj, lem} = await mkdirs();
+  await write(tj, 'org/mixed/a.gguf', 'A');
+  await write(
+    tj,
+    'org/mixed/a.gguf.tjmeta.json',
+    JSON.stringify({sourceCommit: 'aaa'}),
+  );
+  await write(tj, 'org/mixed/b.gguf', 'B');
+  await write(
+    tj,
+    'org/mixed/b.gguf.tjmeta.json',
+    JSON.stringify({sourceCommit: 'bbb'}),
+  );
+
+  expect(await previewLemonadeSync(tj, lem, ['org/mixed'])).toEqual([
+    {
+      repoId: 'org/mixed',
+      rev: '',
+      moveCount: 0,
+      dedupCount: 0,
+      linkCount: 0,
+      staleCount: 0,
+      blocked: 'no-revision',
+    },
+  ]);
+  expect(await syncLemonadeToTurboJumbo(tj, lem, ['org/mixed'])).toEqual([]);
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
 test('resolves the revision from a sole snapshots dir when refs/main is absent', async () => {
   const {root, tj, lem} = await mkdirs();
   const rev = 'no-ref-rev';

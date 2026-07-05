@@ -23,16 +23,16 @@ Writing rules, learned the hard way:
 | Start (s) | Line                                                                                                    |
 | --------- | ------------------------------------------------------------------------------------------------------- |
 | 0.6       | This is Turbo Jumbo: one inventory for every AI model across this machine, its peers, and cold storage. |
-| 10.2      | Multiple quantizations per model are supported, each with its own size and status.                      |
-| 19.8      | Adding a model from Hugging Face: type the repo, tick a file, and download.                             |
-| 29.1      | Seconds later, it's part of the inventory.                                                              |
-| 36.6      | Copying to the peer and to cold storage is one operation.                                               |
-| 51.1      | The badges fill in as each copy lands.                                                                  |
-| 56.1      | On the peer, an audit verifies the copy against its Hugging Face source.                                |
-| 67.1      | Deletes can target one machine — or, like here, every machine and cold storage at once.                 |
-| 76.2      | The same model again — this time from a Lemonade catalog.                                               |
-| 86.0      | Consolidate links the same files into Lemonade's cache — one copy on disk serves both.                  |
-| 95.0      | This time, the delete touches only this machine.                                                        |
-| 100.2     | Finally: this model is missing its multimodal projector file.                                           |
-| 111.7     | The audit catches it — and one click fetches exactly the missing file.                                  |
-| 125.9     | Every machine, every model, in sync.                                                                    |
+| 9.9      | Multiple quantizations per model are supported, each with its own size and status.                      |
+| 16.7      | Adding a model from Hugging Face: type the repo, tick a file, and download.                             |
+| 23.7      | Seconds later, it's part of the inventory.                                                              |
+| 35.9      | Copying to the peer and to cold storage is one operation.                                               |
+| 49.5      | The badges fill in as each copy lands.                                                                  |
+| 54.5      | On the peer, an audit verifies the copy against its Hugging Face source.                                |
+| 66.4      | Deletes can target one machine — or, like here, every machine and cold storage at once.                 |
+| 75.7      | The same model again — this time from a Lemonade catalog.                                               |
+| 95.3      | Consolidate links the same files into Lemonade's cache — one copy on disk serves both.                  |
+| 106.6      | This time, the delete touches only this machine.                                                        |
+| 114.3     | Finally: this model is missing its multimodal projector file.                                           |
+| 122.4     | The audit catches it — and one click fetches exactly the missing file.                                  |
+| 136.4     | Every machine, every model, in sync.                                                                    |

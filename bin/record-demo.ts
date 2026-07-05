@@ -114,18 +114,20 @@ if (await has(peerApi(remotePeer.name, 'models'))) {
   await del(peerApi(remotePeer.name, 'models'), [DEMO_PATH]);
 }
 
-// With the demo model gone, run a Lemonade sync: it sweeps the stale
-// symlink the previous take's consolidation left in Lemonade's cache, so
-// beat 9's preview always finds exactly the fresh download to link.
-console.log('pre-flight: Lemonade sync to sweep stale demo-model links');
-await api('/api/v1/lemonade/sync', {method: 'POST'});
-
 // Beat 11 needs the audit to find the model Incomplete: remove the mmproj
 // the previous take re-downloaded (the beat repairs it again on camera).
 if ((await (await api('/api/v1/local-models')).text()).includes(AUDIT_MMPROJ)) {
   console.log('pre-flight: deleting the mmproj so the audit finds a gap');
   await del('/api/v1/local-models', [AUDIT_MMPROJ]);
 }
+
+// With the demo model and the mmproj gone, run a Lemonade sync: it sweeps
+// the stale symlinks previous takes left in Lemonade's cache, so beat 9's
+// on-camera preview shows exactly the fresh download to link. Order
+// matters: syncing before the deletions would link files that are about to
+// disappear, leaving fresh stale links for beat 9 to trip over.
+console.log('pre-flight: Lemonade sync to sweep stale demo-model links');
+await api('/api/v1/lemonade/sync', {method: 'POST'});
 
 // ————— Recording —————
 

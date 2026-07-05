@@ -7,6 +7,7 @@ import {
   upsertFileMeta,
   type TjModelFile,
 } from '@/lib/models/model-sidecar';
+import {MIXED_COMMIT} from '@/lib/models/sidecar-types';
 
 // Sync Lemonade and Turbo Jumbo so a single copy on disk serves both, via the
 // Lemonade HuggingFace-cache layout `models--<org>--<repo>/snapshots/<rev>/…`
@@ -354,6 +355,34 @@ async function listTjFiles(tjModelDir: string): Promise<string[]> {
  *  consolidation pass has cleared it). `rev: null` when the model is a
  *  candidate but no revision can name the snapshot dir, so it's blocked rather
  *  than actionable. Shared by the preview and the executor so they agree. */
+/** Fallback revision for a model with no cache entry and no model sidecar:
+ *  the shared `sourceCommit` of the files' own `*.tjmeta.json` records — a
+ *  fresh download writes those before anything creates `tjmodel.json`. Null
+ *  when any file lacks a commit or they disagree: a snapshot dir named after
+ *  one file's revision would lie about the others. */
+async function revFromFileMeta(
+  tjModelDir: string,
+  repoPaths: string[],
+): Promise<string | null> {
+  let shared: string | null = null;
+  for (const p of repoPaths) {
+    let commit: unknown;
+    try {
+      const raw = await fsp.readFile(
+        nodePath.join(tjModelDir, `${p}.tjmeta.json`),
+        'utf8',
+      );
+      commit = (JSON.parse(raw) as {sourceCommit?: unknown}).sourceCommit;
+    } catch {
+      return null;
+    }
+    if (typeof commit !== 'string' || commit === '') return null;
+    if (shared === null) shared = commit;
+    else if (shared !== commit) return null;
+  }
+  return shared;
+}
+
 async function planMaterialize(
   tj: string,
   lemonadeBase: string,
@@ -362,10 +391,16 @@ async function planMaterialize(
   const tjPaths = await listTjFiles(nodePath.join(tj, repoId));
   if (tjPaths.length === 0) return null;
   const repoDir = lemonadeRepoDir(lemonadeBase, repoId);
+  // Revision, most authoritative first: the cache entry's own; the sidecar's
+  // repo-level commit; the sidecar's file-derived commit (unless the files
+  // disagree); the files' own tjmeta records (a fresh HF download has those
+  // before anything writes tjmodel.json).
+  const sidecar = await readModelSidecar(tj, repoId);
   const rev =
     (await resolveRev(repoDir)) ??
-    (await readModelSidecar(tj, repoId))?.repoCommit ??
-    null;
+    sidecar?.repoCommit ??
+    (sidecar?.sourceCommit !== MIXED_COMMIT ? sidecar?.sourceCommit : null) ??
+    (await revFromFileMeta(nodePath.join(tj, repoId), tjPaths));
   if (rev === null) return {rev, repoPaths: tjPaths};
   const snapshotDir = nodePath.join(repoDir, 'snapshots', rev);
   const repoPaths: string[] = [];
