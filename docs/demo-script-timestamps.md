@@ -29,20 +29,22 @@ file after every retake — see "Post-production" in
 
 ## Accelerated cut
 
-`turbo-jumbo-demo-2026-07-05-fast.webm` / `.mp4` (3:03) speed up the three
-pure-wait stretches; everything interactive stays 1×:
-
-| Raw window  | Speed | What it is                               |
-| ----------- | ----- | ---------------------------------------- |
-| 2:08 – 2:25 | 8×    | Lemonade row wait (static table poll)    |
-| 2:49 – 3:38 | 8×    | The ~35 GB audit hash (progress ticks)   |
-| 3:47 – 3:57 | 4×    | mmproj redownload (progress bar visible) |
+`turbo-jumbo-demo-2026-07-05-fast.webm` / `.mp4` (2:10) use narration-aware
+pacing: 1× only where a narration line needs its slot or where precision
+matters (the opening beats, hovercards, modal payoffs), 1.5–2× on watchable
+interactions without narration, 2–3× on dead stretches (typing tails,
+reload settles, transfer waits), and 6–16× on the pure waits (table polls,
+the ~35 GB audit hash, the mmproj redownload). Narration offsets were
+fit-checked against every slot before rendering (no line overruns its gap).
 
 Produced by demo-script.md's Post-production step:
 
 ```bash
 bin/demo-postprod.sh demo-out/turbo-jumbo-demo-2026-07-05.webm \
-  -w 128:145:8 -w 168.9:218:8 -w 226.5:236.6:4
+  -w 24.5:33:2 -w 36.5:44.5:2.5 -w 50:57.5:1.5 -w 57.5:68.5:3 \
+  -w 79.5:84.5:2 -w 84.5:90.5:1.5 -w 95.5:102.5:2 -w 107:118.5:2 \
+  -w 118.5:128:3 -w 128:145:12 -w 145:148.5:1.5 -w 148.5:160:2 \
+  -w 168.9:218:16 -w 226.5:236.6:6 -w 236.6:243.6:1.5
 ```
 
 The narrated variants (`…-fast-narrated.webm` / `.mp4`) add the

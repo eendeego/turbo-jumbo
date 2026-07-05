@@ -26,13 +26,13 @@ Writing rules, learned the hard way:
 | 10.2      | Models expand into their quantizations, with per-file sizes and statuses.                               |
 | 15.3      | Even disabled buttons explain themselves.                                                               |
 | 19.8      | Adding a model from Hugging Face: type the repo, tick a file, and download.                             |
-| 33.4      | Seconds later, it's part of the inventory.                                                              |
-| 45.6      | Copying to the peer and to cold storage is one operation.                                               |
-| 70.0      | The badges fill in as each copy lands.                                                                  |
-| 75.0      | On the peer, an audit verifies the copy against its Hugging Face source.                                |
-| 90.5      | Cleanup is a single delete, across every machine and cold storage at once.                              |
-| 103.1     | The same model again — this time from a Lemonade catalog.                                               |
-| 133.5     | And it's just as easy to remove.                                                                        |
-| 146.8     | Finally: this model is missing its multimodal projector file.                                           |
-| 161.3     | The audit catches it — and one click fetches exactly the missing file.                                  |
-| 178.7     | Every machine, every model, in sync.                                                                    |
+| 29.1      | Seconds later, it's part of the inventory.                                                              |
+| 36.6      | Copying to the peer and to cold storage is one operation.                                               |
+| 51.1      | The badges fill in as each copy lands.                                                                  |
+| 56.1      | On the peer, an audit verifies the copy against its Hugging Face source.                                |
+| 67.1      | Cleanup is a single delete, across every machine and cold storage at once.                              |
+| 76.2      | The same model again — this time from a Lemonade catalog.                                               |
+| 92.7      | And it's just as easy to remove.                                                                        |
+| 100.2     | Finally: this model is missing its multimodal projector file.                                           |
+| 111.7     | The audit catches it — and one click fetches exactly the missing file.                                  |
+| 125.9     | Every machine, every model, in sync.                                                                    |
