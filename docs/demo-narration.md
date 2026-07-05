@@ -31,7 +31,8 @@ Writing rules, learned the hard way:
 | 56.1      | On the peer, an audit verifies the copy against its Hugging Face source.                                |
 | 67.1      | Deletes can target one machine — or, like here, every machine and cold storage at once.                 |
 | 76.2      | The same model again — this time from a Lemonade catalog.                                               |
-| 92.7      | And it's just as easy to remove.                                                                        |
+| 86.0      | Consolidate links the same files into Lemonade's cache — one copy on disk serves both.                  |
+| 95.0      | This time, the delete touches only this machine.                                                        |
 | 100.2     | Finally: this model is missing its multimodal projector file.                                           |
 | 111.7     | The audit catches it — and one click fetches exactly the missing file.                                  |
 | 125.9     | Every machine, every model, in sync.                                                                    |

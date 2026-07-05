@@ -1,6 +1,6 @@
 # Demo video script
 
-The storyline for the recorded product demo (~2¾ min — network- and
+The storyline for the recorded product demo (~3 min raw — network- and
 disk-speed dependent — 1440×900, dark mode). Each
 beat names what the viewer should take away, then the exact on-screen action.
 [`bin/record-demo.ts`](../bin/record-demo.ts) records it (its header says how
@@ -24,11 +24,13 @@ mp4 — run [`bin/make-demo.sh`](../bin/make-demo.sh); artifacts land in
   column should show two live badges throughout.
 - Before rolling, delete `mmproj-F16.gguf` from the local
   `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` (`DELETE /api/v1/local-models` with
-  `{"files": ["unsloth/Qwen3.6-35B-A3B-MTP-GGUF/mmproj-F16.gguf"]}`): beat 9
+  `{"files": ["unsloth/Qwen3.6-35B-A3B-MTP-GGUF/mmproj-F16.gguf"]}`): beat 11
   needs its audit to find the model Incomplete, and the beat itself
   re-downloads the mmproj — so every take starts from the same gap and ends
-  repaired. (`bin/record-demo.ts` does this, and clears any leftover demo
-  model from an interrupted take, in its pre-flight.)
+  repaired. (`bin/record-demo.ts` does this in its pre-flight, along with
+  clearing any leftover demo model from an interrupted take and running a
+  Lemonade sync so beat 9 always finds exactly the demo model to link —
+  the sync also sweeps the stale link the previous take left behind.)
 
 ## Beats
 
@@ -77,23 +79,37 @@ mp4 — run [`bin/make-demo.sh`](../bin/make-demo.sh); artifacts land in
    wait, and the model vanishes from the table, leaving every machine
    exactly as it started.
 
-8. **Same trick, other source** (~25s, network-dependent)
+8. **Same trick, other source** (~20s, network-dependent)
    **Add model → From Lemonade**. Untick **Suggested only** and filter for
    `gemma-3-270m` — the same model, this time out of Lemonade's catalog. Tick
-   it, click **Download**, and wait for it to finish. Close the modal, then
-   tick the model in the table, **Delete…**, and confirm: clean again.
+   it, click **Download**, and wait for it to finish. Close the modal — the
+   model stays this time; the next two beats build on it.
 
-9. **Audit finds a real problem — and fixes it** (~30s, disk-speed
-   dependent: the audit hashes a big model)
-   Click the first peer's tab (the local one). Tick
-   `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` and press **Audit**; wait for it to
-   finish. The audit column flags **Incomplete** — the model is missing its
-   mmproj file. Hover the **Incomplete** token and press **Download mmproj**
-   on the hovercard; the button flips to **Downloading…** as the repair
-   kicks off. (No cleanup: this beat leaves the model more complete than it
-   found it.)
+9. **Consolidate with Lemonade** (~15s)
+   Click the local peer's tab and press **Consolidate with Lemonade…**. The
+   preview lists the just-downloaded gemma: Turbo Jumbo holds the file,
+   Lemonade's catalog knows the model, so the plan is to link it into
+   Lemonade's cache — one copy on disk serving both. Click **Sync 1 model**,
+   let the result badges land ("1 linked"), and **Close**. (Repeatable:
+   the pre-flight deletes the demo model and re-runs a sync, which sweeps
+   the then-stale link.)
 
-10. **Rest** (~2s)
+10. **Delete on one machine** (~8s)
+    Still on the local tab, tick the gemma and click **Delete…** — this
+    modal targets just this machine, the counterpart to beat 7's
+    all-locations delete. Confirm; gone.
+
+11. **Audit finds a real problem — and fixes it** (~30s, disk-speed
+    dependent: the audit hashes a big model)
+    Still on the local peer's tab, tick
+    `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` and press **Audit**; wait for it to
+    finish. The audit column flags **Incomplete** — the model is missing its
+    mmproj file. Hover the **Incomplete** token and press **Download mmproj**
+    on the hovercard; the button flips to **Downloading…** as the repair
+    kicks off. (No cleanup: this beat leaves the model more complete than it
+    found it.)
+
+12. **Rest** (~2s)
     End on the All tab, nothing selected, cursor parked out of the way.
 
 ## Post-production: accelerating the waits

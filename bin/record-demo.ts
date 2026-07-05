@@ -16,7 +16,7 @@
  * Pre-flight (per the demo script's ground rules) is automatic: routes are
  * warm-compiled, the remote peer must be reachable, leftovers of the demo
  * model from a botched take are deleted, and the mmproj file is removed so
- * beat 9's audit finds its Incomplete verdict. Everything the recording
+ * beat 11's audit finds its Incomplete verdict. Everything the recording
  * mutates is undone on camera, except the mmproj repair — that's the point.
  */
 
@@ -32,7 +32,7 @@ const DEMO_FILE = 'gemma-3-270m-it-UD-IQ2_M.gguf';
 const DEMO_PATH = `${DEMO_REPO}/${DEMO_FILE}`;
 const DEMO_ROW = 'gemma-3-270m'; // row text unique to the demo model
 const EXPAND_MODEL = 'gemma-4-26B-A4B-it-GGUF'; // beat 3: multi-quant model
-const AUDIT_MODEL = 'Qwen3.6-35B-A3B-MTP'; // beat 9: model missing its mmproj
+const AUDIT_MODEL = 'Qwen3.6-35B-A3B-MTP'; // beat 11: model missing its mmproj
 const AUDIT_MMPROJ = `unsloth/Qwen3.6-35B-A3B-MTP-GGUF/mmproj-F16.gguf`;
 
 // playwright-core straight from bun's cache — nothing is installed in this
@@ -114,7 +114,13 @@ if (await has(peerApi(remotePeer.name, 'models'))) {
   await del(peerApi(remotePeer.name, 'models'), [DEMO_PATH]);
 }
 
-// Beat 9 needs the audit to find the model Incomplete: remove the mmproj
+// With the demo model gone, run a Lemonade sync: it sweeps the stale
+// symlink the previous take's consolidation left in Lemonade's cache, so
+// beat 9's preview always finds exactly the fresh download to link.
+console.log('pre-flight: Lemonade sync to sweep stale demo-model links');
+await api('/api/v1/lemonade/sync', {method: 'POST'});
+
+// Beat 11 needs the audit to find the model Incomplete: remove the mmproj
 // the previous take re-downloaded (the beat repairs it again on camera).
 if ((await (await api('/api/v1/local-models')).text()).includes(AUDIT_MMPROJ)) {
   console.log('pre-flight: deleting the mmproj so the audit finds a gap');
@@ -355,7 +361,7 @@ try {
     .catch(() => {});
   await pause(2500);
 
-  step('beat 8: Lemonade download and delete');
+  step('beat 8: Lemonade download');
   await glideClick(page.getByRole('button', {name: 'Add model'}));
   await pause(700);
   await glideClick(page.getByText('From Lemonade', {exact: true}));
@@ -385,7 +391,29 @@ try {
   await pause(1000);
   step('  …waiting for the lemonade row (30s table poll)');
   await demoRow().waitFor({timeout: 75000});
-  await pause(1000);
+  await pause(1500); // the model stays — beats 9 and 10 build on it
+
+  step('beat 9: consolidate with Lemonade');
+  await glideClick(tab(localPeer.name));
+  await pause(2500);
+  await glideClick(
+    page.getByRole('button', {name: 'Consolidate with Lemonade…'}),
+  );
+  await pause(1500); // preview loads: the fresh gemma, plan "1 linked"
+  await glideClick(page.getByRole('button', {name: /^Sync \d+ model/}));
+  step('  …waiting for the sync to finish');
+  await page.getByText(/^Synced \d+ model/).waitFor({timeout: LONG});
+  await pause(2500); // result badges: "1 linked"
+  await glideClick(
+    page
+      .locator('button.astryx-button')
+      .filter({hasText: /^Close$/})
+      .first(),
+  );
+  await pause(1200);
+
+  step('beat 10: delete on one machine');
+  await demoRow().waitFor({timeout: 75000});
   await glideClick(demoCheck());
   await pause(1000);
   await glideClick(page.getByRole('button', {name: 'Delete…'}));
@@ -400,9 +428,7 @@ try {
     .catch(() => {});
   await pause(2000);
 
-  step('beat 9: audit finds a problem, Download mmproj');
-  await glideClick(tab(localPeer.name));
-  await pause(2500);
+  step('beat 11: audit finds a problem, Download mmproj');
   const auditRow = page.locator('tr', {hasText: AUDIT_MODEL}).first();
   const auditCheck = auditRow.getByRole('checkbox').first();
   await auditCheck.scrollIntoViewIfNeeded();
@@ -432,7 +458,7 @@ try {
   await glideClick(auditCheck); // untick
   await pause(600);
 
-  step('beat 10: rest');
+  step('beat 12: rest');
   await glideClick(tab('All'));
   await pause(1500);
   await page.mouse.move(720, 60, {steps: 15});
