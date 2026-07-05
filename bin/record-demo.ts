@@ -16,7 +16,7 @@
  * Pre-flight (per the demo script's ground rules) is automatic: routes are
  * warm-compiled, the remote peer must be reachable, leftovers of the demo
  * model from a botched take are deleted, and the mmproj file is removed so
- * beat 10's audit finds its Incomplete verdict. Everything the recording
+ * beat 9's audit finds its Incomplete verdict. Everything the recording
  * mutates is undone on camera, except the mmproj repair — that's the point.
  */
 
@@ -32,7 +32,7 @@ const DEMO_FILE = 'gemma-3-270m-it-UD-IQ2_M.gguf';
 const DEMO_PATH = `${DEMO_REPO}/${DEMO_FILE}`;
 const DEMO_ROW = 'gemma-3-270m'; // row text unique to the demo model
 const EXPAND_MODEL = 'gemma-4-26B-A4B-it-GGUF'; // beat 3: multi-quant model
-const AUDIT_MODEL = 'Qwen3.6-35B-A3B-MTP'; // beat 10: model missing its mmproj
+const AUDIT_MODEL = 'Qwen3.6-35B-A3B-MTP'; // beat 9: model missing its mmproj
 const AUDIT_MMPROJ = `unsloth/Qwen3.6-35B-A3B-MTP-GGUF/mmproj-F16.gguf`;
 
 // playwright-core straight from bun's cache — nothing is installed in this
@@ -114,7 +114,7 @@ if (await has(peerApi(remotePeer.name, 'models'))) {
   await del(peerApi(remotePeer.name, 'models'), [DEMO_PATH]);
 }
 
-// Beat 10 needs the audit to find the model Incomplete: remove the mmproj
+// Beat 9 needs the audit to find the model Incomplete: remove the mmproj
 // the previous take re-downloaded (the beat repairs it again on camera).
 if ((await (await api('/api/v1/local-models')).text()).includes(AUDIT_MMPROJ)) {
   console.log('pre-flight: deleting the mmproj so the audit finds a gap');
@@ -252,11 +252,7 @@ try {
   await glideClick(expander);
   await pause(900);
 
-  step('beat 4: disabled Copy tooltip');
-  await glideTo(copyBtn());
-  await pause(2400);
-
-  step('beat 5: HF download start to finish');
+  step('beat 4: HF download start to finish');
   await glideClick(page.getByRole('button', {name: 'Add model'}));
   await pause(700);
   await glideClick(page.getByText('From Hugging Face', {exact: true}));
@@ -287,7 +283,7 @@ try {
   await demoRow().waitFor({timeout: 75000});
   await pause(1200);
 
-  step('beat 6: copy to peer + cold storage');
+  step('beat 5: copy to peer + cold storage');
   await glideClick(demoCheck());
   await pause(1200);
   await glideClick(copyBtn());
@@ -319,7 +315,7 @@ try {
   await glideClick(demoCheck()); // untick
   await pause(800);
 
-  step('beat 7: audit on the peer');
+  step('beat 6: audit on the peer');
   await glideClick(tab(remotePeer.name));
   await pause(2500);
   await demoRow().waitFor({timeout: 75000});
@@ -342,7 +338,7 @@ try {
   await page.mouse.wheel(0, -10000);
   await pause(800);
 
-  step('beat 8: delete everywhere');
+  step('beat 7: delete everywhere');
   await demoRow().waitFor({timeout: 75000});
   await glideClick(demoCheck());
   await pause(1000);
@@ -359,7 +355,7 @@ try {
     .catch(() => {});
   await pause(2500);
 
-  step('beat 9: Lemonade download and delete');
+  step('beat 8: Lemonade download and delete');
   await glideClick(page.getByRole('button', {name: 'Add model'}));
   await pause(700);
   await glideClick(page.getByText('From Lemonade', {exact: true}));
@@ -404,7 +400,7 @@ try {
     .catch(() => {});
   await pause(2000);
 
-  step('beat 10: audit finds a problem, Download mmproj');
+  step('beat 9: audit finds a problem, Download mmproj');
   await glideClick(tab(localPeer.name));
   await pause(2500);
   const auditRow = page.locator('tr', {hasText: AUDIT_MODEL}).first();
@@ -436,7 +432,7 @@ try {
   await glideClick(auditCheck); // untick
   await pause(600);
 
-  step('beat 11: rest');
+  step('beat 10: rest');
   await glideClick(tab('All'));
   await pause(1500);
   await page.mouse.move(720, 60, {steps: 15});

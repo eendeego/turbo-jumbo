@@ -23,14 +23,13 @@ Writing rules, learned the hard way:
 | Start (s) | Line                                                                                                    |
 | --------- | ------------------------------------------------------------------------------------------------------- |
 | 0.6       | This is Turbo Jumbo: one inventory for every AI model across this machine, its peers, and cold storage. |
-| 10.2      | Models expand into their quantizations, with per-file sizes and statuses.                               |
-| 15.3      | Even disabled buttons explain themselves.                                                               |
+| 10.2      | Multiple quantizations per model are supported, each with its own size and status.                      |
 | 19.8      | Adding a model from Hugging Face: type the repo, tick a file, and download.                             |
 | 29.1      | Seconds later, it's part of the inventory.                                                              |
 | 36.6      | Copying to the peer and to cold storage is one operation.                                               |
 | 51.1      | The badges fill in as each copy lands.                                                                  |
 | 56.1      | On the peer, an audit verifies the copy against its Hugging Face source.                                |
-| 67.1      | Cleanup is a single delete, across every machine and cold storage at once.                              |
+| 67.1      | Deletes can target one machine — or, like here, every machine and cold storage at once.                 |
 | 76.2      | The same model again — this time from a Lemonade catalog.                                               |
 | 92.7      | And it's just as easy to remove.                                                                        |
 | 100.2     | Finally: this model is missing its multimodal projector file.                                           |
