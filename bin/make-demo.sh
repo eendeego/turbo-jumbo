@@ -96,3 +96,12 @@ mv "$RAW" "$TAKE"
 echo "raw take: $TAKE"
 
 bin/demo-postprod.sh "$TAKE" "${WINDOWS[@]}"
+
+# Narrate when the Kokoro stack is installed (docs/dev-setup.md); its
+# absence skips the step rather than failing the pipeline.
+PY=${DEMO_PYTHON:-$HOME/venv/bin/python}
+if "$PY" -c 'import kokoro_onnx' 2>/dev/null; then
+    "$PY" bin/narrate-demo.py "${TAKE%.webm}-fast.webm"
+else
+    echo "note: kokoro-onnx not importable by $PY — skipping narration (see docs/dev-setup.md)"
+fi

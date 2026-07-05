@@ -121,6 +121,11 @@ accepts for inline README video attachments, and prints both paths. It
 needs the full `/usr/bin/ffmpeg`; Playwright's bundled build lacks the
 filters.
 
+The voice-over comes last: [`bin/narrate-demo.py`](../bin/narrate-demo.py)
+synthesizes the [demo-narration.md](demo-narration.md) script with Kokoro
+and mixes it into the accelerated cut (`bin/make-demo.sh` runs it
+automatically when Kokoro is installed — see dev-setup.md).
+
 ## Beats considered and cut
 
 - **Peer badge hovercard** (peer name + reachability): worth adding once both
