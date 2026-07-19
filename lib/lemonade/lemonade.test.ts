@@ -283,6 +283,42 @@ test('parseLemonade collects non-llamacpp standalone models as downloadable comp
   ]);
 });
 
+test('parseLemonade turns a role-map llamacpp entry (MTP) into a downloadable component', () => {
+  const {models, extraModels} = parseLemonade({
+    'Gemma-4-12B-it-MTP-GGUF': {
+      checkpoints: {
+        main: 'unsloth/gemma-4-12b-it-GGUF:Q4_K_M',
+        draft: 'unsloth/gemma-4-12b-it-GGUF:mtp-gemma-4-12b-it.gguf',
+        mmproj: 'unsloth/gemma-4-12b-it-GGUF:mmproj-F16.gguf',
+      },
+      recipe: 'llamacpp',
+      suggested: true,
+      labels: ['vision', 'mtp'],
+      size: 7.75,
+    },
+  });
+  // No `checkpoint` string, so it can't be a single-file GGUF model…
+  expect(models).toEqual([]);
+  // …but its role map makes it a component, draft (MTP) file included.
+  expect(extraModels.map((c) => c.name)).toEqual(['Gemma-4-12B-it-MTP-GGUF']);
+  const mtp = extraModels[0];
+  expect(mtp.downloadable).toBe(true);
+  expect(mtp.modality).toBe('vision');
+  expect(mtp.checkpoints).toEqual([
+    {repoId: 'unsloth/gemma-4-12b-it-GGUF', variant: 'Q4_K_M'},
+    {repoId: 'unsloth/gemma-4-12b-it-GGUF', variant: 'mtp-gemma-4-12b-it.gguf'},
+    {repoId: 'unsloth/gemma-4-12b-it-GGUF', variant: 'mmproj-F16.gguf'},
+  ]);
+});
+
+test('parseLemonade still drops a llamacpp entry with neither checkpoint shape', () => {
+  const {models, extraModels} = parseLemonade({
+    Broken: {checkpoint: 'not-a-repo-id', recipe: 'llamacpp', size: 1},
+  });
+  expect(models).toEqual([]);
+  expect(extraModels).toEqual([]);
+});
+
 test('parseLemonade marks a standalone model non-downloadable when it resolves no checkpoints', () => {
   const {extraModels} = parseLemonade({
     Weird: {recipe: 'sd-cpp', size: 1}, // no checkpoint(s)

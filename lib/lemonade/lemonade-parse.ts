@@ -1,7 +1,8 @@
 // Parsing for the Lemonade SDK model catalog (server_models.json): a map of
-// model name -> {checkpoint, recipe, size, ...}. Only `llamacpp`-recipe
-// entries matter here — they are single GGUF files in HF repos, which is what
-// this app stores; other recipes (ONNX, whisper, SD) are multi-file layouts.
+// model name -> {checkpoint, recipe, size, ...}. Single-checkpoint
+// `llamacpp`-recipe entries become GGUF models; everything else — other
+// recipes (ONNX, whisper, SD) and llamacpp entries with a role map of
+// checkpoints — becomes a multi-file component.
 
 import type {
   CatalogSection,
@@ -138,9 +139,10 @@ function readLabels(v: unknown): string[] {
     : [];
 }
 
-// The checkpoint roles worth downloading. NPU/cache roles (e.g. `npu_cache`)
-// are AMD-device-specific and skipped.
-const CHECKPOINT_ROLES = ['main', 'mmproj', 'text_encoder', 'vae'];
+// The checkpoint roles worth downloading (`draft` is the MTP speculative-
+// decoding model). NPU/cache roles (e.g. `npu_cache`) are AMD-device-specific
+// and skipped.
+const CHECKPOINT_ROLES = ['main', 'draft', 'mmproj', 'text_encoder', 'vae'];
 
 // The repos/files a component pulls. Two catalog shapes: a `checkpoints` map of
 // role -> "repo:thing" (multi-file recipes like sd-cpp), or a single
@@ -241,12 +243,20 @@ export function parseLemonade(catalog: unknown): ParsedLemonade {
         labels?: unknown;
         components?: unknown;
         checkpoint?: unknown;
+        checkpoints?: unknown;
       };
-      // Standalone non-llamacpp models (llamacpp ones are already in `models`).
+      // Standalone non-llamacpp models (single-checkpoint llamacpp ones are
+      // already in `models`) — plus llamacpp entries built from a role map of
+      // checkpoints (the MTP models with a `draft` file), which aren't
+      // single-file GGUFs and so download as components.
+      const roleMap =
+        typeof e.checkpoint !== 'string' &&
+        e.checkpoints != null &&
+        typeof e.checkpoints === 'object';
       if (
         e.recipe !== 'collection.omni' &&
-        e.recipe !== 'llamacpp' &&
-        typeof e.recipe === 'string'
+        typeof e.recipe === 'string' &&
+        (e.recipe !== 'llamacpp' || roleMap)
       ) {
         extraModels.push(toStandaloneModel(name, raw));
         continue;
