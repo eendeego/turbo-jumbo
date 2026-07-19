@@ -6,26 +6,26 @@ storyline). Times are video-relative, from the beat table
 `bin/record-demo.ts` prints. Redo this file after every retake — see
 "Post-production" in [demo-script.md](demo-script.md).
 
-| Video time | Event                                                |
-| ---------- | ---------------------------------------------------- |
-| 0:00       | Beat 1 — inventory at a glance (All tab)             |
-| 0:07       | Beat 2 — scroll through the table                    |
-| 0:09       | Beat 3 — expand a multi-quant model                  |
-| 0:14       | Beat 4 — Add model → From Hugging Face               |
-| 0:26       | · HF download runs + close, reload                   |
+| Video time | Event                                                         |
+| ---------- | ------------------------------------------------------------- |
+| 0:00       | Beat 1 — inventory at a glance (All tab)                      |
+| 0:07       | Beat 2 — scroll through the table                             |
+| 0:09       | Beat 3 — expand a multi-quant model                           |
+| 0:14       | Beat 4 — Add model → From Hugging Face                        |
+| 0:26       | · HF download runs + close, reload                            |
 | 0:41       | Beat 5 — select, Copy to… the remote peer + Cold storage      |
-| 0:51       | · copy runs, badge flips Complete                    |
+| 0:51       | · copy runs, badge flips Complete                             |
 | 1:13       | Beat 6 — audit the copy on the remote peer, Cold Storage stop |
-| 1:29       | Beat 7 — Delete… from all locations                  |
-| 1:41       | Beat 8 — Add model → From Lemonade, download (kept)  |
-| 2:07       | · waiting for the table poll                         |
-| 2:29       | Beat 9 — Consolidate with Lemonade: preview, Sync    |
-| 2:41       | Beat 10 — delete on this machine only                |
-| 2:52       | Beat 11 — local peer tab, select Qwen3.6-35B-A3B-MTP, Audit |
-| 2:56       | · audit hashes ~35 GB (live % shown)                 |
-| 4:13       | · hover Incomplete, Download mmproj (899 MB), Close  |
-| 4:30       | Beat 12 — rest on All                                |
-| 4:35       | End                                                  |
+| 1:29       | Beat 7 — Delete… from all locations                           |
+| 1:41       | Beat 8 — Add model → From Lemonade, download (kept)           |
+| 2:07       | · waiting for the table poll                                  |
+| 2:29       | Beat 9 — Consolidate with Lemonade: preview, Sync             |
+| 2:41       | Beat 10 — delete on this machine only                         |
+| 2:52       | Beat 11 — local peer tab, select Qwen3.6-35B-A3B-MTP, Audit   |
+| 2:56       | · audit hashes ~35 GB (live % shown)                          |
+| 4:13       | · hover Incomplete, Download mmproj (899 MB), Close           |
+| 4:30       | Beat 12 — rest on All                                         |
+| 4:35       | End                                                           |
 
 ## Accelerated cut
 

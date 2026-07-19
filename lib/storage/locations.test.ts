@@ -61,7 +61,9 @@ test('parseRoute: bad shapes → null', () => {
 
 test('lemonadeHref: all and peer', () => {
   expect(lemonadeHref('all', peers)).toBe('/download/lemonade');
-  expect(lemonadeHref('192.0.2.2', peers)).toBe('/remote-two/download/lemonade');
+  expect(lemonadeHref('192.0.2.2', peers)).toBe(
+    '/remote-two/download/lemonade',
+  );
 });
 
 test('round-trip lemonadeHref → parseRoute', () => {
