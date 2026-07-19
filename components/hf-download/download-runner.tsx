@@ -1,9 +1,10 @@
 'use client';
 
 import {useMemo, useRef, useState} from 'react';
-import {Dialog} from '@astryxdesign/core/Dialog';
+import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
+import {Layout, LayoutContent, LayoutFooter} from '@astryxdesign/core/Layout';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
-import {Heading, Text} from '@astryxdesign/core/Text';
+import {Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
@@ -221,105 +222,127 @@ export function DownloadModal({
   // so they're always visible even while the full output stays collapsed.
   const notices = useMemo(() => (term ? parseNotices(term.lines) : []), [term]);
 
+  // Layout/LayoutContent/LayoutFooter so long output scrolls inside the body
+  // while the Cancel/Close footer stays pinned and reachable.
   return (
-    <Dialog isOpen onOpenChange={(open) => !open && onClose()} purpose="form">
-      <VStack gap={4}>
-        <Heading level={3}>{title}</Heading>
-        {!hfTokenSet && (
-          <Banner
-            status="warning"
-            title="HF_TOKEN is not set — gated or private repositories may fail to download."
-          />
-        )}
-        {notices.length > 0 && (
-          <Banner
-            status={
-              notices.some((n) => n.severity === 'error') ? 'error' : 'warning'
-            }
-            title={notices[0].text}
-            defaultIsExpanded={notices.length > 1}
-          >
-            {notices.length > 1 && (
-              <VStack gap={1}>
-                {notices.slice(1).map((n, i) => (
-                  <Text key={i} type="supporting">
-                    {n.text}
-                  </Text>
-                ))}
-              </VStack>
-            )}
-          </Banner>
-        )}
-        {running && !progress && (
-          <ProgressBar label="Downloading…" isIndeterminate />
-        )}
-        {progress && (
-          <VStack gap={2}>
-            <ProgressBar
-              label="Download"
-              value={parseSize(progress.downloaded)}
-              max={parseSize(progress.total)}
-              hasValueLabel
-              formatValueLabel={() => {
-                const parts = [`${progress.downloaded} / ${progress.total}`];
-                if (progress.speed) parts.push(progress.speed);
-                if (progress.eta) parts.push(`${progress.eta} remaining`);
-                return parts.join('  ·  ');
-              }}
-            />
-            {progress.filesTotal > 1 && (
-              <ProgressBar
-                label="Files"
-                value={progress.filesDone}
-                max={progress.filesTotal}
-                hasValueLabel
-                formatValueLabel={(v, m) => `${v} / ${m}`}
-              />
-            )}
-          </VStack>
-        )}
-        <VStack gap={2}>
-          <Button
-            label={showDetails ? 'Hide details ▴' : 'Show details ▾'}
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowDetails((v) => !v)}
-          />
-          {showDetails && (
-            <VStack gap={3}>
-              {command && (
-                <VStack gap={1}>
-                  <Text type="supporting">Command</Text>
-                  <CodeBlock
-                    code={command}
-                    language="bash"
-                    isWrapped
-                    width="100%"
+    <Dialog
+      isOpen
+      onOpenChange={(open) => !open && onClose()}
+      width="min(760px, 92vw)"
+      maxHeight="85vh"
+      purpose="form"
+    >
+      <Layout
+        header={<DialogHeader title={title} />}
+        content={
+          <LayoutContent>
+            <VStack gap={4}>
+              {!hfTokenSet && (
+                <Banner
+                  status="warning"
+                  title="HF_TOKEN is not set — gated or private repositories may fail to download."
+                />
+              )}
+              {notices.length > 0 && (
+                <Banner
+                  status={
+                    notices.some((n) => n.severity === 'error')
+                      ? 'error'
+                      : 'warning'
+                  }
+                  title={notices[0].text}
+                  defaultIsExpanded={notices.length > 1}
+                >
+                  {notices.length > 1 && (
+                    <VStack gap={1}>
+                      {notices.slice(1).map((n, i) => (
+                        <Text key={i} type="supporting">
+                          {n.text}
+                        </Text>
+                      ))}
+                    </VStack>
+                  )}
+                </Banner>
+              )}
+              {running && !progress && (
+                <ProgressBar label="Downloading…" isIndeterminate />
+              )}
+              {progress && (
+                <VStack gap={2}>
+                  <ProgressBar
+                    label="Download"
+                    value={parseSize(progress.downloaded)}
+                    max={parseSize(progress.total)}
+                    hasValueLabel
+                    formatValueLabel={() => {
+                      const parts = [
+                        `${progress.downloaded} / ${progress.total}`,
+                      ];
+                      if (progress.speed) parts.push(progress.speed);
+                      if (progress.eta) parts.push(`${progress.eta} remaining`);
+                      return parts.join('  ·  ');
+                    }}
                   />
+                  {progress.filesTotal > 1 && (
+                    <ProgressBar
+                      label="Files"
+                      value={progress.filesDone}
+                      max={progress.filesTotal}
+                      hasValueLabel
+                      formatValueLabel={(v, m) => `${v} / ${m}`}
+                    />
+                  )}
                 </VStack>
               )}
-              <VStack gap={1}>
-                <Text type="supporting">Full output</Text>
-                <CodeBlock
-                  code={term?.lines.join('\n') || ' '}
-                  language="plaintext"
-                  hasCopyButton={false}
-                  isWrapped
-                  width="100%"
-                  maxHeight={384}
+              <VStack gap={2}>
+                <Button
+                  label={showDetails ? 'Hide details ▴' : 'Show details ▾'}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowDetails((v) => !v)}
                 />
+                {showDetails && (
+                  <VStack gap={3}>
+                    {command && (
+                      <VStack gap={1}>
+                        <Text type="supporting">Command</Text>
+                        <CodeBlock
+                          code={command}
+                          language="bash"
+                          isWrapped
+                          width="100%"
+                        />
+                      </VStack>
+                    )}
+                    <VStack gap={1}>
+                      <Text type="supporting">Full output</Text>
+                      <CodeBlock
+                        code={term?.lines.join('\n') || ' '}
+                        language="plaintext"
+                        hasCopyButton={false}
+                        isWrapped
+                        width="100%"
+                        maxHeight={384}
+                      />
+                    </VStack>
+                  </VStack>
+                )}
               </VStack>
             </VStack>
-          )}
-        </VStack>
-        <HStack gap={2} hAlign="end">
-          <Button
-            label={running ? 'Cancel' : 'Close'}
-            variant={running ? 'destructive' : 'secondary'}
-            onClick={onClose}
-          />
-        </HStack>
-      </VStack>
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter>
+            <HStack gap={2} hAlign="end">
+              <Button
+                label={running ? 'Cancel' : 'Close'}
+                variant={running ? 'destructive' : 'secondary'}
+                onClick={onClose}
+              />
+            </HStack>
+          </LayoutFooter>
+        }
+      />
     </Dialog>
   );
 }

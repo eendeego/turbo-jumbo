@@ -31,6 +31,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Searching the Lemonade catalog is now exhaustive: the filter looks past the
   "Extra models" toggle and matches capability labels, so a model the catalog
   knows is always findable by name.
+- The download progress dialog is wider, and long output now scrolls inside
+  the dialog with the Cancel/Close button always in reach — previously the
+  content could overflow off-screen with no scrollbar.
 
 ## [0.1.0] - 2026-07-05
 
