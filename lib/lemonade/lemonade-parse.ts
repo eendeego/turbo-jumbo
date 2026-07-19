@@ -198,7 +198,12 @@ function toComponent(
 ): LemonadeComponent {
   const e =
     raw && typeof raw === 'object'
-      ? (raw as {recipe?: unknown; size?: unknown; labels?: unknown})
+      ? (raw as {
+          recipe?: unknown;
+          size?: unknown;
+          labels?: unknown;
+          suggested?: unknown;
+        })
       : {};
   const recipe = typeof e.recipe === 'string' ? e.recipe : 'unknown';
   const labels = readLabels(e.labels);
@@ -206,6 +211,8 @@ function toComponent(
     name,
     recipe,
     modality: componentModality(recipe, labels),
+    suggested: e.suggested === true,
+    labels,
     sizeGb: typeof e.size === 'number' ? e.size : 0,
     downloadable: recipe === 'llamacpp' && downloadableNames.has(name),
     checkpoints: componentCheckpoints(raw),

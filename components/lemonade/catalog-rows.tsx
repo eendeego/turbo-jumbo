@@ -53,20 +53,33 @@ export function componentSecondary(component: LemonadeComponent): string {
   return `${repos[0]} +${repos.length - 1}`;
 }
 
-// A collection member's end-of-row content: a download-status marker (when
-// the weight scan can track it), its modality, and its size.
+// A component's end-of-row content: a download-status marker (when the weight
+// scan can track it), suggested badge, its capability icons — or its modality,
+// for label-less collection members — and its size.
 export function componentEndContent(
   component: LemonadeComponent,
   info: LemonadeDownloadInfo,
   inCache: boolean,
   incomplete: boolean,
+  showSuggestedToken: boolean,
 ) {
   return (
     <HStack gap={1} vAlign="center">
       <StatusMarker info={info} />
       <LemonadeCacheMarker present={inCache} />
       <IncompleteMarker incomplete={incomplete} />
-      <Badge label={component.modality} variant="neutral" />
+      {showSuggestedToken && component.suggested && (
+        <Badge label="suggested" variant="green" />
+      )}
+      {component.labels.length > 0 ? (
+        <HStack gap={1} vAlign="center">
+          {sortLabelsForDisplay(component.labels).map((l) => (
+            <ModelLabelIcon key={l} label={l} />
+          ))}
+        </HStack>
+      ) : (
+        <Badge label={component.modality} variant="neutral" />
+      )}
       <Text type="supporting">{formatGb(component.sizeGb)}</Text>
     </HStack>
   );

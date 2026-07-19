@@ -138,10 +138,11 @@ export function LemonadeBrowser({
   // `suggested` (GGUF models and omni collections), and the now-redundant
   // suggested token is hidden.
   const [suggestedOnly, setSuggestedOnly] = useState(true);
-  // Whether to include the standalone "extra" components (ONNX/vLLM/image/speech
-  // models). They carry no `suggested` flag, so they're controlled on their own
-  // rather than by the suggested-only filter; off by default to keep the initial
-  // view focused on the suggested GGUF models and omni collections.
+  // Whether to include the other-backend standalone models (ONNX/vLLM/image/
+  // speech); off by default to keep the initial view focused on the GGUF models
+  // and omni collections. llamacpp-recipe components (the multi-file MTP
+  // models) are ordinary GGUF entries and are never gated by this. A filter
+  // needle also searches past the toggle, so a name search is exhaustive.
   const [showExtra, setShowExtra] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [sendToCold, setSendToCold] = useState(false);
@@ -228,15 +229,19 @@ export function LemonadeBrowser({
   }, [models, filter, suggestedOnly]);
 
   const visibleExtra = useMemo(() => {
-    if (!showExtra) return [];
     const needle = filter.trim().toLowerCase();
-    if (!needle) return extraModels;
-    return extraModels.filter((c) =>
-      [c.name, c.recipe, ...c.checkpoints.map((cp) => cp.repoId)].some((s) =>
-        s.toLowerCase().includes(needle),
-      ),
-    );
-  }, [extraModels, filter, showExtra]);
+    return extraModels.filter((c) => {
+      if (c.recipe !== 'llamacpp' && !showExtra && !needle) return false;
+      if (suggestedOnly && !c.suggested) return false;
+      if (!needle) return true;
+      return [
+        c.name,
+        c.recipe,
+        ...c.labels,
+        ...c.checkpoints.map((cp) => cp.repoId),
+      ].some((s) => s.toLowerCase().includes(needle));
+    });
+  }, [extraModels, filter, showExtra, suggestedOnly]);
 
   const visibleCollections = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -313,7 +318,10 @@ export function LemonadeBrowser({
     for (const m of visibleModels)
       push(catalogSection('llamacpp', m.labels), {kind: 'model', model: m});
     for (const c of visibleExtra)
-      push(catalogSection(c.recipe, []), {kind: 'component', component: c});
+      push(catalogSection(c.recipe, c.labels), {
+        kind: 'component',
+        component: c,
+      });
     return SECTION_ORDER.map((key) => ({
       key,
       label: SECTION_LABELS[key],
@@ -512,6 +520,7 @@ export function LemonadeBrowser({
                               componentDownloadStatus(comp, inventoryLocations),
                               componentInCache.get(comp.name) ?? false,
                               componentIncomplete.get(comp.name) ?? false,
+                              !suggestedOnly,
                             )}
                           />
                         );
@@ -570,6 +579,7 @@ export function LemonadeBrowser({
                             row.component.checkpoints,
                             incompleteRepos,
                           ),
+                          !suggestedOnly,
                         )}
                       />
                     ),

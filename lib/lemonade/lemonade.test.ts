@@ -156,6 +156,8 @@ test('parseLemonade resolves inline omni collections and defers manifest ones', 
       name: 'Qwen-LLM-GGUF',
       recipe: 'llamacpp',
       modality: 'vision',
+      suggested: true,
+      labels: ['vision'],
       sizeGb: 4,
       downloadable: true,
       checkpoints: [{repoId: 'unsloth/Qwen-LLM-GGUF', variant: 'Q4_K_M'}],
@@ -164,6 +166,8 @@ test('parseLemonade resolves inline omni collections and defers manifest ones', 
       name: 'SD-Turbo',
       recipe: 'sd-cpp',
       modality: 'image',
+      suggested: false,
+      labels: ['image'],
       sizeGb: 5.21,
       downloadable: false,
       checkpoints: [
@@ -174,6 +178,8 @@ test('parseLemonade resolves inline omni collections and defers manifest ones', 
       name: 'Whisper-Tiny',
       recipe: 'whispercpp',
       modality: 'transcription',
+      suggested: false,
+      labels: ['transcription'],
       sizeGb: 0.075,
       downloadable: false,
       checkpoints: [
@@ -219,6 +225,8 @@ test('parseLemonade marks a component downloadable only when it is a known gguf 
     name: 'Ghost',
     recipe: 'unknown',
     modality: 'unknown',
+    suggested: false,
+    labels: [],
     sizeGb: 0,
     downloadable: false,
     checkpoints: [],
@@ -278,6 +286,8 @@ test('parseLemonade collects non-llamacpp standalone models as downloadable comp
   expect(kokoro.recipe).toBe('kokoro');
   expect(kokoro.modality).toBe('tts');
   expect(kokoro.downloadable).toBe(true);
+  expect(kokoro.labels).toEqual(['tts']);
+  expect(kokoro.suggested).toBe(false);
   expect(kokoro.checkpoints).toEqual([
     {repoId: 'mikkoph/kokoro-onnx', variant: null},
   ]);
@@ -304,6 +314,8 @@ test('parseLemonade turns a role-map llamacpp entry (MTP) into a downloadable co
   const mtp = extraModels[0];
   expect(mtp.downloadable).toBe(true);
   expect(mtp.modality).toBe('vision');
+  expect(mtp.suggested).toBe(true);
+  expect(mtp.labels).toEqual(['vision', 'mtp']);
   expect(mtp.checkpoints).toEqual([
     {repoId: 'unsloth/gemma-4-12b-it-GGUF', variant: 'Q4_K_M'},
     {repoId: 'unsloth/gemma-4-12b-it-GGUF', variant: 'mtp-gemma-4-12b-it.gguf'},
@@ -387,6 +399,8 @@ test('collectionFromManifest builds components from a fetched manifest', () => {
         name: 'Qwen-LLM-GGUF',
         recipe: 'llamacpp',
         modality: 'vision',
+        suggested: false,
+        labels: ['vision'],
         sizeGb: 4,
         downloadable: true,
         checkpoints: [{repoId: 'unsloth/Qwen-LLM-GGUF', variant: 'Q4_K_M'}],
@@ -395,6 +409,8 @@ test('collectionFromManifest builds components from a fetched manifest', () => {
         name: 'SD-Turbo',
         recipe: 'sd-cpp',
         modality: 'image',
+        suggested: false,
+        labels: ['image'],
         sizeGb: 5.21,
         downloadable: false,
         checkpoints: [

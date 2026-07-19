@@ -36,6 +36,8 @@ export interface LemonadeComponent {
   name: string;
   recipe: string;
   modality: string; // display label: chat, vision, image, transcription, tts…
+  suggested: boolean;
+  labels: string[];
   sizeGb: number;
   downloadable: boolean;
   checkpoints: Checkpoint[]; // every repo/file this member pulls
