@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:watch": "tsc --noEmit --watch",
     "test": "bun test",
-    "docker:build": "podman build -t turbo-jumbo . && podman save turbo-jumbo | gzip > turbo-jumbo.tar.gz"
+    "docker:build": "bin/docker-build.sh"
   },
   "dependencies": {
     "@astryxdesign/cli": "^0.1.2",

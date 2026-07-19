@@ -6,7 +6,10 @@ import {AppShell} from '@astryxdesign/core/AppShell';
 import {TopNav, TopNavHeading} from '@astryxdesign/core/TopNav';
 import {HStack} from '@astryxdesign/core/Stack';
 import {Button} from '@astryxdesign/core/Button';
+import {HoverCard} from '@astryxdesign/core/HoverCard';
+import {Text} from '@astryxdesign/core/Text';
 import type {Peer as PeerConfig} from '@/lib/config';
+import {versionLabel, type AppVersion} from '@/lib/version/resolve-version';
 import {locationHref, parseRoute, ALL_LOCATION} from '@/lib/storage/locations';
 import {
   LocationTabs,
@@ -26,10 +29,12 @@ import {ConsoleProvider} from '@/components/chrome/console-context';
 export function AppChrome({
   peers,
   logLevel,
+  version,
   children,
 }: {
   peers: PeerConfig[];
   logLevel: string;
+  version: AppVersion;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -102,6 +107,20 @@ export function AppChrome({
                     height={24}
                     style={{display: 'block'}}
                   />
+                }
+                headerEndContent={
+                  <HoverCard
+                    placement="below"
+                    content={
+                      version.dev
+                        ? `Unreleased build — changes past the v${version.version} release` +
+                          (version.commit ? ` (commit ${version.commit})` : '')
+                        : `Official release v${version.version}` +
+                          (version.commit ? ` (commit ${version.commit})` : '')
+                    }
+                  >
+                    <Text type="supporting">{versionLabel(version)}</Text>
+                  </HoverCard>
                 }
               />
             }

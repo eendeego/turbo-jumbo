@@ -12,6 +12,14 @@ RUN bun run build
 FROM docker.io/oven/bun:1-slim AS runner
 WORKDIR /app
 
+# Release identity stamped by bin/docker-build.sh: the commit built, and the
+# release tag when (and only when) this is a clean build of a tagged revision.
+# lib/version/app-version.ts reads these where the image has no git checkout.
+ARG TJ_RELEASE=
+ARG TJ_COMMIT=
+ENV TJ_RELEASE=$TJ_RELEASE
+ENV TJ_COMMIT=$TJ_COMMIT
+
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 # Mount your config.yaml here, or override CONFIG_PATH at runtime

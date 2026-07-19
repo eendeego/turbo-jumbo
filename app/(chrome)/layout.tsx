@@ -1,5 +1,6 @@
 import type {ReactNode} from 'react';
 import {config} from '@/lib/config';
+import {appVersion} from '@/lib/version/app-version';
 import {AppChrome} from '@/components/chrome/app-chrome';
 
 // Static shell wrapper. It carries no route params, so it never re-renders on
@@ -15,7 +16,11 @@ export default function ChromeLayout({
   modal: ReactNode;
 }) {
   return (
-    <AppChrome peers={config.peers} logLevel={config.log_level ?? 'info'}>
+    <AppChrome
+      peers={config.peers}
+      logLevel={config.log_level ?? 'info'}
+      version={appVersion()}
+    >
       {children}
       {modal}
     </AppChrome>
