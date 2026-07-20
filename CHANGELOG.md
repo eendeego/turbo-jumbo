@@ -40,7 +40,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   knows is always findable by name.
 - The download progress dialog is wider, and long output now scrolls inside
   the dialog with the Cancel/Close button always in reach — previously the
-  content could overflow off-screen with no scrollbar.
+  content could overflow off-screen with no scrollbar. The progress bars and
+  any warnings stay pinned in view above that scrolling output, so you can
+  read the raw log without losing sight of how far along the download is.
 - The Lemonade catalog opens with every section collapsed, showing just the
   section headers and their model counts. Expand what you need — or type in
   the filter, which looks inside collapsed sections and shows every match.
