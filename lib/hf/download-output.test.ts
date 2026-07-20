@@ -1,5 +1,10 @@
 import {test, expect} from 'bun:test';
-import {parseProgress, parseNotices} from '@/lib/hf/download-output';
+import {
+  parseProgress,
+  parseNotices,
+  hasDownloadFailure,
+  describeExitCode,
+} from '@/lib/hf/download-output';
 
 // The download log as it arrives: progress lines, an hf version hint, and our
 // own wrapper status, interleaved like a real run.
@@ -133,4 +138,51 @@ test('parseProgress still parses the download and files bars', () => {
   expect(p!.total).toBe('899M');
   expect(p!.filesDone).toBe(1);
   expect(p!.filesTotal).toBe(1);
+});
+
+// A run where hf was killed mid-transfer (e.g. the OOM killer): the wrapper
+// emits the exit notice and the flush-left failure line.
+const killedRun = [
+  'Downloading: 32% 206.7MB/639.4MB [00:09<00:19, 22.1MB/s]',
+  '',
+  'Process exited with code 137',
+  '',
+  'Error: download failed (hf exited with code 137 — killed by signal 9 (SIGKILL), usually the out-of-memory killer).',
+];
+
+test('parseNotices surfaces the failure but not the plan-stop status line', () => {
+  const lines = [
+    ...killedRun,
+    'Stopping: unsloth/gemma-4-mtp-GGUF failed — skipping the remaining 2 download(s) of this plan.',
+  ];
+  const notices = parseNotices(lines);
+  expect(notices).toEqual([
+    {
+      text: 'Error: download failed (hf exited with code 137 — killed by signal 9 (SIGKILL), usually the out-of-memory killer).',
+      severity: 'error',
+    },
+  ]);
+});
+
+test('hasDownloadFailure spots the wrapper failure line and ignores healthy runs', () => {
+  expect(hasDownloadFailure(killedRun)).toBe(true);
+  expect(hasDownloadFailure(versionHintRun)).toBe(false);
+  expect(hasDownloadFailure(futureWarningRun)).toBe(false);
+  // The verification-failure variant counts too.
+  expect(
+    hasDownloadFailure([
+      'Error: download failed — 1 file(s) did not download correctly: a.gguf.',
+    ]),
+  ).toBe(true);
+  // hf's own chatter mentioning errors is not a wrapper failure line.
+  expect(hasDownloadFailure(['Some error occurred upstream'])).toBe(false);
+});
+
+test('describeExitCode names signal deaths and leaves plain exits bare', () => {
+  expect(describeExitCode(1)).toBe('1');
+  expect(describeExitCode(2)).toBe('2');
+  expect(describeExitCode(137)).toBe(
+    '137 — killed by signal 9 (SIGKILL), usually the out-of-memory killer',
+  );
+  expect(describeExitCode(143)).toBe('143 — killed by signal 15 (SIGTERM)');
 });

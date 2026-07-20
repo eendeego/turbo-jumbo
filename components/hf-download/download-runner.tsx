@@ -10,6 +10,7 @@ import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {
+  hasDownloadFailure,
   parseNotices,
   parseProgress,
   parseSize,
@@ -173,7 +174,21 @@ export function useDownloadRunner(
         );
         setTerm({...state});
         setProgress(null);
+        const jobStart = state.lines.length - 1;
         state = await runOne(reqs[i], abort, state);
+        // A failed job poisons the plan (a multi-repo model missing a piece
+        // can't run) — stop instead of burying the error under the next repo.
+        if (hasDownloadFailure(state.lines.slice(jobStart))) {
+          const left = reqs.length - i - 1;
+          if (left > 0) {
+            state = applyChunk(
+              state,
+              `\nStopping: ${reqs[i].repoId} failed — skipping the remaining ${left} download(s) of this plan.\n`,
+            );
+            setTerm({...state});
+          }
+          break;
+        }
       }
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {

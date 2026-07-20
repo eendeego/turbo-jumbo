@@ -35,6 +35,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the dialog with the Cancel/Close button always in reach — previously the
   content could overflow off-screen with no scrollbar.
 
+### Fixed
+
+- A multi-repo download plan (a Lemonade collection or component) now stops
+  when one of its downloads fails, instead of burying the error and carrying
+  on with the remaining repos as if nothing happened.
+- When the `hf` downloader dies by a signal, the error now says so in plain
+  words — "exited with code 137" becomes "killed by signal 9 (SIGKILL),
+  usually the out-of-memory killer".
+
 ## [0.1.0] - 2026-07-05
 
 The first release: mission control for your hoard of AI models.

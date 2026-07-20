@@ -106,11 +106,40 @@ function isWrapperLine(line: string): boolean {
   return (
     /^=== .+ ===\s*$/.test(line) ||
     /^Process exited with code/.test(line) ||
+    /^Stopping: .+ failed — skipping/.test(line) ||
     /^Recording sources/.test(line) ||
     /^(Moving|Copying) to cold storage/.test(line) ||
     /^Cleaning up local copy/.test(line) ||
     /^Done\.?$/.test(line)
   );
+}
+
+/**
+ * Whether the log contains the wrapper's flush-left failure line ("Error:
+ * download failed …"), emitted on a nonzero hf exit or failed verification.
+ * Used by the multi-repo runner to stop a plan when one job fails.
+ */
+export function hasDownloadFailure(lines: string[]): boolean {
+  return lines.some((l) => /^Error: download failed/.test(l));
+}
+
+/**
+ * Render an exit code for the failure line. Codes above 128 are signal deaths
+ * (128 + signal number) — name the signal, and for SIGKILL point at the usual
+ * culprit, since "code 137" alone reads as gibberish precisely when the box is
+ * out of memory and the user most needs the hint.
+ */
+export function describeExitCode(code: number): string {
+  if (code <= 128) return String(code);
+  const sig = code - 128;
+  const names: Record<number, string> = {
+    6: 'SIGABRT',
+    9: 'SIGKILL',
+    15: 'SIGTERM',
+  };
+  const name = names[sig] ? ` (${names[sig]})` : '';
+  const oomHint = sig === 9 ? ', usually the out-of-memory killer' : '';
+  return `${code} — killed by signal ${sig}${name}${oomHint}`;
 }
 
 export function parseNotices(lines: string[]): Notice[] {

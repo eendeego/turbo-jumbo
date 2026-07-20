@@ -11,6 +11,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     '.next/**',
+    // The isolated verify/capture server's dist dir (bin/verify-server.sh).
+    '.next-verify/**',
     'out/**',
     'build/**',
     'next-env.d.ts',

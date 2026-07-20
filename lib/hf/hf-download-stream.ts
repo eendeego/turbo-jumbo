@@ -9,6 +9,7 @@ import {
   readMetaResolved,
   updateMetaResolved,
 } from '@/lib/audit/audit';
+import {describeExitCode} from '@/lib/hf/download-output';
 import {repoFileSizes, resolveHfFileByPath} from '@/lib/hf/hf-infer';
 import {repoIdFromModelUrl} from '@/lib/models/model-name';
 import {
@@ -359,7 +360,7 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
         controller.close();
       });
 
-      proc.on('close', async (code) => {
+      proc.on('close', async (code, sig) => {
         stopPoll();
         // Carry the bar to 100% — the poll caps at 99% and hf's silence means
         // nothing else would.
@@ -372,9 +373,11 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
         enqueue(`\nProcess exited with code ${code}\n`);
         try {
           if (code !== 0) {
-            enqueue(
-              `\nError: download failed (hf exited with code ${code}).\n`,
-            );
+            const desc =
+              code === null
+                ? `hf was killed by ${sig ?? 'a signal'}`
+                : `hf exited with code ${describeExitCode(code)}`;
+            enqueue(`\nError: download failed (${desc}).\n`);
             return;
           }
           // Even on a 0 exit, verify the files actually landed and pass audit —
