@@ -108,6 +108,54 @@ export function ModelsTableClient({
   fixingDuplicate?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Lemonade catalog entry names keyed by the HF repo id backing them, so a
+  // model row can say which catalog entry it is (catalog names — e.g.
+  // "Qwen3.6-35B-A3B-FP16-vLLM" — often differ from the repo id the table
+  // derives its name from). Best-effort: fetched once; unreachable catalog
+  // simply means no hints.
+  const [lemonadeNames, setLemonadeNames] = useState<Map<string, string[]>>(
+    new Map(),
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/v1/lemonade-models');
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          models?: Array<{name: string; repoId: string}>;
+          extraModels?: Array<{
+            name: string;
+            checkpoints: Array<{repoId: string}>;
+          }>;
+          collections?: Array<{
+            components: Array<{
+              name: string;
+              checkpoints: Array<{repoId: string}>;
+            }>;
+          }>;
+        };
+        const map = new Map<string, string[]>();
+        const add = (repoId: string, name: string) => {
+          const names = map.get(repoId);
+          if (!names) map.set(repoId, [name]);
+          else if (!names.includes(name)) names.push(name);
+        };
+        for (const m of data.models ?? []) add(m.repoId, m.name);
+        for (const c of data.extraModels ?? [])
+          for (const cp of c.checkpoints) add(cp.repoId, c.name);
+        for (const col of data.collections ?? [])
+          for (const comp of col.components ?? [])
+            for (const cp of comp.checkpoints) add(cp.repoId, comp.name);
+        if (!cancelled) setLemonadeNames(map);
+      } catch {
+        /* no catalog, no hints */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Per-repo file lists for expanded whole-repo models, keyed by
   // `<location>::<model name>` (file status is per location), fetched lazily on
   // expand. In-flight fetches are tracked in a ref so marking one doesn't
@@ -259,6 +307,9 @@ export function ModelsTableClient({
             item.depth === 0 ? item.parentName : item.key,
           )}
           onToggle={toggle}
+          lemonadeNames={
+            item.depth === 0 ? lemonadeNames.get(item.parentName) : undefined
+          }
           incomplete={
             item.depth === 0 && (incompleteRepos?.has(item.parentName) ?? false)
           }

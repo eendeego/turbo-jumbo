@@ -220,6 +220,7 @@ export function NameCell({
   onToggle,
   incomplete = false,
   invalid = false,
+  lemonadeNames,
 }: {
   row: DisplayRow;
   isExpanded: boolean;
@@ -228,6 +229,9 @@ export function NameCell({
   incomplete?: boolean;
   // The model has at least one local file that audits invalid (depth-0 rows).
   invalid?: boolean;
+  // Lemonade catalog entries backed by this model's repo (depth-0 rows only) —
+  // the catalog names its entries differently from the repo id shown here.
+  lemonadeNames?: string[];
 }) {
   // Whole-repo file row: the filename with a present/missing/invalid marker.
   if (row.fileState) {
@@ -343,6 +347,27 @@ export function NameCell({
         />
       </HoverCard>
       {row.orgSuffix && <Text type="supporting">({row.orgSuffix})</Text>}
+      {(() => {
+        // Only hint catalog names that add information — a catalog entry
+        // named like the repo (most GGUF entries) would just repeat the row.
+        const display = modelDisplayName(row.label).toLowerCase();
+        const hints = (lemonadeNames ?? []).filter(
+          (n) => n.toLowerCase() !== display,
+        );
+        if (hints.length === 0) return null;
+        return (
+          <HoverCard
+            content={`This repo backs the Lemonade catalog ${
+              hints.length === 1 ? 'entry' : 'entries'
+            }: ${hints.join(', ')}`}
+          >
+            <Text type="supporting">
+              Lemonade: {hints[0]}
+              {hints.length > 1 && ` +${hints.length - 1}`}
+            </Text>
+          </HoverCard>
+        );
+      })()}
       {incomplete && <Badge variant="error" label="incomplete" />}
       {invalid && (
         <HoverCard content="Invalid download — a local file's size or checksum doesn't match its source">
