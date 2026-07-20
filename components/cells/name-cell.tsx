@@ -347,29 +347,24 @@ export function NameCell({
         />
       </HoverCard>
       {row.orgSuffix && <Text type="supporting">({row.orgSuffix})</Text>}
-      {(() => {
-        // Every catalog-backed model gets a marker, so its absence always
-        // means "not in the Lemonade catalog". The entry name is spelled out
-        // only when it adds information — a catalog entry named like the repo
-        // (most GGUF entries) would just repeat the row.
-        const named = lemonadeNames ?? [];
-        if (named.length === 0) return null;
-        const display = modelDisplayName(row.label).toLowerCase();
-        const hints = named.filter((n) => n.toLowerCase() !== display);
-        return (
-          <HoverCard
-            content={`This repo backs the Lemonade catalog ${
-              named.length === 1 ? 'entry' : 'entries'
-            }: ${named.join(', ')}`}
+      {lemonadeNames && lemonadeNames.length > 0 && (
+        // Every catalog-backed model gets the lemon, so its absence always
+        // means "not in the Lemonade catalog"; the hovercard names the exact
+        // catalog entries the repo backs.
+        <HoverCard
+          content={`This repo backs the Lemonade catalog ${
+            lemonadeNames.length === 1 ? 'entry' : 'entries'
+          }: ${lemonadeNames.join(', ')}`}
+        >
+          <Text
+            type="supporting"
+            role="img"
+            aria-label="In the Lemonade catalog"
           >
-            <Text type="supporting">
-              {hints.length === 0
-                ? 'Lemonade'
-                : `Lemonade: ${hints[0]}${hints.length > 1 ? ` +${hints.length - 1}` : ''}`}
-            </Text>
-          </HoverCard>
-        );
-      })()}
+            🍋
+          </Text>
+        </HoverCard>
+      )}
       {incomplete && <Badge variant="error" label="incomplete" />}
       {invalid && (
         <HoverCard content="Invalid download — a local file's size or checksum doesn't match its source">
