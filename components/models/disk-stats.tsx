@@ -1,8 +1,10 @@
 'use client';
 
 import {useEffect, useState} from 'react';
+import * as stylex from '@stylexjs/stylex';
 import {HStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
+import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import type {Peer as PeerConfig} from '@/lib/config';
 import {
   formatBytes,
@@ -14,16 +16,49 @@ import {
 // so keep the figures fresh while the tab stays open. statfs is cheap.
 const REFRESH_MS = 60_000;
 
-function usageLine(label: string, u: DiskUsage): string {
-  return `${label}: ${formatBytes(u.total - u.free)} used · ${formatBytes(u.free)} free of ${formatBytes(u.total)}`;
+const styles = stylex.create({
+  // Inset to the action bar's content edge so the meters read as one footer
+  // block with the buttons below them.
+  root: {paddingInline: 'var(--spacing-3)'},
+  meter: {width: 140, flexShrink: 0},
+});
+
+// Past this fill fraction the meter turns to the warning variant — the exact
+// figures beside it carry the message for anyone who can't see the color.
+const NEARLY_FULL = 0.9;
+
+// One volume: name, a slim used/total meter, and the exact figures. The meter
+// carries the proportion; the numbers stay in text ink beside it.
+function VolumeMeter({label, usage}: {label: string; usage: DiskUsage}) {
+  const used = usage.total - usage.free;
+  return (
+    <HStack gap={2} vAlign="center" wrap="nowrap">
+      <Text type="supporting" weight="medium">
+        {label}
+      </Text>
+      <ProgressBar
+        label={`${label} space used`}
+        isLabelHidden
+        value={used}
+        max={usage.total}
+        variant={used / usage.total >= NEARLY_FULL ? 'warning' : 'accent'}
+        xstyle={styles.meter}
+      />
+      <Text type="supporting" hasTabularNumbers textWrap="nowrap">
+        {formatBytes(used)} used · {formatBytes(usage.free)} free of{' '}
+        {formatBytes(usage.total)}
+      </Text>
+    </HStack>
+  );
 }
 
 /**
- * Disk usage of the active location's volumes — used / free / total per
- * volume — shown in the footer above the action bar. Peer tabs report that
- * peer's own disks (proxied for remote peers); the Cold Storage tab reports
- * the local cold-storage volume. Nothing on the All tab, and silent when the
- * figures can't be fetched (e.g. the peer is down).
+ * Disk usage of the active location's volumes — a slim used/total meter plus
+ * used / free / total figures per volume — shown in the footer above the
+ * action bar. Peer tabs report that peer's own disks (proxied for remote
+ * peers); the Cold Storage tab reports the local cold-storage volume. Nothing
+ * on the All tab, and silent when the figures can't be fetched (e.g. the peer
+ * is down).
  */
 export function DiskStats({
   activeLocation,
@@ -70,24 +105,24 @@ export function DiskStats({
   const usage = fetched && fetched.url === url ? fetched.data : null;
   if (!usage) return null;
 
-  const lines: string[] = [];
+  const volumes: Array<{label: string; usage: DiskUsage}> = [];
   if (activeLocation === 'cold-storage') {
-    if (usage.cold.total > 0) lines.push(usageLine('Cold storage', usage.cold));
+    if (usage.cold.total > 0)
+      volumes.push({label: 'Cold storage', usage: usage.cold});
   } else if (usage.sameDevice) {
-    // One filesystem behind both paths: a combined line, not double-counted.
-    lines.push(usageLine('Disk (models + cold storage)', usage.models));
+    // One filesystem behind both paths: a combined meter, not double-counted.
+    volumes.push({label: 'Models + cold storage', usage: usage.models});
   } else {
-    lines.push(usageLine('Models', usage.models));
-    if (usage.cold.total > 0) lines.push(usageLine('Cold storage', usage.cold));
+    volumes.push({label: 'Models', usage: usage.models});
+    if (usage.cold.total > 0)
+      volumes.push({label: 'Cold storage', usage: usage.cold});
   }
-  if (lines.length === 0) return null;
+  if (volumes.length === 0) return null;
 
   return (
-    <HStack gap={4} wrap="wrap">
-      {lines.map((l) => (
-        <Text key={l} type="supporting">
-          {l}
-        </Text>
+    <HStack gap={8} vAlign="center" wrap="wrap" xstyle={styles.root}>
+      {volumes.map((v) => (
+        <VolumeMeter key={v.label} label={v.label} usage={v.usage} />
       ))}
     </HStack>
   );
