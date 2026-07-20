@@ -20,6 +20,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   release), and served at `/api/v1/version` — also per peer at
   `/api/v1/peers/<name>/version`, so a fleet running mismatched versions can
   be spotted.
+- Peer tabs (and the Cold Storage tab) now show the location's disk usage in
+  the footer, above the action buttons: used, free, and total space for the
+  models volume and, where configured, cold storage. Remote peers report
+  their own disks; volumes sharing one filesystem show a single combined
+  line. The figures refresh every minute while the tab is open.
 
 ### Changed
 

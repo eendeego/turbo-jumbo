@@ -19,6 +19,7 @@ import {
 } from '@/components/models/models-table-client';
 import {type LocationTab} from '@/components/models/location-tabs';
 import {ActionBar} from '@/components/models/action-bar';
+import {DiskStats} from '@/components/models/disk-stats';
 import {
   DeleteModal,
   anyMissingFromColdStorage,
@@ -530,6 +531,7 @@ export function HomeClient({
                 </Text>
               )}
               {error && <Banner status="error" title={`Error: ${error}`} />}
+              <DiskStats activeLocation={activeLocation} peers={peerConfigs} />
               <ActionBar
                 selected={selected}
                 onDelete={() => setConfirming(true)}
