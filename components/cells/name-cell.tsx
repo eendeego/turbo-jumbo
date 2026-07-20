@@ -348,22 +348,24 @@ export function NameCell({
       </HoverCard>
       {row.orgSuffix && <Text type="supporting">({row.orgSuffix})</Text>}
       {(() => {
-        // Only hint catalog names that add information — a catalog entry
-        // named like the repo (most GGUF entries) would just repeat the row.
+        // Every catalog-backed model gets a marker, so its absence always
+        // means "not in the Lemonade catalog". The entry name is spelled out
+        // only when it adds information — a catalog entry named like the repo
+        // (most GGUF entries) would just repeat the row.
+        const named = lemonadeNames ?? [];
+        if (named.length === 0) return null;
         const display = modelDisplayName(row.label).toLowerCase();
-        const hints = (lemonadeNames ?? []).filter(
-          (n) => n.toLowerCase() !== display,
-        );
-        if (hints.length === 0) return null;
+        const hints = named.filter((n) => n.toLowerCase() !== display);
         return (
           <HoverCard
             content={`This repo backs the Lemonade catalog ${
-              hints.length === 1 ? 'entry' : 'entries'
-            }: ${hints.join(', ')}`}
+              named.length === 1 ? 'entry' : 'entries'
+            }: ${named.join(', ')}`}
           >
             <Text type="supporting">
-              Lemonade: {hints[0]}
-              {hints.length > 1 && ` +${hints.length - 1}`}
+              {hints.length === 0
+                ? 'Lemonade'
+                : `Lemonade: ${hints[0]}${hints.length > 1 ? ` +${hints.length - 1}` : ''}`}
             </Text>
           </HoverCard>
         );

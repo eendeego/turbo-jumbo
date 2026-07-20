@@ -44,10 +44,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The Lemonade catalog opens with every section collapsed, showing just the
   section headers and their model counts. Expand what you need — or type in
   the filter, which looks inside collapsed sections and shows every match.
-- Models that back a Lemonade catalog entry under a different name (e.g. the
-  repo `Qwen/Qwen3.6-35B-A3B` behind the catalog's
-  `Qwen3.6-35B-A3B-FP16-vLLM`) now carry a "Lemonade: …" hint next to their
-  name in the models table, so the two views are recognizably the same model.
+- Models that back a Lemonade catalog entry now carry a "Lemonade" marker
+  next to their name in the models table — spelled out with the catalog name
+  when it differs from the repo (e.g. `Qwen/Qwen3.6-35B-A3B` behind the
+  catalog's `Qwen3.6-35B-A3B-FP16-vLLM`), so the two views are recognizably
+  the same model and a missing marker reliably means "not in the catalog".
 
 ### Fixed
 
