@@ -1,10 +1,13 @@
 /**
- * Parsing for the streamed `hf download` log (see `/api/v1/hf-download`). The
- * log interleaves three kinds of lines: download/transfer **progress**, our own
- * **wrapper status** (recording sources, cold-storage, `Done.`), and hf's
- * **chatter** (version hints, deprecation `FutureWarning`s) plus any errors.
- * `parseProgress` drives the progress bars; `parseNotices` surfaces the chatter
- * and errors into the dialog's notices panel.
+ * Parsing for the streamed `hf download` log (see `/api/v1/hf-download`). Under
+ * `hf --json` the CLI prints no progress and no chatter — its `{"path": …}`
+ * result is consumed server-side — so the log holds just two kinds of lines:
+ * the server's own synthesized transfer **progress** (both a byte bar and, for a
+ * multi-file download, a `(done/total files)` count, computed by polling
+ * bytes-on-disk) and **wrapper status** (recording sources, cold-storage,
+ * `Done.`), plus, on failure, hf's error text forwarded from stderr.
+ * `parseProgress` drives the progress bars; `parseNotices` lifts hf's
+ * errors/warnings into the dialog's notices panel.
  */
 
 export type DownloadProgress = {
@@ -49,10 +52,10 @@ export function parseProgress(lines: string[]): DownloadProgress | null {
   let hasDownload = false;
 
   for (const line of lines) {
-    // "Downloading ...:   5% 523M/9.97G [00:12<04:39, 33.8MB/s]" and the final
-    // "Download complete: 100% 9.97G/9.97G [..]" line. hf's "Downloading" bar can
-    // stop emitting before 100%, so the "Download complete:" line is what carries
-    // the bar to 100% in that case.
+    // The server synthesizes progress by polling bytes-on-disk (hf --json emits
+    // none): "Downloading: 5% 523M/9.97G [00:12<04:39, 33.8MB/s]" while running,
+    // then a final "Download complete: 100% 9.97G/9.97G [00:13]" that carries the
+    // bar to 100% — the poll caps at 99%, so completion comes from that line.
     const dl = line.match(
       /Download(?:ing[^:]*|\s+complete):\s+(\d+)%\s+([\d.]+\s*\S+)\/([\d.]+\s*\S+)\s+\[([^\]]*)\]/,
     );
@@ -68,8 +71,9 @@ export function parseProgress(lines: string[]): DownloadProgress | null {
       if (etaMatch) eta = etaMatch[1];
     }
 
-    // "Fetching 1 files:   0% 0/1 [00:00<?, ?it/s]"
-    const ft = line.match(/Fetching\s+\d+\s+files?:\s+\d+%\s+(\d+)\/(\d+)/);
+    // "…  (2/5 files)" — the file-completion count the server appends to the
+    // progress line for a multi-file (sharded) download.
+    const ft = line.match(/\((\d+)\/(\d+) files\)/);
     if (ft) {
       filesDone = parseInt(ft[1], 10);
       filesTotal = parseInt(ft[2], 10);
@@ -80,17 +84,14 @@ export function parseProgress(lines: string[]): DownloadProgress | null {
   return {percent, downloaded, total, speed, eta, filesDone, filesTotal};
 }
 
-// hf's download/fetch/complete progress lines, its "✓ Downloaded" success line
-// and the resulting "  path: …" line, and the cold-storage `[███░░] NN%` bar.
-// These report progress/completion, never notices.
+// The server's synthesized transfer lines ("Downloading: …" / "Download
+// complete: …", each optionally carrying a "(done/total files)" suffix) and the
+// cold-storage `[███░░] NN%` bar. These report progress, never notices.
 function isProgressLine(line: string): boolean {
   const t = line.trimStart();
   return (
     /^Downloading\b/.test(t) ||
-    /^Fetching\s+\d+\s+files?:/.test(t) ||
     /^Download complete:/.test(t) ||
-    /^✓\s+Downloaded\b/.test(t) ||
-    /^path:\s/.test(t) ||
     /^\[[█░]+\]/.test(t)
   );
 }

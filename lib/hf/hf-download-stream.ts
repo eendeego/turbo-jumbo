@@ -131,6 +131,29 @@ async function dirBytes(dir: string): Promise<number> {
   return total;
 }
 
+// How many of the expected files are already on disk at their full size — the
+// file-completion count for the progress bar. hf downloads to an incomplete temp
+// path and moves the file into place only when it finishes, so a file present at
+// its final path with its expected size is done. Needs the resolved sizes; files
+// whose size is unknown can't be judged complete and are skipped.
+async function completeFileCount(
+  localDir: string,
+  filePaths: string[],
+  sizes: Map<string, number>,
+): Promise<number> {
+  let done = 0;
+  for (const fp of filePaths) {
+    const expected = sizes.get(fp);
+    if (!expected || expected <= 0) continue;
+    try {
+      if ((await fsp.stat(path.join(localDir, fp))).size >= expected) done++;
+    } catch {
+      /* not on disk yet */
+    }
+  }
+  return done;
+}
+
 async function moveToColdstorage(
   relPaths: string[],
   deleteAfterTransfer: boolean,
@@ -269,19 +292,14 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
   // pass and the cold-storage transfer.
   const relPaths = (filePaths as string[]).map((fp) => path.join(repoId, fp));
 
-  const includes = (filePaths as string[])
-    .map((fp) => `--include "${fp}"`)
-    .join(' ');
-  const cmd = [
-    'hf',
-    'download',
-    repoId,
-    includes,
-    '--local-dir',
-    localDir,
-    '--revision',
-    branch,
-  ].join(' ');
+  // Spawn hf directly with an argv array (no shell, no quoting) and force
+  // `--json`: hf then prints a single `{"path": …}` on stdout on success, its
+  // error text on stderr on failure, and nothing else — no progress bars or
+  // chatter to scrape. Progress is synthesized below from bytes-on-disk.
+  const hfArgs = ['download', repoId];
+  for (const fp of filePaths as string[]) hfArgs.push('--include', fp);
+  hfArgs.push('--local-dir', localDir, '--revision', branch, '--json');
+  const numFiles = (filePaths as string[]).length;
 
   const encode = (s: string) => new TextEncoder().encode(s);
 
@@ -289,19 +307,19 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
     start(controller) {
       const enqueue = (s: string) => controller.enqueue(encode(s));
 
-      // `-e` makes `script` exit with the wrapped command's status; without it
-      // `script` always exits 0, hiding an `hf download` failure.
       // The spawn inherits the server's environment: transfer acceleration
       // (HF_XET_HIGH_PERFORMANCE) and HF_TOKEN come from there (.envrc in
       // dev, ENV in the Dockerfile) rather than app code — forcing the
       // deprecated HF_HUB_ENABLE_HF_TRANSFER here made every download warn.
-      const proc = spawn('script', ['-e', '-q', '-c', cmd, '/dev/null']);
+      const proc = spawn('hf', hfArgs);
 
-      // hf prints no progress while downloading, so synthesize it: size the bar
-      // from the repo's file sizes, then poll bytes-on-disk and emit a
-      // tqdm-shaped `Downloading: NN% …` line (parsed by parseProgress) each
-      // tick. Best-effort — if the repo can't be sized (offline/rate-limited)
-      // we emit nothing and the client falls back to an indeterminate bar.
+      // hf --json prints no progress while downloading, so synthesize it: size
+      // the bar from the repo's file sizes, then poll bytes-on-disk and emit a
+      // `Downloading: NN% …` line (parsed by parseProgress) each tick — with a
+      // `(done/total files)` suffix for a multi-file download, counting the files
+      // already present at full size. Best-effort — if the repo can't be sized
+      // (offline/rate-limited) we emit nothing and the client falls back to an
+      // indeterminate bar.
       const t0 = Date.now();
       let totalBytes = 0;
       let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -309,6 +327,8 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
         if (pollTimer) clearInterval(pollTimer);
         pollTimer = null;
       };
+      const filesSuffix = (done: number) =>
+        numFiles > 1 ? `  (${done}/${numFiles} files)` : '';
       void (async () => {
         const sizes = await repoFileSizes(repoId, branch);
         if (!sizes || signal.aborted) return;
@@ -320,7 +340,10 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
         let lastDone = 0;
         let lastT = t0;
         pollTimer = setInterval(() => {
-          void dirBytes(localDir).then((raw) => {
+          void Promise.all([
+            dirBytes(localDir),
+            completeFileCount(localDir, filePaths as string[], sizes),
+          ]).then(([raw, filesDone]) => {
             // The walk is async; if the run ended (stopPoll cleared the timer)
             // while it was in flight, the controller may be closed — don't
             // enqueue onto it.
@@ -335,7 +358,8 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
             const eta = speed > 0 ? (totalBytes - done) / speed : 0;
             enqueue(
               `\rDownloading: ${pct}% ${fmtBytes(done)}/${fmtBytes(totalBytes)}` +
-                ` [${fmtTime((now - t0) / 1000)}<${fmtTime(eta)}, ${fmtBytes(speed)}/s]`,
+                ` [${fmtTime((now - t0) / 1000)}<${fmtTime(eta)}, ${fmtBytes(speed)}/s]` +
+                filesSuffix(filesDone),
             );
           });
         }, 1000);
@@ -346,13 +370,18 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
         proc.kill('SIGTERM');
       });
 
-      const onData = (chunk: Buffer) => {
+      // stdout carries only hf's `--json` result — buffer it (handled on close);
+      // it is a machine record, not something to show in the run log. stderr
+      // carries hf's errors/warnings, forwarded verbatim into the log where
+      // parseNotices lifts them into the dialog's notices panel.
+      let stdoutBuf = '';
+      proc.stdout.on('data', (chunk: Buffer) => {
+        stdoutBuf += chunk.toString();
+      });
+      proc.stderr.on('data', (chunk: Buffer) => {
         const text = stripAnsi(chunk.toString());
         if (text) enqueue(text);
-      };
-
-      proc.stdout.on('data', onData);
-      proc.stderr.on('data', onData);
+      });
 
       proc.on('error', (err) => {
         stopPoll();
@@ -362,12 +391,18 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
 
       proc.on('close', async (code, sig) => {
         stopPoll();
+        // hf's stdout should be exactly its `{"path": …}` result — the wrapper
+        // already knows where files land, so it's consumed, not shown. Anything
+        // else (unexpected non-JSON output) is surfaced so it isn't lost.
+        const out = stdoutBuf.trim();
+        if (out && !(out.startsWith('{') && out.endsWith('}')))
+          enqueue(`\n${out}\n`);
         // Carry the bar to 100% — the poll caps at 99% and hf's silence means
         // nothing else would.
         if (code === 0 && totalBytes > 0) {
           const tb = fmtBytes(totalBytes);
           enqueue(
-            `\rDownload complete: 100% ${tb}/${tb} [${fmtTime((Date.now() - t0) / 1000)}]\n`,
+            `\rDownload complete: 100% ${tb}/${tb} [${fmtTime((Date.now() - t0) / 1000)}]${filesSuffix(numFiles)}\n`,
           );
         }
         enqueue(`\nProcess exited with code ${code}\n`);

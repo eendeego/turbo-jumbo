@@ -6,63 +6,105 @@ import {
   describeExitCode,
 } from '@/lib/hf/download-output';
 
-// The download log as it arrives: progress lines, an hf version hint, and our
-// own wrapper status, interleaved like a real run.
-const versionHintRun = [
-  'Hint: A new version of huggingface_hub (1.19.0) is available! You are using version 1.18.0.',
-  'To update, run: hf update',
-  'Downloading (incomplete total...): 0.00B [00:00, ?B/s]',
-  'Downloading (incomplete total...): 100% 899M/899M [00:10<00:00, 132MB/s] ',
-  'Fetching 1 files: 100% 1/1 [00:10<00:00, 10.07s/it]',
-  'Download complete: 100% 899M/899M [00:10<00:00, 132MB/s]                ✓ Downloaded',
-  '  path: /mnt/models/unsloth/Qwen3.6-35B-A3B-MTP-GGUF',
-  'Download complete: 100% 899M/899M [00:10<00:00, 89.1MB/s]',
+// A successful run as the client sees it under `hf --json`: the server's own
+// synthesized `Downloading:`/`Download complete:` progress (hf itself prints
+// none in json mode), then the wrapper's exit and source-recording status. hf's
+// `{"path": …}` result line is consumed server-side and never reaches this log.
+const successRun = [
+  '=== Qwen/Qwen3-0.6B-GGUF  (1/1) ===',
+  'Download complete: 100% 639.4MB/639.4MB [00:11]',
   '',
   'Process exited with code 0',
   '',
   'Recording sources...',
-  '  mmproj-F16.gguf: pass',
+  '  Qwen3-0.6B-Q4_K_M.gguf: pass',
 ];
 
-const futureWarningRun = [
-  '/home/user/.hf-cli/venv/lib/python3.14/site-packages/huggingface_hub/constants.py:294:',
-  "FutureWarning: The `HF_HUB_ENABLE_HF_TRANSFER` environment variable is deprecated as 'hf_transfer' is not used anymore.",
-  'Please use `HF_XET_HIGH_PERFORMANCE` instead to enable high performance transfer with Xet. Visit https://huggingface.co/docs for more details.',
-  'Downloading (incomplete total...): 100% 899M/899M [00:10<00:00, 132MB/s] ',
-  'Fetching 1 files: 100% 1/1 [00:10<00:00, 10.07s/it]',
-  'Done.',
+// A failed run: hf writes its error block to stderr (forwarded verbatim), then
+// the wrapper appends its own flush-left failure line.
+const errorRun = [
+  '=== does-not-exist/nope-xyz  (1/1) ===',
+  "Error: Model 'does-not-exist/nope-xyz' not found.",
+  'If the repo is private, make sure you are authenticated and your token has the required permissions.',
+  'If the repo does not exist, create it with: hf repos create does-not-exist/nope-xyz',
+  '',
+  'Process exited with code 1',
+  '',
+  'Error: download failed (hf exited with code 1).',
 ];
 
-test('parseNotices surfaces the version-update hint, excluding progress and wrapper status', () => {
-  const notices = parseNotices(versionHintRun);
+test('parseProgress reads the synthesized mid-download line', () => {
+  const p = parseProgress([
+    'Downloading: 45% 287.7MB/639.4MB [00:05<00:06, 57.5MB/s]',
+  ]);
+  expect(p).not.toBeNull();
+  expect(p!.percent).toBe(45);
+  expect(p!.downloaded).toBe('287.7MB');
+  expect(p!.total).toBe('639.4MB');
+  expect(p!.speed).toBe('57.5MB/s');
+  expect(p!.eta).toBe('00:06');
+  // No file-count suffix on a single-file download.
+  expect(p!.filesDone).toBe(0);
+  expect(p!.filesTotal).toBe(0);
+});
+
+test('parseProgress reads the synthesized per-file count on a multi-file download', () => {
+  const p = parseProgress([
+    'Downloading: 40% 1.0GB/2.5GB [00:05<00:07, 200MB/s]  (2/5 files)',
+  ]);
+  expect(p).not.toBeNull();
+  expect(p!.percent).toBe(40);
+  expect(p!.downloaded).toBe('1.0GB');
+  expect(p!.total).toBe('2.5GB');
+  expect(p!.filesDone).toBe(2);
+  expect(p!.filesTotal).toBe(5);
+});
+
+test('parseProgress reaches 100% from the synthesized completion line', () => {
+  const p = parseProgress(successRun);
+  expect(p).not.toBeNull();
+  expect(p!.percent).toBe(100);
+  expect(p!.downloaded).toBe('639.4MB');
+  expect(p!.total).toBe('639.4MB');
+});
+
+test('parseProgress carries the file count to complete on the completion line', () => {
+  const p = parseProgress([
+    'Download complete: 100% 2.5GB/2.5GB [00:12]  (5/5 files)',
+  ]);
+  expect(p).not.toBeNull();
+  expect(p!.percent).toBe(100);
+  expect(p!.filesDone).toBe(5);
+  expect(p!.filesTotal).toBe(5);
+});
+
+test('parseProgress returns null when there is no download line yet', () => {
+  expect(
+    parseProgress(['=== repo (1/1) ===', 'Recording sources...']),
+  ).toBeNull();
+});
+
+test('parseNotices surfaces nothing for a clean successful run', () => {
+  expect(parseNotices(successRun)).toEqual([]);
+});
+
+test("parseNotices surfaces hf's stderr error block, flagging the Error line", () => {
+  const notices = parseNotices(errorRun);
   expect(notices).toEqual([
     {
-      text: 'Hint: A new version of huggingface_hub (1.19.0) is available! You are using version 1.18.0.',
+      text: "Error: Model 'does-not-exist/nope-xyz' not found.",
+      severity: 'error',
+    },
+    {
+      text: 'If the repo is private, make sure you are authenticated and your token has the required permissions.',
       severity: 'warning',
     },
-    {text: 'To update, run: hf update', severity: 'warning'},
-  ]);
-});
-
-test('parseNotices surfaces the FutureWarning block as warnings', () => {
-  const notices = parseNotices(futureWarningRun);
-  expect(notices.map((n) => n.severity)).toEqual([
-    'warning',
-    'warning',
-    'warning',
-  ]);
-  expect(notices[1].text).toContain('FutureWarning:');
-  expect(notices[2].text).toContain('Please use');
-});
-
-test('parseNotices flags error lines with error severity', () => {
-  const notices = parseNotices([
-    'Downloading (incomplete total...): 100% 899M/899M [00:10<00:00, 132MB/s]',
-    'Error: 401 Client Error. Repository not found or gated.',
-  ]);
-  expect(notices).toEqual([
     {
-      text: 'Error: 401 Client Error. Repository not found or gated.',
+      text: 'If the repo does not exist, create it with: hf repos create does-not-exist/nope-xyz',
+      severity: 'warning',
+    },
+    {
+      text: 'Error: download failed (hf exited with code 1).',
       severity: 'error',
     },
   ]);
@@ -79,12 +121,10 @@ test('parseNotices excludes cold-storage progress and wrapper status', () => {
   expect(notices).toEqual([]);
 });
 
-test('parseNotices excludes hf\'s standalone "✓ Downloaded" success line', () => {
+test('parseNotices excludes the synthesized progress line, file suffix and all', () => {
   const notices = parseNotices([
-    'Fetching 2 files: 100% 2/2 [00:21<00:00, 10.7s/it]',
-    '✓ Downloaded',
-    '  path: /mnt/models/turbo-jumbo/ggml-org/gemma-3-4b-it-GGUF',
-    'Process exited with code 0',
+    'Downloading: 40% 1.0GB/2.5GB [00:05<00:07, 200MB/s]  (2/5 files)',
+    'Download complete: 100% 2.5GB/2.5GB [00:12]  (5/5 files)',
   ]);
   expect(notices).toEqual([]);
 });
@@ -92,52 +132,12 @@ test('parseNotices excludes hf\'s standalone "✓ Downloaded" success line', () 
 test('parseNotices ignores the per-repo download header', () => {
   const notices = parseNotices([
     '=== mikkoph/kokoro-onnx  (1/1) ===',
-    'Downloading (incomplete total...): 100% 28.2M/28.2M [00:01<00:00, 22.3MB/s]',
-    'Fetching 5 files: 100% 5/5 [00:01<00:00,  3.40it/s]',
+    'Download complete: 100% 28.2M/28.2M [00:01]',
     'Process exited with code 0',
     'Recording sources...',
     '  index.json: could not resolve source — left unverified',
   ]);
   expect(notices).toEqual([]);
-});
-
-// A real run where hf's transfer bar stopped emitting at 90% and completion was
-// only signaled by the "Download complete:" lines — the "Downloading" bar never
-// reached 100%.
-const stalledBarRun = [
-  'Hint: A new version of huggingface_hub (1.21.0) is available! You are using version 1.20.1.',
-  'To update, run: hf update',
-  'Downloading (incomplete total...): 0.00B [00:00, ?B/s]',
-  'Downloading (incomplete total...):  90% 2.24G/2.49G [00:21<00:01, 199MB/s] ',
-  'Fetching 1 files: 100% 1/1 [00:21<00:00, 21.38s/it]',
-  'Download complete: 100% 2.49G/2.49G [00:21<00:00, 199MB/s]                ✓ Downloaded',
-  '  path: /mnt/models/turbo-jumbo/unsloth/Phi-4-mini-instruct-GGUF',
-  'Download complete: 100% 2.49G/2.49G [00:21<00:00, 116MB/s]',
-  '',
-  'Process exited with code 0',
-  '',
-  'Recording sources...',
-  '  Phi-4-mini-instruct-Q4_K_M.gguf: pass',
-];
-
-test('parseProgress reaches 100% from the "Download complete" line when the download bar stalled below 100%', () => {
-  const p = parseProgress(stalledBarRun);
-  expect(p).not.toBeNull();
-  expect(p!.percent).toBe(100);
-  expect(p!.downloaded).toBe('2.49G');
-  expect(p!.total).toBe('2.49G');
-  expect(p!.filesDone).toBe(1);
-  expect(p!.filesTotal).toBe(1);
-});
-
-test('parseProgress still parses the download and files bars', () => {
-  const p = parseProgress(versionHintRun);
-  expect(p).not.toBeNull();
-  expect(p!.percent).toBe(100);
-  expect(p!.downloaded).toBe('899M');
-  expect(p!.total).toBe('899M');
-  expect(p!.filesDone).toBe(1);
-  expect(p!.filesTotal).toBe(1);
 });
 
 // A run where hf was killed mid-transfer (e.g. the OOM killer): the wrapper
@@ -166,8 +166,7 @@ test('parseNotices surfaces the failure but not the plan-stop status line', () =
 
 test('hasDownloadFailure spots the wrapper failure line and ignores healthy runs', () => {
   expect(hasDownloadFailure(killedRun)).toBe(true);
-  expect(hasDownloadFailure(versionHintRun)).toBe(false);
-  expect(hasDownloadFailure(futureWarningRun)).toBe(false);
+  expect(hasDownloadFailure(successRun)).toBe(false);
   // The verification-failure variant counts too.
   expect(
     hasDownloadFailure([
