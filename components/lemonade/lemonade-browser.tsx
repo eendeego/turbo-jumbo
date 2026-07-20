@@ -128,8 +128,11 @@ export function LemonadeBrowser({
   const [extraModels, setExtraModels] = useState<LemonadeComponent[]>([]);
   const [collections, setCollections] = useState<OmniCollection[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // Section keys (a CatalogSection, or 'omni') the user has collapsed.
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+  // Section keys (a CatalogSection, or 'omni') the user has expanded. Sections
+  // start collapsed to keep the catalog scannable; an active filter bypasses
+  // the collapse so search stays exhaustive (a match is never hidden under a
+  // collapsed header).
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(),
   );
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -263,12 +266,16 @@ export function LemonadeBrowser({
     });
 
   const toggleSection = (key: string) =>
-    setCollapsedSections((prev) => {
+    setExpandedSections((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
+
+  const filterActive = filter.trim() !== '';
+  const sectionCollapsed = (key: string) =>
+    !filterActive && !expandedSections.has(key);
 
   const statusByName = useMemo(() => {
     const map = new Map<string, LemonadeDownloadInfo>();
@@ -405,11 +412,11 @@ export function LemonadeBrowser({
               <SectionHeader
                 label="Omni models"
                 count={visibleCollections.length}
-                collapsed={collapsedSections.has('omni')}
+                collapsed={sectionCollapsed('omni')}
                 onToggle={() => toggleSection('omni')}
               />
             )}
-            {!collapsedSections.has('omni') &&
+            {!sectionCollapsed('omni') &&
               visibleCollections.map((c) => {
                 const isExpanded = expanded.has(c.name);
                 const aggregate = collectionDownloadStatus(
@@ -533,10 +540,10 @@ export function LemonadeBrowser({
                 <SectionHeader
                   label={sec.label}
                   count={sec.rows.length}
-                  collapsed={collapsedSections.has(sec.key)}
+                  collapsed={sectionCollapsed(sec.key)}
                   onToggle={() => toggleSection(sec.key)}
                 />
-                {!collapsedSections.has(sec.key) &&
+                {!sectionCollapsed(sec.key) &&
                   sec.rows.map((row) =>
                     row.kind === 'model' ? (
                       <ListItem
