@@ -2,7 +2,7 @@
 
 import {useEffect, useState} from 'react';
 import * as stylex from '@stylexjs/stylex';
-import {HStack} from '@astryxdesign/core/Stack';
+import {HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import type {Peer as PeerConfig} from '@/lib/config';
@@ -20,30 +20,31 @@ const styles = stylex.create({
   // Inset to the action bar's content edge so the meters read as one footer
   // block with the buttons below them.
   root: {paddingInline: 'var(--spacing-3)'},
-  meter: {width: 140, flexShrink: 0},
 });
 
 // Past this fill fraction the meter turns to the warning variant — the exact
 // figures beside it carry the message for anyone who can't see the color.
 const NEARLY_FULL = 0.9;
 
-// One volume: name, a slim used/total meter, and the exact figures. The meter
-// carries the proportion; the numbers stay in text ink beside it.
+// One volume, filling its half: name at the start, exact figures at the end,
+// and the meter stretching through the space between them. The meter carries
+// the proportion; the numbers stay in text ink beside it.
 function VolumeMeter({label, usage}: {label: string; usage: DiskUsage}) {
   const used = usage.total - usage.free;
   return (
-    <HStack gap={2} vAlign="center" wrap="nowrap">
-      <Text type="supporting" weight="medium">
+    <HStack gap={3} vAlign="center" wrap="nowrap">
+      <Text type="supporting" weight="medium" textWrap="nowrap">
         {label}
       </Text>
-      <ProgressBar
-        label={`${label} space used`}
-        isLabelHidden
-        value={used}
-        max={usage.total}
-        variant={used / usage.total >= NEARLY_FULL ? 'warning' : 'accent'}
-        xstyle={styles.meter}
-      />
+      <StackItem size="fill">
+        <ProgressBar
+          label={`${label} space used`}
+          isLabelHidden
+          value={used}
+          max={usage.total}
+          variant={used / usage.total >= NEARLY_FULL ? 'warning' : 'accent'}
+        />
+      </StackItem>
       <Text type="supporting" hasTabularNumbers textWrap="nowrap">
         {formatBytes(used)} used · {formatBytes(usage.free)} free of{' '}
         {formatBytes(usage.total)}
@@ -119,10 +120,14 @@ export function DiskStats({
   }
   if (volumes.length === 0) return null;
 
+  // Two volumes split the strip into equal halves, each filled edge-to-edge
+  // by its meter row; a single volume spans the full width.
   return (
-    <HStack gap={8} vAlign="center" wrap="wrap" xstyle={styles.root}>
+    <HStack gap={8} vAlign="center" wrap="nowrap" xstyle={styles.root}>
       {volumes.map((v) => (
-        <VolumeMeter key={v.label} label={v.label} usage={v.usage} />
+        <StackItem key={v.label} size="fill">
+          <VolumeMeter label={v.label} usage={v.usage} />
+        </StackItem>
       ))}
     </HStack>
   );
