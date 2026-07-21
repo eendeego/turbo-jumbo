@@ -12,7 +12,11 @@ import {ggmlModelVariant} from '@/lib/models/weight-files';
 import {isPickOneSafetensorsRepo} from '@/lib/hf/hf-download';
 import {isDiffusersRepo} from '@/lib/models/diffusers';
 import {coldStorageRollup} from '@/lib/storage/cold-storage-rollup';
-import type {FileProvenance, SidecarSummary} from '@/lib/models/sidecar-types';
+import type {
+  FileProvenance,
+  SidecarLocation,
+  SidecarSummary,
+} from '@/lib/models/sidecar-types';
 
 export interface ShardInfo {
   filename: string;
@@ -61,6 +65,10 @@ export interface ModelRow extends Record<string, unknown> {
   // The model-level sidecar summary of the local copy, falling back to the
   // cold copy; undefined when neither carries a sidecar.
   sidecar?: SidecarSummary;
+  // Per-tier file roll-up, set only when the local and cold copies differ, so
+  // the hovercard can break the total out by location instead of showing one
+  // copy's size for the whole model.
+  sidecarLocations?: SidecarLocation[];
 }
 
 // One location's copy of a quant, for the size-mismatch breakdown.
@@ -115,6 +123,9 @@ export interface DisplayRow extends Record<string, unknown> {
   // Set on a model row (depth 0): the model-level sidecar summary, for the
   // name hovercard. Undefined on quant/shard/file rows and sidecar-less models.
   sidecar?: SidecarSummary;
+  // Set on a model row (depth 0) when the local and cold copies differ: the
+  // per-location file roll-up for the name hovercard's "Files" line.
+  sidecarLocations?: SidecarLocation[];
   // Set on a single-file quant, shard, or whole-repo file row: that file's
   // sidecar provenance, for its hovercard. Undefined without a sidecar record.
   provenance?: FileProvenance;
@@ -125,12 +136,16 @@ export interface DisplayRow extends Record<string, unknown> {
 // A peer's copy of a row's files relative to what's expected.
 export type PeerPresence = 'present' | 'absent' | 'undersized';
 
+// Binary units (÷1024): the label reads GiB/MiB/KiB so it's honest about the
+// base, matching how file and model weights are measured. (Disk capacity is
+// reported separately in decimal GB — the drive-maker convention — via
+// lib/storage/disk-space.ts.)
 export function formatSize(bytes: number): string {
   if (bytes < 0) return '';
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KiB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 }
 
 // Mirrors the server-side helper in models-table.tsx (not importable here:
@@ -493,6 +508,7 @@ export function buildDisplayRows(args: {
       ...(repoIssues && repoIssues.length > 0 ? {repoIssues} : {}),
       ...(orgSuffix ? {orgSuffix} : {}),
       ...(m.sidecar ? {sidecar: m.sidecar} : {}),
+      ...(m.sidecarLocations ? {sidecarLocations: m.sidecarLocations} : {}),
     });
     if (!expanded.has(m.name)) continue;
     if (isWholeRepoModel(m)) {

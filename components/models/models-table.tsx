@@ -9,7 +9,11 @@ import {
   fileProvenance,
   summarizeFiles,
 } from '@/lib/models/model-sidecar';
-import type {SidecarSummary, TjModelFile} from '@/lib/models/sidecar-types';
+import type {
+  SidecarLocation,
+  SidecarSummary,
+  TjModelFile,
+} from '@/lib/models/sidecar-types';
 import type {ModelRow, QuantInfo} from './models-table-client';
 
 // Extract the bit size from a quantization string (e.g. "Q4_K_M" → "4",
@@ -38,13 +42,41 @@ export function buildModelRows(
   // (see normalizeModelNames).
   const [localModels, coldModels] = normalizeModelNames([localScan, coldScan]);
 
-  // The model-level sidecar summary per model name: the local copy's when it
-  // has one, else the cold copy's. Drives the model-name hovercard.
+  // The model-level sidecar summary per model name, split by tier. The primary
+  // (`sidecarByName`) is the local copy's when it has one, else the cold copy's,
+  // and drives the hovercard's provenance. The per-tier maps let the hovercard
+  // break the file total out by location when the two copies differ.
+  const localSidecarByName = new Map<string, SidecarSummary>();
+  for (const m of localModels)
+    if (m.sidecar) localSidecarByName.set(m.name, m.sidecar);
+  const coldSidecarByName = new Map<string, SidecarSummary>();
+  for (const m of coldModels)
+    if (m.sidecar) coldSidecarByName.set(m.name, m.sidecar);
   const sidecarByName = new Map<string, SidecarSummary>();
   for (const m of coldModels)
     if (m.sidecar) sidecarByName.set(m.name, m.sidecar);
   for (const m of localModels)
     if (m.sidecar) sidecarByName.set(m.name, m.sidecar);
+
+  // A model's per-location file roll-up, but only when the local and cold copies
+  // actually differ (different quant, extra companion files, …) — otherwise the
+  // single primary total already tells the whole story.
+  const sidecarLocationsFor = (name: string): SidecarLocation[] | undefined => {
+    const local = localSidecarByName.get(name);
+    const cold = coldSidecarByName.get(name);
+    if (!local || !cold) return undefined;
+    if (
+      local.fileCount === cold.fileCount &&
+      local.totalSourceSize === cold.totalSourceSize
+    )
+      return undefined;
+    const roll = (label: string, s: SidecarSummary): SidecarLocation => ({
+      label,
+      fileCount: s.fileCount,
+      totalSourceSize: s.totalSourceSize,
+    });
+    return [roll('Local', local), roll('Cold', cold)];
+  };
 
   // Manifest-key → sidecar record per model, cold first then local so the
   // local copy's record wins. Keyed by the file's model-dir-relative path.
@@ -335,6 +367,9 @@ export function buildModelRows(
             : 0,
         ...coldStorageRollup(quants),
         ...(sidecarByName.has(name) ? {sidecar: sidecarByName.get(name)} : {}),
+        ...((locs) => (locs ? {sidecarLocations: locs} : {}))(
+          sidecarLocationsFor(name),
+        ),
       };
     })
     .sort((a, b) => compareByRepoName(a.name, b.name));

@@ -17,6 +17,7 @@ import {formatSize, type DisplayRow} from '@/lib/models/model-row';
 import {
   MIXED_COMMIT,
   type FileProvenance,
+  type SidecarLocation,
   type SidecarSummary,
 } from '@/lib/models/sidecar-types';
 
@@ -64,8 +65,24 @@ function InfoRow({label, children}: {label: string; children: ReactNode}) {
   );
 }
 
-/** The model-level sidecar provenance block appended to the name hovercard. */
-function SidecarInfo({sidecar}: {sidecar: SidecarSummary}) {
+/** A "N · size" file summary, e.g. `3 · 18.7 GiB`. */
+function fileSummary(fileCount: number, totalSourceSize: number): string {
+  return `${fileCount} · ${formatSize(totalSourceSize)}`;
+}
+
+/**
+ * The model-level sidecar provenance block appended to the name hovercard.
+ * `locations` is set only when the local and cold copies differ (e.g. holding
+ * different quantizations); then the file total is broken out per location so it
+ * doesn't read as one copy's size standing in for the whole model.
+ */
+function SidecarInfo({
+  sidecar,
+  locations,
+}: {
+  sidecar: SidecarSummary;
+  locations?: SidecarLocation[];
+}) {
   const {sourceCommit, repoCommit, repoCommitDate, modelUrl} = sidecar;
   return (
     <VStack gap={1}>
@@ -84,9 +101,17 @@ function SidecarInfo({sidecar}: {sidecar: SidecarSummary}) {
           {repoCommitDate && ` (${repoCommitDate.slice(0, 10)})`}
         </InfoRow>
       )}
-      <InfoRow label="Files">
-        {sidecar.fileCount} · {formatSize(sidecar.totalSourceSize)}
-      </InfoRow>
+      {locations && locations.length > 0 ? (
+        locations.map((loc) => (
+          <InfoRow key={loc.label} label={`Files · ${loc.label}`}>
+            {fileSummary(loc.fileCount, loc.totalSourceSize)}
+          </InfoRow>
+        ))
+      ) : (
+        <InfoRow label="Files">
+          {fileSummary(sidecar.fileCount, sidecar.totalSourceSize)}
+        </InfoRow>
+      )}
     </VStack>
   );
 }
@@ -334,7 +359,12 @@ export function NameCell({
               )}
               <CopyNameButton name={row.label} />
             </HStack>
-            {row.sidecar && <SidecarInfo sidecar={row.sidecar} />}
+            {row.sidecar && (
+              <SidecarInfo
+                sidecar={row.sidecar}
+                locations={row.sidecarLocations}
+              />
+            )}
           </VStack>
         }
       >

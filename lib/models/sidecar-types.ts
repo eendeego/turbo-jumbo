@@ -48,6 +48,19 @@ export interface SidecarSummary {
   totalSourceSize: number;
 }
 
+/**
+ * One storage tier's roll-up of a model's sidecar files (count + total source
+ * size), for the name hovercard. Populated only when the local and cold copies
+ * differ — e.g. holding different quantizations — so the hovercard can show
+ * `Local N · size` / `Cold N · size` instead of one copy's total standing in for
+ * the whole model.
+ */
+export interface SidecarLocation {
+  label: string;
+  fileCount: number;
+  totalSourceSize: number;
+}
+
 /** The model-level summary of a parsed sidecar, for the model-name hovercard. */
 export function summarizeModel(model: TjModel): SidecarSummary {
   const files = model.files ?? [];

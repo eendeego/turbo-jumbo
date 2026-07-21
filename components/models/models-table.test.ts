@@ -481,6 +481,66 @@ test('buildModelRows falls back to the cold sidecar when local has none', () => 
   expect(row!.sidecar!.sourceCommit).toBe('cold1');
 });
 
+test('buildModelRows breaks the size out per location when local and cold differ', () => {
+  // Same repo, different quants in each tier — the case that made the name
+  // hovercard show one copy's total as if it were the model's.
+  const local: Model[] = [
+    {
+      name: 'org/repo',
+      files: [single('model-Q4_K_M.gguf', 'Q4_K_M', 18)],
+      sidecar: summary({fileCount: 1, totalSourceSize: 18}),
+    },
+  ];
+  const cold: Model[] = [
+    {
+      name: 'org/repo',
+      files: [single('model-Q8_0.gguf', 'Q8_0', 35)],
+      sidecar: summary({fileCount: 2, totalSourceSize: 35}),
+    },
+  ];
+  const row = buildModelRows(local, cold).find((r) => r.name === 'org/repo')!;
+  expect(row.sidecarLocations).toEqual([
+    {label: 'Local', fileCount: 1, totalSourceSize: 18},
+    {label: 'Cold', fileCount: 2, totalSourceSize: 35},
+  ]);
+});
+
+test('buildModelRows omits the per-location breakdown when the copies match', () => {
+  const matched = () => summary({fileCount: 2, totalSourceSize: 100});
+  const local: Model[] = [
+    {
+      name: 'org/repo',
+      files: [single('model.gguf', 'Q4_K_M')],
+      sidecar: matched(),
+    },
+  ];
+  const cold: Model[] = [
+    {
+      name: 'org/repo',
+      files: [single('model.gguf', 'Q4_K_M')],
+      sidecar: matched(),
+    },
+  ];
+  const row = buildModelRows(local, cold).find((r) => r.name === 'org/repo')!;
+  expect(row.sidecarLocations).toBeUndefined();
+});
+
+test('buildModelRows gives no per-location breakdown for a single-location model', () => {
+  const rows = buildModelRows(
+    [
+      {
+        name: 'org/repo',
+        files: [single('model.gguf', 'Q4_K_M')],
+        sidecar: summary(),
+      },
+    ],
+    [],
+  );
+  expect(
+    rows.find((r) => r.name === 'org/repo')!.sidecarLocations,
+  ).toBeUndefined();
+});
+
 test('buildModelRows leaves sidecar undefined when neither copy has one', () => {
   const rows = buildModelRows(
     [{name: 'org/repo', files: [single('model.gguf', 'Q4_K_M')]}],
