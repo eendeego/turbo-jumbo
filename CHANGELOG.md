@@ -59,9 +59,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   different quantization in each — the file total is now broken out by
   location (`Files · Local  3 · 18.7 GiB`, `Files · Cold  2 · 33.7 GiB`), so
   the number always matches the files it describes.
-- Model and file sizes are now labelled in binary units (GiB/MiB/KiB) to match
-  the maths behind them, instead of dividing by 1024 but printing "GB". (Disk
-  capacity in the footer stays in decimal GB — the drive-maker convention.)
+- Every byte size in the app now reads in binary units (GiB/MiB/KiB) — models,
+  files, disk usage and download progress alike — instead of some places
+  dividing by 1024 while printing "GB" and others using decimal GB. (The
+  Lemonade catalog still shows the figure its own spec lists, in GB.)
 - A multi-repo download plan (a Lemonade collection or component) now stops
   when one of its downloads fails, instead of burying the error and carrying
   on with the remaining repos as if nothing happened.

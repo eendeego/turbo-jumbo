@@ -95,11 +95,13 @@ async function recordSources(
   return {failures};
 }
 
+// Binary units (÷1024), no space — the compact form the progress line uses.
+// parseSize (lib/hf/download-output) decodes these back for the progress bar.
 function fmtBytes(b: number): string {
-  if (b >= 1e12) return `${(b / 1e12).toFixed(1)}TB`;
-  if (b >= 1e9) return `${(b / 1e9).toFixed(1)}GB`;
-  if (b >= 1e6) return `${(b / 1e6).toFixed(1)}MB`;
-  return `${(b / 1e3).toFixed(1)}KB`;
+  if (b >= 1024 ** 4) return `${(b / 1024 ** 4).toFixed(1)}TiB`;
+  if (b >= 1024 ** 3) return `${(b / 1024 ** 3).toFixed(1)}GiB`;
+  if (b >= 1024 ** 2) return `${(b / 1024 ** 2).toFixed(1)}MiB`;
+  return `${(b / 1024).toFixed(1)}KiB`;
 }
 
 function fmtTime(sec: number): string {

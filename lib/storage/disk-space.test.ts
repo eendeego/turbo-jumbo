@@ -54,7 +54,7 @@ test('shared disk: a kept copy needs room for two', () => {
   expect(diskSpaceWarnings(shared(8 * GB), 5 * GB, false, false)).toEqual([]);
   const out = diskSpaceWarnings(shared(8 * GB), 5 * GB, true, false);
   expect(out).toHaveLength(1);
-  expect(out[0]).toContain('needs 10.0 GB');
+  expect(out[0]).toContain('needs 9.3 GiB');
 });
 
 test('shared disk: a moved copy needs room for one', () => {

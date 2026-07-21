@@ -136,16 +136,15 @@ export interface DisplayRow extends Record<string, unknown> {
 // A peer's copy of a row's files relative to what's expected.
 export type PeerPresence = 'present' | 'absent' | 'undersized';
 
-// Binary units (÷1024): the label reads GiB/MiB/KiB so it's honest about the
-// base, matching how file and model weights are measured. (Disk capacity is
-// reported separately in decimal GB — the drive-maker convention — via
-// lib/storage/disk-space.ts.)
+// Binary units (÷1024) with honest GiB/MiB/KiB labels — the app renders every
+// byte size this way (files, models, disk usage, download progress).
 export function formatSize(bytes: number): string {
   if (bytes < 0) return '';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KiB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
-  return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  if (bytes < 1024 ** 4) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  return `${(bytes / 1024 ** 4).toFixed(1)} TiB`;
 }
 
 // Mirrors the server-side helper in models-table.tsx (not importable here:

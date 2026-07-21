@@ -2,9 +2,18 @@ import {test, expect} from 'bun:test';
 import {
   parseProgress,
   parseNotices,
+  parseSize,
   hasDownloadFailure,
   describeExitCode,
 } from '@/lib/hf/download-output';
+
+test('parseSize decodes the binary units the progress line is synthesized with', () => {
+  expect(parseSize('610.0MiB')).toBe(610 * 1024 ** 2);
+  expect(parseSize('17.1 GiB')).toBe(17.1 * 1024 ** 3);
+  expect(parseSize('512KiB')).toBe(512 * 1024);
+  // Decimal spellings stay tolerated as a fallback.
+  expect(parseSize('1GB')).toBe(1e9);
+});
 
 // A successful run as the client sees it under `hf --json`: the server's own
 // synthesized `Downloading:`/`Download complete:` progress (hf itself prints

@@ -23,14 +23,20 @@ export type DownloadProgress = {
 export type NoticeSeverity = 'warning' | 'error';
 export type Notice = {text: string; severity: NoticeSeverity};
 
+// The progress line is synthesized with binary units (fmtBytes), so those are
+// what parseSize decodes; the decimal spellings are kept as a tolerant fallback.
 const SIZE_UNITS: Record<string, number> = {
   B: 1,
+  KIB: 1024,
   KB: 1e3,
   K: 1e3,
+  MIB: 1024 ** 2,
   MB: 1e6,
   M: 1e6,
+  GIB: 1024 ** 3,
   GB: 1e9,
   G: 1e9,
+  TIB: 1024 ** 4,
   TB: 1e12,
   T: 1e12,
 };

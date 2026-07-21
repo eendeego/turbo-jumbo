@@ -9,17 +9,18 @@ import {Text} from '@astryxdesign/core/Text';
 import type {Model, ModelFile} from '@/lib/models/model-types';
 import {shardPath, shardSize} from '@/lib/models/model-types';
 
+// Binary units (÷1024), matching how the rest of the app renders byte sizes.
 export function formatBytes(bytes: number): string {
-  if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  return `${(bytes / 1e3).toFixed(1)} KB`;
+  if (bytes >= 1024 ** 4) return `${(bytes / 1024 ** 4).toFixed(1)} TiB`;
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+  return `${(bytes / 1024).toFixed(1)} KiB`;
 }
 
 export function formatSpeed(bps: number): string {
-  if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} GB/s`;
-  if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} MB/s`;
-  return `${(bps / 1e3).toFixed(0)} KB/s`;
+  if (bps >= 1024 ** 3) return `${(bps / 1024 ** 3).toFixed(2)} GiB/s`;
+  if (bps >= 1024 ** 2) return `${(bps / 1024 ** 2).toFixed(1)} MiB/s`;
+  return `${(bps / 1024).toFixed(0)} KiB/s`;
 }
 
 export function filePaths(file: ModelFile): string[] {
