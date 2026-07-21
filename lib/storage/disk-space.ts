@@ -2,6 +2,8 @@
 // download picker and the Lemonade browser. The actual statfs lives in the
 // server-only lib/storage/disk-usage.ts, which reuses these types.
 
+import {formatSize} from '@/lib/format/bytes';
+
 export interface DiskUsage {
   free: number; // bytes available to an unprivileged process
   total: number; // total bytes on the filesystem
@@ -11,14 +13,6 @@ export interface DownloadDiskUsage {
   models: DiskUsage; // where the download lands
   cold: DiskUsage; // the optional "copy to cold storage" target
   sameDevice: boolean; // models & cold share one filesystem (space is shared)
-}
-
-// Binary units (÷1024), matching how the rest of the app renders byte sizes.
-export function formatBytes(bytes: number): string {
-  if (bytes >= 1024 ** 4) return `${(bytes / 1024 ** 4).toFixed(1)} TiB`;
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
-  return `${(bytes / 1024).toFixed(1)} KiB`;
 }
 
 /**
@@ -41,18 +35,18 @@ export function diskSpaceWarnings(
       sendToCold && !deleteAfterTransfer ? neededBytes * 2 : neededBytes;
     return need > disk.models.free
       ? [
-          `needs ${formatBytes(need)} but only ${formatBytes(disk.models.free)} is free`,
+          `needs ${formatSize(need)} but only ${formatSize(disk.models.free)} is free`,
         ]
       : [];
   }
   const out: string[] = [];
   if (neededBytes > disk.models.free)
     out.push(
-      `local storage needs ${formatBytes(neededBytes)} but only ${formatBytes(disk.models.free)} is free`,
+      `local storage needs ${formatSize(neededBytes)} but only ${formatSize(disk.models.free)} is free`,
     );
   if (sendToCold && neededBytes > disk.cold.free)
     out.push(
-      `cold storage needs ${formatBytes(neededBytes)} but only ${formatBytes(disk.cold.free)} is free`,
+      `cold storage needs ${formatSize(neededBytes)} but only ${formatSize(disk.cold.free)} is free`,
     );
   return out;
 }

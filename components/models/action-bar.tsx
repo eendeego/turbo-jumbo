@@ -10,10 +10,10 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {CommandLineIcon} from '@heroicons/react/24/outline';
 import type {CopyProgress} from '@/lib/storage/copy-progress';
-import {formatBytes, formatSpeed} from '@/components/models/model-list';
+import {formatSize, formatSpeed} from '@/lib/format/bytes';
 
 const formatBytePair = (v: number, m: number) =>
-  `${formatBytes(v)} of ${formatBytes(m)}`;
+  `${formatSize(v)} of ${formatSize(m)}`;
 
 // Sits above the fixed-overlay Log console (z-index 40) so its Console toggle
 // stays clickable when the console is open.

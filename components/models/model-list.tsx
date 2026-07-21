@@ -8,20 +8,7 @@ import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Text} from '@astryxdesign/core/Text';
 import type {Model, ModelFile} from '@/lib/models/model-types';
 import {shardPath, shardSize} from '@/lib/models/model-types';
-
-// Binary units (÷1024), matching how the rest of the app renders byte sizes.
-export function formatBytes(bytes: number): string {
-  if (bytes >= 1024 ** 4) return `${(bytes / 1024 ** 4).toFixed(1)} TiB`;
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
-  return `${(bytes / 1024).toFixed(1)} KiB`;
-}
-
-export function formatSpeed(bps: number): string {
-  if (bps >= 1024 ** 3) return `${(bps / 1024 ** 3).toFixed(2)} GiB/s`;
-  if (bps >= 1024 ** 2) return `${(bps / 1024 ** 2).toFixed(1)} MiB/s`;
-  return `${(bps / 1024).toFixed(0)} KiB/s`;
-}
+import {formatSize} from '@/lib/format/bytes';
 
 export function filePaths(file: ModelFile): string[] {
   if (file.isSplit) {
@@ -101,7 +88,7 @@ export function ModelList({models, selected, onToggle}: ModelListProps) {
                               {file.presentShards}/{file.totalShards} files
                             </Text>
                             <Text type="supporting">
-                              {formatBytes(file.totalSize)}
+                              {formatSize(file.totalSize)}
                             </Text>
                             {file.missingIndices.length > 0 && (
                               <Badge
@@ -131,7 +118,7 @@ export function ModelList({models, selected, onToggle}: ModelListProps) {
                                     {p.split('/').pop()}
                                   </Text>
                                   <Text type="supporting">
-                                    {formatBytes(shardSize(shard))}
+                                    {formatSize(shardSize(shard))}
                                   </Text>
                                 </HStack>
                               );
@@ -157,7 +144,7 @@ export function ModelList({models, selected, onToggle}: ModelListProps) {
                     >
                       {file.filename}
                     </Text>
-                    <Text type="supporting">{formatBytes(file.size)}</Text>
+                    <Text type="supporting">{formatSize(file.size)}</Text>
                     {file.missing && (
                       <Badge variant="warning" label="missing" />
                     )}

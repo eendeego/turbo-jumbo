@@ -17,10 +17,10 @@ import {
 import {copyToClipboard} from '@/lib/util/clipboard';
 import type {DownloadTarget} from '@/lib/hf/download-target';
 import {
-  formatBytes,
   diskSpaceWarnings,
   type DownloadDiskUsage,
 } from '@/lib/storage/disk-space';
+import {formatSize} from '@/lib/format/bytes';
 import {defaultDownloadSelection} from '@/lib/hf/hf-download';
 import {parseHfUrl} from '@/lib/hf/hf-url';
 
@@ -295,9 +295,7 @@ export function HfDownloadPicker({
                   />
                 }
                 label={f.path.split('/').pop()}
-                endContent={
-                  <Text type="supporting">{formatBytes(f.size)}</Text>
-                }
+                endContent={<Text type="supporting">{formatSize(f.size)}</Text>}
               />
             ))}
             {visibleFiles.length === 0 && (
@@ -337,7 +335,7 @@ export function HfDownloadPicker({
             ? 'Nothing selected'
             : `${selectedFiles.length} file${
                 selectedFiles.length !== 1 ? 's' : ''
-              } · ${formatBytes(totalSize)}`}
+              } · ${formatSize(totalSize)}`}
         </Text>
         <HStack gap={2} hAlign="end">
           <Button

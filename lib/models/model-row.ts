@@ -136,16 +136,9 @@ export interface DisplayRow extends Record<string, unknown> {
 // A peer's copy of a row's files relative to what's expected.
 export type PeerPresence = 'present' | 'absent' | 'undersized';
 
-// Binary units (÷1024) with honest GiB/MiB/KiB labels — the app renders every
-// byte size this way (files, models, disk usage, download progress).
-export function formatSize(bytes: number): string {
-  if (bytes < 0) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KiB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
-  if (bytes < 1024 ** 4) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
-  return `${(bytes / 1024 ** 4).toFixed(1)} TiB`;
-}
+// Byte sizes render through the shared binary formatter; re-exported here as the
+// models-domain entry point most cells already import from.
+export {formatSize} from '@/lib/format/bytes';
 
 // Mirrors the server-side helper in models-table.tsx (not importable here:
 // that module reads server config).

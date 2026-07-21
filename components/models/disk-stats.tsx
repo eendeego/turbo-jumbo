@@ -6,11 +6,8 @@ import {HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import type {Peer as PeerConfig} from '@/lib/config';
-import {
-  formatBytes,
-  type DiskUsage,
-  type DownloadDiskUsage,
-} from '@/lib/storage/disk-space';
+import {type DiskUsage, type DownloadDiskUsage} from '@/lib/storage/disk-space';
+import {formatSize} from '@/lib/format/bytes';
 
 // Free space moves with downloads/copies/deletes elsewhere on the system too,
 // so keep the figures fresh while the tab stays open. statfs is cheap.
@@ -46,8 +43,8 @@ function VolumeMeter({label, usage}: {label: string; usage: DiskUsage}) {
         />
       </StackItem>
       <Text type="supporting" hasTabularNumbers textWrap="nowrap">
-        {formatBytes(used)} used · {formatBytes(usage.free)} free of{' '}
-        {formatBytes(usage.total)}
+        {formatSize(used)} used · {formatSize(usage.free)} free of{' '}
+        {formatSize(usage.total)}
       </Text>
     </HStack>
   );

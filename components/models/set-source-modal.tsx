@@ -8,7 +8,7 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Button} from '@astryxdesign/core/Button';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import type {AuditProgressEvent} from '@/lib/audit/audit';
-import {formatBytes} from '@/components/models/model-list';
+import {formatSize} from '@/lib/format/bytes';
 
 interface SetSourceModalProps {
   filename: string;
@@ -60,9 +60,7 @@ export function SetSourceModal({
             value={progress.hashedBytes}
             max={Math.max(progress.totalBytes, 1)}
             hasValueLabel
-            formatValueLabel={(v, m) =>
-              `${formatBytes(v)} of ${formatBytes(m)}`
-            }
+            formatValueLabel={(v, m) => `${formatSize(v)} of ${formatSize(m)}`}
           />
         )}
         <HStack gap={2} hAlign="end">

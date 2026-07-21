@@ -8,7 +8,7 @@ import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
 import {Badge} from '@astryxdesign/core/Badge';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
-import {formatBytes} from '@/components/models/model-list';
+import {formatSize} from '@/lib/format/bytes';
 import type {Peer} from '@/lib/config';
 
 export interface ConflictItem {
@@ -122,7 +122,7 @@ export function ConflictsModal({
                       <HStack gap={3} vAlign="center">
                         <Text type="label">src</Text>
                         <Text type="code" color="secondary">
-                          {formatBytes(conflict.sourceSize)}
+                          {formatSize(conflict.sourceSize)}
                         </Text>
                         <Text type="code" color="secondary">
                           {conflict.sourceMd5 ?? '—'}
@@ -134,7 +134,7 @@ export function ConflictsModal({
                           type="code"
                           color={conflict.sizeMatch ? 'secondary' : 'accent'}
                         >
-                          {formatBytes(conflict.destSize)}
+                          {formatSize(conflict.destSize)}
                         </Text>
                         <Text
                           type="code"
