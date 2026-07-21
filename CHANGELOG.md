@@ -30,6 +30,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A model holding more than one quantization now shows the total size of all
+  its files in the Size column, instead of a min–max range across its quants
+  (which said little once each quant is its own separate download).
 - The Lemonade browser's other-backend models (vLLM, Ryzen AI ONNX, image,
   speech) now honor the "Suggested only" filter, wear their suggested badges
   and capability icons, and file under the section their catalog labels say

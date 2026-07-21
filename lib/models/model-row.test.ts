@@ -61,6 +61,23 @@ test('a collapsed model yields a single depth-0 row', () => {
   expect(rows[0]).toMatchObject({key: 'org/repo', depth: 0, label: 'org/repo'});
 });
 
+test("a multi-quant model's row shows the total of its files, not a range", () => {
+  const rows = buildDisplayRows({
+    ...noPeers,
+    models: [
+      model({
+        name: 'org/repo',
+        quants: [
+          quant({label: 'Q4', size: 100}),
+          quant({label: 'Q8', size: 250}),
+        ],
+      }),
+    ],
+  });
+  const modelRow = rows.find((r) => r.depth === 0)!;
+  expect(modelRow.size).toBe(350);
+});
+
 test('buildDisplayRows puts the sidecar summary on the depth-0 row only', () => {
   const sidecar: SidecarSummary = {
     repoId: 'org/repo',

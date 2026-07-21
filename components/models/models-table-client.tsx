@@ -322,9 +322,8 @@ export function ModelsTableClient({
     {
       key: 'size',
       header: 'Size',
-      // A two-ended range ("12.3 GB – 45.6 GB") plus the mismatch icon needs
-      // ~160px; give it headroom for larger ranges.
-      width: pixel(200),
+      // A single size ("45.6 GiB") plus the mismatch icon fits comfortably here.
+      width: pixel(140),
       align: 'end',
       renderCell: (item) => (
         <HStack gap={1} vAlign="center" hAlign="end">
@@ -341,11 +340,7 @@ export function ModelsTableClient({
                 <Icon icon="warning" size="sm" />
               );
             })()}
-          <Text type="body">
-            {item.sizeRange
-              ? `${formatSize(item.sizeRange[0])} – ${formatSize(item.sizeRange[1])}`
-              : formatSize(item.size)}
-          </Text>
+          <Text type="body">{formatSize(item.size)}</Text>
         </HStack>
       ),
     },

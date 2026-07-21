@@ -88,7 +88,6 @@ export interface DisplayRow extends Record<string, unknown> {
   depth: number; // 0=model, 1=quant, 2=shard
   parentName: string;
   size: number;
-  sizeRange: [number, number] | null;
   inColdStorage: boolean | null;
   coldComplete: boolean | null;
   coldSize: number | null;
@@ -445,10 +444,10 @@ export function buildDisplayRows(args: {
         (q) => quantInfo.get(`${m.name}::${q.label}`)?.effectiveSize ?? q.size,
       )
       .filter((s) => s > 0);
-    const minSize =
-      effectiveQuantSizes.length > 0 ? Math.min(...effectiveQuantSizes) : 0;
-    const maxSize =
-      effectiveQuantSizes.length > 0 ? Math.max(...effectiveQuantSizes) : 0;
+    // A model's size is the total of its files. When it holds several
+    // quantizations, a min–max range of their sizes says nothing meaningful,
+    // so sum them into one figure.
+    const totalSize = effectiveQuantSizes.reduce((a, b) => a + b, 0);
 
     // One labelled breakdown per mismatched file, so the rolled-up model
     // row's warning icon shows the same per-location sizes its quant rows do
@@ -477,8 +476,7 @@ export function buildDisplayRows(args: {
       filename: null,
       depth: 0,
       parentName: m.name,
-      size: minSize === maxSize ? minSize : -1,
-      sizeRange: minSize !== maxSize ? [minSize, maxSize] : null,
+      size: totalSize,
       inColdStorage: null,
       coldComplete: null,
       coldSize: null,
@@ -516,7 +514,6 @@ export function buildDisplayRows(args: {
           depth: 1,
           parentName: m.name,
           size: f.size ?? f.expectedSize,
-          sizeRange: null,
           inColdStorage: null,
           coldComplete: null,
           coldSize: null,
@@ -548,7 +545,6 @@ export function buildDisplayRows(args: {
         depth: 1,
         parentName: m.name,
         size: info?.effectiveSize ?? q.size,
-        sizeRange: null,
         inColdStorage: q.inColdStorage,
         coldComplete: q.coldComplete,
         coldSize: q.coldSize,
@@ -581,7 +577,6 @@ export function buildDisplayRows(args: {
             depth: 2,
             parentName: m.name,
             size: shard.size,
-            sizeRange: null,
             inColdStorage: null,
             coldComplete: null,
             coldSize: null,
