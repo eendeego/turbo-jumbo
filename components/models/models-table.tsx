@@ -275,6 +275,14 @@ export function buildModelRows(
           coldSize,
           coldTotalSize: coldQuantSizes.get(quantKey) ?? 0,
           size: f.isSplit ? f.totalSize : f.size,
+          // Local fast-storage bytes: the quant map is built local-first, so a
+          // locally-held quant is created from its local file (size above is
+          // that copy). A cold-only quant has no local entry → 0.
+          localSize: localPathsMap.has(quantKey)
+            ? f.isSplit
+              ? f.totalSize
+              : f.size
+            : 0,
           paths: localPathsMap.get(quantKey) ?? relPaths,
           coldPaths,
           shards: f.isSplit

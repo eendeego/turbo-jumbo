@@ -36,6 +36,7 @@ export interface QuantInfo {
   coldSize: number | null; // size of the cold copy, when present (for the tooltip)
   coldTotalSize: number; // total size of the cold copy, splits summed (0 when absent)
   size: number;
+  localSize: number; // bytes on local fast storage (0 when this quant isn't held locally)
   paths: string[];
   coldPaths: string[];
   shards: ShardInfo[];
@@ -301,6 +302,7 @@ export function augmentWithPeerOnlyQuants(
       coldSize: null,
       coldTotalSize: 0,
       size: p.size,
+      localSize: 0, // peer-only: nothing on local storage
       paths: p.paths,
       coldPaths: [],
       shards: [],
@@ -438,16 +440,22 @@ export function buildDisplayRows(args: {
       if (mismatch) anyQuantMismatch = true;
     }
 
-    const effectiveQuantSizes = m.quants
+    // A model's size is the total of its files present at the location being
+    // viewed — local fast storage on the "All"/local view, the cold copy on
+    // the Cold Storage tab, the peer's copy on that peer's tab. When it holds
+    // several quantizations, a min–max range of their sizes says nothing
+    // meaningful, so sum into one figure. Projectors are companion files, not
+    // weights, and are excluded (matching the per-quant roll-up above).
+    const totalSize = m.quants
       .filter((q) => !q.isProjector)
-      .map(
-        (q) => quantInfo.get(`${m.name}::${q.label}`)?.effectiveSize ?? q.size,
-      )
-      .filter((s) => s > 0);
-    // A model's size is the total of its files. When it holds several
-    // quantizations, a min–max range of their sizes says nothing meaningful,
-    // so sum them into one figure.
-    const totalSize = effectiveQuantSizes.reduce((a, b) => a + b, 0);
+      .reduce((sum, q) => {
+        if (activeLocation === 'cold-storage') return sum + q.coldTotalSize;
+        const fileKey = `${m.name}::${q.isSingleFile ? q.filename : q.displayName}`;
+        const peerCopy = peerQuantSizes
+          .get(fileKey)
+          ?.find((ps) => ps.address === activeLocation);
+        return sum + (peerCopy?.size ?? q.localSize);
+      }, 0);
 
     // One labelled breakdown per mismatched file, so the rolled-up model
     // row's warning icon shows the same per-location sizes its quant rows do

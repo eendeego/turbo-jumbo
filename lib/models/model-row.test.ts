@@ -10,6 +10,7 @@ import type {FileProvenance, SidecarSummary} from '@/lib/models/model-sidecar';
 import {AsyncState} from '@/lib/util/async-state';
 
 function quant(p: Partial<QuantInfo> & {label: string}): QuantInfo {
+  const size = p.size ?? 100;
   return {
     filename: `${p.label}.gguf`,
     displayName: `${p.label}.gguf`,
@@ -18,7 +19,9 @@ function quant(p: Partial<QuantInfo> & {label: string}): QuantInfo {
     coldComplete: false,
     coldSize: null,
     coldTotalSize: 0,
-    size: 100,
+    size,
+    // Default to a locally-held quant; cold/peer-only cases pass localSize: 0.
+    localSize: p.localSize ?? size,
     paths: [`m/${p.label}.gguf`],
     coldPaths: [],
     shards: [],
@@ -61,7 +64,7 @@ test('a collapsed model yields a single depth-0 row', () => {
   expect(rows[0]).toMatchObject({key: 'org/repo', depth: 0, label: 'org/repo'});
 });
 
-test("a multi-quant model's row shows the total of its files, not a range", () => {
+test("a multi-quant model's row shows the total of its local files, not a range", () => {
   const rows = buildDisplayRows({
     ...noPeers,
     models: [
@@ -76,6 +79,52 @@ test("a multi-quant model's row shows the total of its files, not a range", () =
   });
   const modelRow = rows.find((r) => r.depth === 0)!;
   expect(modelRow.size).toBe(350);
+});
+
+test("a model's size counts only what's on local storage, not cold-only quants", () => {
+  const rows = buildDisplayRows({
+    ...noPeers,
+    models: [
+      model({
+        name: 'org/repo',
+        quants: [
+          quant({label: 'Q4', size: 100}), // local
+          quant({
+            label: 'Q8',
+            size: 250,
+            localSize: 0, // held only in cold storage
+            inColdStorage: true,
+            coldTotalSize: 250,
+          }),
+        ],
+      }),
+    ],
+  });
+  const modelRow = rows.find((r) => r.depth === 0)!;
+  expect(modelRow.size).toBe(100);
+});
+
+test('on the Cold Storage tab, the size reflects the cold copy', () => {
+  const rows = buildDisplayRows({
+    ...noPeers,
+    activeLocation: 'cold-storage',
+    models: [
+      model({
+        name: 'org/repo',
+        quants: [
+          quant({
+            label: 'Q8',
+            size: 250,
+            localSize: 0,
+            inColdStorage: true,
+            coldTotalSize: 250,
+          }),
+        ],
+      }),
+    ],
+  });
+  const modelRow = rows.find((r) => r.depth === 0)!;
+  expect(modelRow.size).toBe(250);
 });
 
 test('buildDisplayRows puts the sidecar summary on the depth-0 row only', () => {

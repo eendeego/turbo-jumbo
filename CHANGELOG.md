@@ -30,9 +30,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- A model holding more than one quantization now shows the total size of all
-  its files in the Size column, instead of a min–max range across its quants
-  (which said little once each quant is its own separate download).
+- A model holding more than one quantization now shows a single total in the
+  Size column instead of a min–max range across its quants (which said little
+  once each quant is its own separate download). The total counts what's
+  actually present at the location you're viewing: files on local storage on
+  the All tab, the cold copy on the Cold Storage tab, the peer's copy on a
+  peer tab — so a quant that lives only in cold storage or only on a peer no
+  longer inflates the local total.
 - The Lemonade browser's other-backend models (vLLM, Ryzen AI ONNX, image,
   speech) now honor the "Suggested only" filter, wear their suggested badges
   and capability icons, and file under the section their catalog labels say
