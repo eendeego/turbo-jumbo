@@ -8,6 +8,7 @@ import {
   readFileMetaByPath,
   upsertFileMeta,
 } from '@/lib/models/model-sidecar';
+import {TJMETA_SUFFIX} from '@/lib/models/sidecar-types';
 
 export interface TjMeta {
   modelUrl: string; // HF model/repo URL, e.g. https://huggingface.co/unsloth/GLM-4.7-GGUF
@@ -22,7 +23,7 @@ export interface TjMeta {
 }
 
 export function metaPath(fullPath: string): string {
-  return `${fullPath}.tjmeta.json`;
+  return `${fullPath}${TJMETA_SUFFIX}`;
 }
 
 export async function readMeta(fullPath: string): Promise<TjMeta | null> {

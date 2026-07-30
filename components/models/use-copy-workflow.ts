@@ -8,6 +8,8 @@ import {
 import {type CopyDestinations} from '@/components/models/copy-modal';
 import {type ConflictItem} from '@/components/models/conflicts-modal';
 
+type SourceFile = {path: string; from: string; size: number};
+
 /**
  * The copy workflow: the conflict-check → optional conflicts-modal → copy
  * pipeline, the cold-storage-resume fix, and the copy progress state. Owns the
@@ -41,6 +43,10 @@ export function useCopyWorkflow({
   const [pendingConflicts, setPendingConflicts] = useState<ConflictItem[]>([]);
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
+  // The checked file list held for the conflicts modal round-trip: the check
+  // expands the selection with support files (config/tokenizer/…), and the
+  // copy must send exactly the list the check reported on.
+  const [pendingFiles, setPendingFiles] = useState<SourceFile[] | null>(null);
 
   // Per-path presence + size across cold storage, local, and remote peers, so
   // a mixed selection can name each file's own source. When a path exists in
@@ -87,10 +93,8 @@ export function useCopyWorkflow({
     return sources;
   }, [coldModels, localPeerAddress, seededPeerModels]);
 
-  function buildSourceFilesFor(
-    paths: Iterable<string>,
-  ): Array<{path: string; from: string; size: number}> {
-    const out: Array<{path: string; from: string; size: number}> = [];
+  function buildSourceFilesFor(paths: Iterable<string>): SourceFile[] {
+    const out: SourceFile[] = [];
     for (const p of paths) {
       const entry = pathPresence.get(p);
       if (!entry) continue;
@@ -118,6 +122,7 @@ export function useCopyWorkflow({
     setError(null);
     let hasConflicts = false;
     let hasError = false;
+    let filesToCopy: SourceFile[] = sourceFiles;
     try {
       const res = await fetch('/api/v1/copy/check', {
         method: 'POST',
@@ -129,11 +134,19 @@ export function useCopyWorkflow({
         }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const {conflicts} = (await res.json()) as {conflicts: ConflictItem[]};
+      const {conflicts, files: checkedFiles} = (await res.json()) as {
+        conflicts: ConflictItem[];
+        // The check expands the selection with the support files living in
+        // the same model directories; the copy sends that expanded list. An
+        // older server without the field falls back to the selection alone.
+        files?: SourceFile[];
+      };
+      filesToCopy = checkedFiles ?? sourceFiles;
       if (conflicts.length > 0) {
         hasConflicts = true;
         setPendingConflicts(conflicts);
         setPendingDestinations(destinations);
+        setPendingFiles(filesToCopy);
       }
     } catch (e) {
       hasError = true;
@@ -141,7 +154,7 @@ export function useCopyWorkflow({
     } finally {
       setChecking(false);
     }
-    if (!hasConflicts && !hasError) await doCopy(destinations, []);
+    if (!hasConflicts && !hasError) await doCopy(destinations, [], filesToCopy);
   }
 
   async function onConflictsConfirm(
@@ -149,14 +162,17 @@ export function useCopyWorkflow({
   ) {
     if (!pendingDestinations) return;
     const dest = pendingDestinations;
+    const files = pendingFiles ?? buildSourceFiles();
     setPendingConflicts([]);
     setPendingDestinations(null);
-    await doCopy(dest, skip);
+    setPendingFiles(null);
+    await doCopy(dest, skip, files);
   }
 
   async function doCopy(
     destinations: CopyDestinations,
     skip: Array<{file: string; destination: string}>,
+    files: SourceFile[],
   ) {
     setCopying(true);
     setCopyProgress(null);
@@ -166,7 +182,7 @@ export function useCopyWorkflow({
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          files: buildSourceFiles(),
+          files,
           ...destinations,
           skip,
         }),
@@ -228,6 +244,7 @@ export function useCopyWorkflow({
   const cancelConflicts = () => {
     setPendingConflicts([]);
     setPendingDestinations(null);
+    setPendingFiles(null);
   };
 
   return {

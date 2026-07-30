@@ -1,4 +1,5 @@
 import {localModelsDir, coldStorageDir, localPeer} from '@/lib/config';
+import {expandSupportFiles} from '@/lib/storage/support-files';
 import {logger} from '@/lib/util/logger';
 import {isObject, isStringArray, readJsonBody} from '@/lib/util/request';
 import nodePath from 'path';
@@ -60,6 +61,56 @@ export async function POST(req: Request) {
   const localBase = localModelsDir ? nodePath.resolve(localModelsDir) : '';
   const coldBase = coldStorageDir ? nodePath.resolve(coldStorageDir) : '';
 
+  // Expand each source's weight files with the support files sitting in the
+  // same model directories (config.json, tokenizer files, a safetensors
+  // index): the weight scan — and so the selection — only tracks weight
+  // files, and a whole-repo model copied without its support files can't be
+  // loaded. The expanded list is both conflict-checked below and returned,
+  // so the client sends the same list to /api/v1/copy. Best effort per
+  // source: an unreachable peer (or one predating this endpoint) expands to
+  // nothing and the copy proceeds as selected.
+  const byFrom = new Map<string, SourceFile[]>();
+  for (const f of files) {
+    if (!byFrom.has(f.from)) byFrom.set(f.from, []);
+    byFrom.get(f.from)!.push(f);
+  }
+  const knownPaths = new Set(files.map((f) => f.path));
+  const expandedFiles: SourceFile[] = [...files];
+  for (const [from, group] of byFrom) {
+    const paths = group.map((f) => f.path);
+    let extra: Array<{path: string; size: number}> = [];
+    try {
+      if (from === 'cold-storage') {
+        if (coldBase) extra = await expandSupportFiles(coldBase, paths);
+      } else if (from === localPeerAddr) {
+        if (localBase) extra = await expandSupportFiles(localBase, paths);
+      } else {
+        const res = await fetch(
+          `http://${from}/api/v1/local-models/support-files`,
+          {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({files: paths}),
+          },
+        );
+        if (res.ok)
+          extra = ((await res.json()) as {files: typeof extra}).files ?? [];
+      }
+    } catch (e) {
+      logger.warn(
+        `[check] support-file expansion failed for ${from}: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
+    for (const f of extra) {
+      if (typeof f?.path !== 'string' || typeof f?.size !== 'number') continue;
+      if (knownPaths.has(f.path)) continue;
+      knownPaths.add(f.path);
+      expandedFiles.push({path: f.path, from, size: f.size});
+    }
+  }
+
   const conflicts: Array<{
     file: string;
     destination: string;
@@ -71,7 +122,7 @@ export async function POST(req: Request) {
     destMd5: string | null;
   }> = [];
 
-  for (const f of files) {
+  for (const f of expandedFiles) {
     try {
       const {path: file, from, size: sourceSize} = f;
 
@@ -189,5 +240,5 @@ export async function POST(req: Request) {
     }
   }
 
-  return Response.json({conflicts});
+  return Response.json({conflicts, files: expandedFiles});
 }

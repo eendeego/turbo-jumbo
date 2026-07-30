@@ -9,6 +9,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Copying a model now carries its support files along — config.json, tokenizer
+  files, the safetensors index, and anything else living in the model's
+  directory besides the weights. Previously only the weight files selected in
+  the table were copied, so a safetensors model arrived at its destination
+  unloadable. The pre-copy conflict check reports on the full list, so an
+  existing support file at the destination shows up before any bytes move.
+
 ### Added
 
 - Safetensors models now show their weight precision (BF16, F16, …) as a badge

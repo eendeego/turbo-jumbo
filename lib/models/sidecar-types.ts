@@ -4,6 +4,9 @@
 
 export const MODEL_SIDECAR_NAME = 'tjmodel.json';
 
+/** Filename suffix of a legacy per-file provenance sidecar (see tjmeta.ts). */
+export const TJMETA_SUFFIX = '.tjmeta.json';
+
 /** A per-file provenance record inside a model sidecar (a TjMeta without modelUrl). */
 export interface TjModelFile {
   path: string; // file path relative to the model dir (the manifest key)
