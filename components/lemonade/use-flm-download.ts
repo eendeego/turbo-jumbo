@@ -32,6 +32,11 @@ export function useFlmDownload({
   const [progress, setProgress] = useState<FlmProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  // Whether the server itself lists the model as downloaded after the pull:
+  // its SSE stream reports complete even when the flm binary quietly fetched
+  // nothing (an unhealthy NPU setup), so completion alone can't be trusted.
+  // null while unknown (still running, or the confirmation fetch failed).
+  const [confirmed, setConfirmed] = useState<boolean | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const start = async (m: FlmModel) => {
@@ -39,6 +44,7 @@ export function useFlmDownload({
     setModel(m);
     setProgress(null);
     setError(null);
+    setConfirmed(null);
     setRunning(true);
     const ac = new AbortController();
     abortRef.current = ac;
@@ -97,6 +103,20 @@ export function useFlmDownload({
       // A stream that ends without the complete event died mid-download
       // (server restart, network drop) — surface it rather than looking done.
       if (!completed) throw new Error('Download ended before completing.');
+      // Ask the server whether it now counts the model as downloaded — the
+      // one signal that the weights actually landed in its store.
+      try {
+        const check = await fetch(
+          `/api/v1/lemonade/flm?peer=${encodeURIComponent(peerName)}`,
+        );
+        if (check.ok) {
+          const data = (await check.json()) as {models?: FlmModel[]};
+          const entry = data.models?.find((x) => x.name === m.name);
+          if (entry) setConfirmed(entry.downloaded);
+        }
+      } catch {
+        /* confirmation unavailable: stay at null (unverified), not failed */
+      }
     } catch (e) {
       if (!ac.signal.aborted)
         setError(e instanceof Error ? e.message : String(e));
@@ -113,9 +133,10 @@ export function useFlmDownload({
     setModel(null);
     setProgress(null);
     setError(null);
+    setConfirmed(null);
     setRunning(false);
     onDone?.();
   };
 
-  return {model, progress, error, running, start, close};
+  return {model, progress, error, running, confirmed, start, close};
 }

@@ -443,6 +443,7 @@ export function LemonadeBrowser({
         progress={flm.progress}
         error={flm.error}
         running={flm.running}
+        confirmed={flm.confirmed}
         onClose={flm.close}
       />
     );
