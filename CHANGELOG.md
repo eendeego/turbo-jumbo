@@ -11,6 +11,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Deleting a model's last weight file now removes its support files too:
+  a directory left without any weights takes its config.json, tokenizer
+  files, and other companions with it instead of lingering as an unreachable
+  husk. Directories that still hold a weight — another quantization, a
+  projector — are left untouched.
 - Copying a model now carries its support files along — config.json, tokenizer
   files, the safetensors index, and anything else living in the model's
   directory besides the weights. Previously only the weight files selected in

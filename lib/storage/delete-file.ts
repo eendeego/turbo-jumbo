@@ -5,6 +5,7 @@ import {parseHubCachePath} from '@/lib/hf/hf-cache';
 import {repoIdFromModelUrl} from '@/lib/models/model-name';
 import {modelDirForRepo, removeFileMeta} from '@/lib/models/model-sidecar';
 import {metaPath, readMetaResolved} from '@/lib/models/tjmeta';
+import {isWeightFile} from '@/lib/models/weight-files';
 
 /**
  * Delete a model file along with its provenance records, then prune the
@@ -40,6 +41,53 @@ export async function deleteFileWithMeta(
   if (loc) await removeFileMeta(base, loc.dir, loc.key);
 
   await pruneEmptyDirs(base, path.dirname(full));
+}
+
+/**
+ * After a batch of deletions, remove every affected model directory that no
+ * longer holds any weight file. The scan — and so the delete selection — only
+ * tracks weight files, so deleting a whole-repo model's weights would
+ * otherwise leave a husk of support files (config.json, tokenizer files, …)
+ * no table row can reach. A directory keeping any weight (another quant, a
+ * projector, a weight in a subdirectory) is left untouched, as is anything in
+ * a hub-cache layout (`models--…` — the hub structure owns refs/snapshots).
+ */
+export async function cleanupWeightlessModelDirs(
+  basePath: string,
+  relPaths: string[],
+): Promise<void> {
+  const base = path.resolve(basePath);
+  const dirs = new Set<string>();
+  for (const rel of relPaths) {
+    if (parseHubCachePath(rel)) continue;
+    const dir = path.resolve(base, path.dirname(rel));
+    if (dir !== base && dir.startsWith(base + path.sep)) dirs.add(dir);
+  }
+  for (const dir of dirs) {
+    if (await holdsWeightFile(dir)) continue;
+    await fsp.rm(dir, {recursive: true, force: true});
+    await pruneEmptyDirs(base, path.dirname(dir));
+  }
+}
+
+// Whether any weight file survives under `dir` (recursively). An unreadable
+// directory reports true — never delete what can't be inspected; a missing
+// one reports false (deleteFileWithMeta may have pruned it already).
+async function holdsWeightFile(dir: string): Promise<boolean> {
+  let entries;
+  try {
+    entries = await fsp.readdir(dir, {withFileTypes: true});
+  } catch (e) {
+    return !(e instanceof Error && 'code' in e && e.code === 'ENOENT');
+  }
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      if (await holdsWeightFile(path.join(dir, e.name))) return true;
+    } else if (e.isFile() && isWeightFile(e.name)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Remove `dir` and its ancestors (up to, excluding, `base`) while each is

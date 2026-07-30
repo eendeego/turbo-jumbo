@@ -1,7 +1,10 @@
 import {NextResponse} from 'next/server';
 import nodePath from 'path';
 import {localModelsDir, coldStorageDir, lemonadeDir} from '@/lib/config';
-import {deleteFileWithMeta} from '@/lib/storage/delete-file';
+import {
+  cleanupWeightlessModelDirs,
+  deleteFileWithMeta,
+} from '@/lib/storage/delete-file';
 import {logger} from '@/lib/util/logger';
 import {scanModels, annotateColdStorage} from '@/lib/models/models';
 import {hasStringFiles, readJsonBody} from '@/lib/util/request';
@@ -25,6 +28,7 @@ export async function DELETE(req: Request) {
   if (body instanceof Response) return body;
   const {files} = body;
   const base = nodePath.resolve(localModelsDir);
+  const deleted: string[] = [];
   for (const file of files) {
     const full = nodePath.resolve(base, file);
     if (!full.startsWith(base + nodePath.sep))
@@ -32,8 +36,13 @@ export async function DELETE(req: Request) {
     if (body.dryRun) {
       logger.info(`[dry-run] would delete local: ${full}`);
     } else {
-      await deleteFileWithMeta(base, nodePath.relative(base, full));
+      const rel = nodePath.relative(base, full);
+      await deleteFileWithMeta(base, rel);
+      deleted.push(rel);
     }
   }
+  // A model dir stripped of its last weight takes its support files
+  // (config/tokenizer/…) with it — they belong to the deleted weights.
+  await cleanupWeightlessModelDirs(base, deleted);
   return Response.json({ok: true, dryRun: body.dryRun ?? false});
 }

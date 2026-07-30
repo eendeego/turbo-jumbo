@@ -2,7 +2,10 @@ import {test, expect} from 'bun:test';
 import {existsSync, promises as fsp} from 'fs';
 import os from 'os';
 import path from 'path';
-import {deleteFileWithMeta} from '@/lib/storage/delete-file';
+import {
+  cleanupWeightlessModelDirs,
+  deleteFileWithMeta,
+} from '@/lib/storage/delete-file';
 import {readModelSidecar} from '@/lib/models/model-sidecar';
 
 async function write(base: string, rel: string, content: string) {
@@ -130,5 +133,63 @@ test('a top-level file outside any model dir just gets deleted', async () => {
 
   expect(existsSync(path.join(base, 'stray.gguf'))).toBe(false);
   expect(existsSync(base)).toBe(true);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('cleanup removes a model dir left with only support files', async () => {
+  const base = await mkbase();
+  await tjModel(base, 'Qwen/wr', {
+    'model-00001-of-00002.safetensors': 'W1',
+    'model-00002-of-00002.safetensors': 'W2',
+    'config.json': '{}',
+    'tokenizer.json': '{}',
+  });
+  await write(base, 'Qwen/wr/.cache/huggingface/x', 'bookkeeping');
+
+  await deleteFileWithMeta(base, 'Qwen/wr/model-00001-of-00002.safetensors');
+  await deleteFileWithMeta(base, 'Qwen/wr/model-00002-of-00002.safetensors');
+  await cleanupWeightlessModelDirs(base, [
+    'Qwen/wr/model-00001-of-00002.safetensors',
+    'Qwen/wr/model-00002-of-00002.safetensors',
+  ]);
+
+  // No weights remain, so the support files, sidecar, .cache, and the whole
+  // dir husk (including the emptied org dir) are gone.
+  expect(existsSync(path.join(base, 'Qwen'))).toBe(false);
+  expect(existsSync(base)).toBe(true);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('cleanup leaves the dir alone while any weight file remains', async () => {
+  const base = await mkbase();
+  await tjModel(base, 'org/multi', {
+    'a-Q4.gguf': 'AAA',
+    'b-Q8.gguf': 'BBBB',
+    'notes.txt': 'n',
+  });
+
+  await deleteFileWithMeta(base, 'org/multi/a-Q4.gguf');
+  await cleanupWeightlessModelDirs(base, ['org/multi/a-Q4.gguf']);
+
+  expect(existsSync(path.join(base, 'org/multi/b-Q8.gguf'))).toBe(true);
+  expect(existsSync(path.join(base, 'org/multi/notes.txt'))).toBe(true);
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('cleanup counts weights in subdirectories and never touches hub-cache layouts', async () => {
+  const base = await mkbase();
+  // Weights live below the dir the deleted file sat in: still not weightless.
+  await write(base, 'org/deep/sub/real.safetensors', 'W');
+  await write(base, 'org/deep/gone.gguf', 'W');
+  await write(base, 'org/deep/config.json', '{}');
+  await fsp.rm(path.join(base, 'org/deep/gone.gguf'));
+  await cleanupWeightlessModelDirs(base, ['org/deep/gone.gguf']);
+  expect(existsSync(path.join(base, 'org/deep/config.json'))).toBe(true);
+
+  // A hub-cache snapshot path is owned by the hub layout — no dir removal.
+  const snap = 'models--o--r/snapshots/abc';
+  await write(base, `${snap}/config.json`, '{}');
+  await cleanupWeightlessModelDirs(base, [`${snap}/model.safetensors`]);
+  expect(existsSync(path.join(base, snap, 'config.json'))).toBe(true);
   await fsp.rm(base, {recursive: true, force: true});
 });
