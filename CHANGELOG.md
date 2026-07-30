@@ -11,6 +11,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Safetensors models now show their weight precision (BF16, F16, …) as a badge
+  on the model row. Previously the dtype read from the safetensors headers was
+  never displayed anywhere — only GGUF models showed their quantization, on
+  their per-quant rows.
 - The Lemonade browser now handles catalog models built from a role map of
   checkpoints — the Gemma-4 MTP (multi-token prediction) models with their
   draft and mmproj companion files. They were previously missing from the

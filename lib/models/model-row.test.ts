@@ -64,6 +64,49 @@ test('a collapsed model yields a single depth-0 row', () => {
   expect(rows[0]).toMatchObject({key: 'org/repo', depth: 0, label: 'org/repo'});
 });
 
+test("a whole-repo model's row carries its weight dtype as precisions", () => {
+  const rows = buildDisplayRows({
+    ...noPeers,
+    models: [
+      model({
+        name: 'Qwen/Qwen3.6-35B-A3B',
+        quants: [
+          quant({
+            label: 'BF16',
+            isSingleFile: false,
+            filename: null,
+            displayName: 'model-00001-of-00026.safetensors',
+            paths: ['Qwen/Qwen3.6-35B-A3B/model-00001-of-00026.safetensors'],
+          }),
+        ],
+      }),
+    ],
+  });
+  expect(rows[0].precisions).toEqual(['BF16']);
+});
+
+test("a whole-repo model whose dtype is unknown gets no precisions, and GGUF models don't either", () => {
+  const rows = buildDisplayRows({
+    ...noPeers,
+    models: [
+      model({
+        name: 'org/opaque',
+        quants: [
+          quant({
+            label: 'safetensors',
+            isSingleFile: true,
+            filename: 'model.safetensors',
+            displayName: 'model.safetensors',
+            paths: ['org/opaque/model.safetensors'],
+          }),
+        ],
+      }),
+      model({name: 'org/repo', quants: [quant({label: 'Q4_K_M'})]}),
+    ],
+  });
+  for (const row of rows) expect(row.precisions).toBeUndefined();
+});
+
 test("a multi-quant model's row shows the total of its local files, not a range", () => {
   const rows = buildDisplayRows({
     ...noPeers,

@@ -110,7 +110,8 @@ export interface DisplayRow extends Record<string, unknown> {
   // holding the complete file still leaves the cold backup broken).
   coldIncomplete: boolean;
   isProjector?: boolean;
-  // Precisions present for a diffusers component variant row (e.g. ['fp16']).
+  // Precisions present for a diffusers component variant row (e.g. ['fp16']),
+  // or the weight dtypes of a whole-repo model's depth-0 row (e.g. ['BF16']).
   precisions?: string[];
   // Set on a whole-repo model's per-file child rows (present/missing/invalid).
   fileState?: RepoFileState;
@@ -146,6 +147,10 @@ function quantBits(quant: string): string {
   const m = quant.match(/\d+/);
   return m ? m[0] : quant;
 }
+
+// Weight labels that carry no precision information: fallbacks for files whose
+// dtype couldn't be read (see weightLabel in models.ts), not worth a badge.
+const GENERIC_WEIGHT_LABELS = new Set(['safetensors', 'pytorch', 'unknown']);
 
 // A whole-repo (non-GGUF) model — ONNX/safetensors/etc. Its expansion lists the
 // repo's files rather than quants. A model name without `org/repo` (so no HF
@@ -476,6 +481,17 @@ export function buildDisplayRows(args: {
           ?.filter((f) => f.state === 'invalid' || f.state === 'missing')
       : undefined;
 
+    // A whole-repo model expands to file rows, never quant rows, so its weight
+    // dtype (BF16/F16/… from the scan's header read) would otherwise show
+    // nowhere — carry it on the model row instead.
+    const dtypes = isWholeRepoModel(m)
+      ? [
+          ...new Set(
+            m.quants.filter((q) => !q.isProjector).map((q) => q.label),
+          ),
+        ].filter((l) => !GENERIC_WEIGHT_LABELS.has(l))
+      : [];
+
     out.push({
       key: m.name,
       label: m.name,
@@ -504,6 +520,7 @@ export function buildDisplayRows(args: {
         qi.undersized.has('cold-storage'),
       ),
       ...(repoIssues && repoIssues.length > 0 ? {repoIssues} : {}),
+      ...(dtypes.length > 0 ? {precisions: dtypes} : {}),
       ...(orgSuffix ? {orgSuffix} : {}),
       ...(m.sidecar ? {sidecar: m.sidecar} : {}),
       ...(m.sidecarLocations ? {sidecarLocations: m.sidecarLocations} : {}),

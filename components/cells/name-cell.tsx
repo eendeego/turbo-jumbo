@@ -377,6 +377,11 @@ export function NameCell({
         />
       </HoverCard>
       {row.orgSuffix && <Text type="supporting">({row.orgSuffix})</Text>}
+      {row.precisions && row.precisions.length > 0 && (
+        // A whole-repo model's weight dtype — its expansion lists files, not
+        // quant rows, so this is the only place its precision can show.
+        <Badge label={row.precisions.join(', ')} variant="neutral" />
+      )}
       {lemonadeNames && lemonadeNames.length > 0 && (
         // Every catalog-backed model gets the lemon, so its absence always
         // means "not in the Lemonade catalog"; the hovercard names the exact
