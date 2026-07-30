@@ -155,6 +155,9 @@ export function useLemonadeDownload({
 
   const onDownload = (selection: Selection | null) => {
     if (!selection) return;
+    // FLM models download through their Lemonade server, not the HF runner —
+    // the browser routes them to useFlmDownload before calling this.
+    if (selection.kind === 'flm') return;
     if (selection.kind === 'model') return void startModel(selection.model);
     if (selection.kind === 'standalone' || selection.kind === 'component')
       return void startPlan(

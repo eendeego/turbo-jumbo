@@ -1,6 +1,6 @@
 'use client';
 
-import {Fragment, useEffect, useMemo, useState} from 'react';
+import {Fragment, useCallback, useEffect, useMemo, useState} from 'react';
 import * as stylex from '@stylexjs/stylex';
 import {VStack, HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
@@ -54,7 +54,11 @@ import {
   componentSecondary,
   modelEndContent,
 } from '@/components/lemonade/catalog-rows';
+import {ModelLabelIcon} from '@/components/lemonade/model-label-icon';
 import {useLemonadeDownload} from '@/components/lemonade/use-lemonade-download';
+import {useFlmDownload} from '@/components/lemonade/use-flm-download';
+import {FlmDownloadView} from '@/components/lemonade/flm-download-view';
+import type {FlmModel} from '@/lib/lemonade/flm';
 
 // The catalog's modality sections, in display order. The niche ONNX (Ryzen AI)
 // and vLLM LLM backends sit below the media sections to keep the top focused.
@@ -173,6 +177,72 @@ export function LemonadeBrowser({
     onDownloaded,
   });
 
+  // FLM (NPU) models live only on the target peer's Lemonade server —
+  // discovered from its flm binary at runtime, never in the static catalog —
+  // so they're fetched live from that server via its configured lemonade_url.
+  // The state names the peer it was fetched for, so a stale answer from a
+  // previous target never renders under the new one.
+  const [flmState, setFlmState] = useState<{
+    peer: string;
+    models: FlmModel[] | null; // null: server unconfigured for this peer
+    error: string | null;
+  } | null>(null);
+  const fetchFlm = useCallback(
+    async (
+      peer: string,
+    ): Promise<{
+      peer: string;
+      models: FlmModel[] | null;
+      error: string | null;
+    } | null> => {
+      try {
+        const res = await fetch(
+          `/api/v1/lemonade/flm?peer=${encodeURIComponent(peer)}`,
+        );
+        if (!res.ok) {
+          const text = await res.text().catch(() => `${res.status}`);
+          return {peer, models: null, error: text};
+        }
+        const data = (await res.json()) as {
+          configured: boolean;
+          models: FlmModel[];
+        };
+        return {
+          peer,
+          models: data.configured ? data.models : null,
+          error: null,
+        };
+      } catch {
+        return null; // unreachable app server: section just stays hidden
+      }
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!targetName) return;
+    let cancelled = false;
+    void fetchFlm(targetName).then((s) => {
+      if (!cancelled && s) setFlmState(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchFlm, targetName]);
+  const refreshFlm = useCallback(() => {
+    if (!targetName) return;
+    void fetchFlm(targetName).then((s) => {
+      if (s) setFlmState(s);
+    });
+  }, [fetchFlm, targetName]);
+  const flmModels = flmState?.peer === targetName ? flmState.models : null;
+  const flmError = flmState?.peer === targetName ? flmState.error : null;
+
+  const flm = useFlmDownload({
+    peerName: targetName,
+    // A finished (or cancelled) pull changed the server's downloaded flags.
+    onDone: refreshFlm,
+  });
+
   // Read free space at the target once (best-effort: stay silent if it fails).
   useEffect(() => {
     let cancelled = false;
@@ -245,6 +315,17 @@ export function LemonadeBrowser({
       ].some((s) => s.toLowerCase().includes(needle));
     });
   }, [extraModels, filter, showExtra, suggestedOnly]);
+
+  const visibleFlm = useMemo(() => {
+    if (!flmModels) return [];
+    const needle = filter.trim().toLowerCase();
+    if (!needle) return flmModels;
+    return flmModels.filter((m) =>
+      [m.name, m.checkpoint, ...m.labels].some((s) =>
+        s.toLowerCase().includes(needle),
+      ),
+    );
+  }, [flmModels, filter]);
 
   const visibleCollections = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -340,8 +421,11 @@ export function LemonadeBrowser({
   const selLabel = selection ? selectionLabel(selection) : null;
   // The catalog declares sizes in decimal GB; convert to bytes to compare with
   // statfs. This is the selection's full size — a conservative estimate, since
-  // files already present at the target are skipped at download time.
-  const neededBytes = (selLabel?.sizeGb ?? 0) * 1e9;
+  // files already present at the target are skipped at download time. An FLM
+  // model downloads onto its Lemonade server's disk, not the target storage,
+  // so it never counts against the target's free space.
+  const neededBytes =
+    selection?.kind === 'flm' ? 0 : (selLabel?.sizeGb ?? 0) * 1e9;
   const spaceWarnings = useMemo(
     () =>
       disk
@@ -350,6 +434,19 @@ export function LemonadeBrowser({
     [disk, neededBytes, sendToCold, deleteAfterTransfer],
   );
   const notEnoughSpace = spaceWarnings.length > 0;
+
+  if (flm.model) {
+    return (
+      <FlmDownloadView
+        model={flm.model}
+        peerName={targetName}
+        progress={flm.progress}
+        error={flm.error}
+        running={flm.running}
+        onClose={flm.close}
+      />
+    );
+  }
 
   if (showTerminal) {
     return (
@@ -593,9 +690,55 @@ export function LemonadeBrowser({
                   )}
               </Fragment>
             ))}
-            {sections.length === 0 && visibleCollections.length === 0 && (
-              <ListItem label="No models match the filter." />
+            {visibleFlm.length > 0 && (
+              <SectionHeader
+                label={`FLM (NPU) on ${targetName ?? 'this peer'}'s Lemonade server`}
+                count={visibleFlm.length}
+                collapsed={sectionCollapsed('flm')}
+                onToggle={() => toggleSection('flm')}
+              />
             )}
+            {!sectionCollapsed('flm') &&
+              visibleFlm.map((m) => {
+                const flmSelection: Selection = {kind: 'flm', model: m};
+                return (
+                  <ListItem
+                    key={`flm:${m.name}`}
+                    label={m.name}
+                    description={m.checkpoint || 'flm'}
+                    isSelected={selectedKey === selectionKey(flmSelection)}
+                    onClick={() => setSelection(flmSelection)}
+                    endContent={
+                      <HStack gap={1} vAlign="center">
+                        {m.downloaded && (
+                          <HoverCard
+                            placement="above"
+                            content="Already in this Lemonade server's own model store"
+                          >
+                            <Badge label="downloaded" variant="blue" />
+                          </HoverCard>
+                        )}
+                        {m.labels.length > 0 && (
+                          <HStack gap={1} vAlign="center">
+                            {m.labels.map((l) => (
+                              <ModelLabelIcon key={l} label={l} />
+                            ))}
+                          </HStack>
+                        )}
+                        <Text type="supporting">{formatGb(m.sizeGb)}</Text>
+                      </HStack>
+                    }
+                  />
+                );
+              })}
+            {flmError && (
+              <ListItem label="FLM models unavailable" description={flmError} />
+            )}
+            {sections.length === 0 &&
+              visibleCollections.length === 0 &&
+              visibleFlm.length === 0 && (
+                <ListItem label="No models match the filter." />
+              )}
           </List>
         )}
 
@@ -644,7 +787,11 @@ export function LemonadeBrowser({
             label={resolving ? 'Resolving…' : 'Download'}
             variant="primary"
             size="sm"
-            onClick={() => onDownload(selection)}
+            onClick={() =>
+              selection?.kind === 'flm'
+                ? void flm.start(selection.model)
+                : onDownload(selection)
+            }
             isDisabled={!canDownload || selection == null || resolving}
           />
         </HStack>

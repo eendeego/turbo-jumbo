@@ -25,6 +25,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The Lemonade browser can now list and download FLM (FastFlowLM, AMD NPU)
+  models. These exist only inside a running Lemonade server — discovered from
+  its flm binary, never in the static catalog — so each peer can name its
+  Lemonade server with a new `lemonade_url` config field. The browser then
+  shows an "FLM (NPU)" section with that server's models (download state
+  included), and downloading one asks the server to pull it into its own
+  store, with live progress.
 - Safetensors models now show their weight precision (BF16, F16, …) as a badge
   on the model row. Previously the dtype read from the safetensors headers was
   never displayed anywhere — only GGUF models showed their quantization, on

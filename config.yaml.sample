@@ -35,6 +35,11 @@ peers:
     # Default: lemonade
     # lemonade_subdir: lemonade
 
+    # API base URL of the Lemonade server associated with this peer. Enables
+    # browsing and downloading the models only that server can fetch (the
+    # FLM/NPU models it discovers at runtime). Optional.
+    # lemonade_url: http://192.0.2.10:13305/api/v1
+
   # A remote peer — only name and address are needed.
   - name: my-server
     address: 192.168.1.11:3000

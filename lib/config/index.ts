@@ -14,6 +14,9 @@ export interface Peer {
   // Subdirectory names under base_path; default to turbo-jumbo / lemonade.
   turbo_jumbo_subdir?: string;
   lemonade_subdir?: string;
+  // API base URL of the Lemonade server tied to this peer, for browsing and
+  // downloading the models only that server can fetch (FLM/NPU).
+  lemonade_url?: string;
   // Set by the /api/v1/peers response for the peer that is this machine.
   isLocal?: boolean;
 }
