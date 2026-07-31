@@ -4,6 +4,7 @@ import {isWeightFile, ggmlModelVariant} from '@/lib/models/weight-files';
 test('isWeightFile recognizes weight extensions, ignoring directory prefix', () => {
   expect(isWeightFile('model.gguf')).toBe(true);
   expect(isWeightFile('sub/dir/ggml-tiny.bin')).toBe(true);
+  expect(isWeightFile('model.q4nx')).toBe(true);
   expect(isWeightFile('config.json')).toBe(false);
 });
 

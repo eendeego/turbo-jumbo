@@ -90,6 +90,19 @@ test('scanModels groups a file by its sidecar org/repo when present', async () =
   await fsp.rm(base, {recursive: true, force: true});
 });
 
+test('scanModels tracks a FastFlowLM .q4nx weight, labeled by its format', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
+  await writeFile(base, 'FastFlowLM/Gemma3-1B-NPU2/model.q4nx');
+  await writeFile(base, 'FastFlowLM/Gemma3-1B-NPU2/config.json', '{}');
+
+  const models = scanModels(base);
+  expect(models.map((m) => m.name)).toEqual(['FastFlowLM/Gemma3-1B-NPU2']);
+  const f = models[0].files[0];
+  expect(f.isSplit).toBe(false);
+  if (!f.isSplit) expect(f.quant).toBe('Q4NX');
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
 test('scanModels names a model from its dir tjmodel.json, over the path repo', async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-scan-'));
   // Generic safetensors: without a sidecar the dir 'x/y' would name it. A model

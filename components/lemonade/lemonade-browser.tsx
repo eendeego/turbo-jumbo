@@ -28,6 +28,7 @@ import {
   componentInLemonadeCache,
   lemonadeDownloadStatus,
   modelInLemonadeCache,
+  repoDownloadStatus,
   type CatalogSection,
   type InventoryLocation,
   type LemonadeComponent,
@@ -422,10 +423,12 @@ export function LemonadeBrowser({
   // The catalog declares sizes in decimal GB; convert to bytes to compare with
   // statfs. This is the selection's full size — a conservative estimate, since
   // files already present at the target are skipped at download time. An FLM
-  // model downloads onto its Lemonade server's disk, not the target storage,
-  // so it never counts against the target's free space.
+  // model without an HF source downloads onto its Lemonade server's disk, not
+  // the target storage, so only source-backed ones count against free space.
   const neededBytes =
-    selection?.kind === 'flm' ? 0 : (selLabel?.sizeGb ?? 0) * 1e9;
+    selection?.kind === 'flm' && !selection.model.source
+      ? 0
+      : (selLabel?.sizeGb ?? 0) * 1e9;
   const spaceWarnings = useMemo(
     () =>
       disk
@@ -706,17 +709,32 @@ export function LemonadeBrowser({
                   <ListItem
                     key={`flm:${m.name}`}
                     label={m.name}
-                    description={m.checkpoint || 'flm'}
+                    description={
+                      m.source
+                        ? `${m.checkpoint} · ${m.source.repoId}@${m.source.revision}`
+                        : m.checkpoint || 'flm'
+                    }
                     isSelected={selectedKey === selectionKey(flmSelection)}
                     onClick={() => setSelection(flmSelection)}
                     endContent={
                       <HStack gap={1} vAlign="center">
+                        {m.source && (
+                          // Presence in Turbo Jumbo storage (a direct download
+                          // of the tag's HF repo) — distinct from the Lemonade
+                          // server's own store, flagged separately below.
+                          <StatusMarker
+                            info={repoDownloadStatus(
+                              m.source.repoId,
+                              inventoryLocations,
+                            )}
+                          />
+                        )}
                         {m.downloaded && (
                           <HoverCard
                             placement="above"
                             content="Already in this Lemonade server's own model store"
                           >
-                            <Badge label="downloaded" variant="blue" />
+                            <Badge label="lemonade" variant="yellow" />
                           </HoverCard>
                         )}
                         {m.labels.length > 0 && (
@@ -789,7 +807,10 @@ export function LemonadeBrowser({
             variant="primary"
             size="sm"
             onClick={() =>
-              selection?.kind === 'flm'
+              // Source-backed FLM models download directly through the HF
+              // runner (onDownload); only sourceless ones fall back to asking
+              // the Lemonade server to pull.
+              selection?.kind === 'flm' && !selection.model.source
                 ? void flm.start(selection.model)
                 : onDownload(selection)
             }

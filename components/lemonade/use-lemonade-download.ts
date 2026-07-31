@@ -19,6 +19,7 @@ import {
   type HfFile,
   type Selection,
 } from '@/lib/lemonade/lemonade-catalog';
+import type {FlmModel} from '@/lib/lemonade/flm';
 
 /**
  * The Lemonade download flow: resolve a selection's files (one repo for a GGUF
@@ -81,6 +82,56 @@ export function useLemonadeDownload({
         repoId: model.repoId,
         branch: 'main',
         filePaths: missing.length > 0 ? missing : all,
+        sendToCold,
+        deleteAfterTransfer,
+      });
+    } catch (e) {
+      setResolveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  // An FLM model whose tag resolves to an HF source: download the registry's
+  // files from that repo — at its pinned revision — through the regular
+  // runner into managed storage. The Lemonade server is not involved; syncing
+  // the files into an flm store is a separate, later step.
+  const startFlm = async (model: FlmModel) => {
+    const source = model.source;
+    if (!source || resolving || running) return;
+    setResolving(true);
+    setResolveError(null);
+    try {
+      const params = new URLSearchParams({
+        repoId: source.repoId,
+        branch: source.revision,
+        recursive: 'true',
+      });
+      const res = await fetch(`/api/v1/hf-files?${params}`);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const files = (await res.json()) as HfFile[];
+      const available = new Set(files.map((f) => f.path));
+      // The registry names the exact files the model needs; a named file the
+      // repo doesn't have means the registry and repo drifted apart — don't
+      // quietly download a partial model.
+      const wanted =
+        source.files.length > 0 ? source.files : files.map((f) => f.path);
+      const absent = wanted.filter((f) => !available.has(f));
+      if (absent.length > 0) {
+        setResolveError(
+          `${source.repoId}@${source.revision} is missing: ${absent.join(', ')}.`,
+        );
+        return;
+      }
+      const targetModels =
+        inventoryLocations.find((l) => l.name === targetName)?.models ?? [];
+      const missing = missingVariantFiles(wanted, targetModels, source.repoId);
+      setDownloadTitle(model.name);
+      setShowTerminal(true);
+      void start({
+        repoId: source.repoId,
+        branch: source.revision,
+        filePaths: missing.length > 0 ? missing : wanted,
         sendToCold,
         deleteAfterTransfer,
       });
@@ -155,9 +206,13 @@ export function useLemonadeDownload({
 
   const onDownload = (selection: Selection | null) => {
     if (!selection) return;
-    // FLM models download through their Lemonade server, not the HF runner —
-    // the browser routes them to useFlmDownload before calling this.
-    if (selection.kind === 'flm') return;
+    // An FLM model with a known HF source downloads directly; without one it
+    // can only be pulled by its Lemonade server — the browser routes that
+    // case to useFlmDownload before calling this.
+    if (selection.kind === 'flm')
+      return selection.model.source
+        ? void startFlm(selection.model)
+        : undefined;
     if (selection.kind === 'model') return void startModel(selection.model);
     if (selection.kind === 'standalone' || selection.kind === 'component')
       return void startPlan(

@@ -5,6 +5,15 @@
 // so both listing and downloading go through that server's API (the per-peer
 // `lemonade_url` config), never through the HF download path.
 
+/** Where an flm tag's weights actually live: an ordinary HF repo (FastFlowLM
+ *  org), often pinned to a revision, with the exact files a model needs —
+ *  resolved from FastFlowLM's public registry (lib/lemonade/flm-registry). */
+export interface FlmSource {
+  repoId: string;
+  revision: string; // 'main' when the registry doesn't pin one
+  files: string[];
+}
+
 /** One FLM model on a Lemonade server, download state included. */
 export interface FlmModel {
   name: string; // Lemonade model id, e.g. "gpt-oss-20b-FLM"
@@ -12,6 +21,10 @@ export interface FlmModel {
   sizeGb: number; // declared size in decimal GB (0 when unreported)
   downloaded: boolean; // present in that server's FLM store
   labels: string[];
+  // The HF source behind the tag, when the FastFlowLM registry names one —
+  // enables downloading directly into Turbo Jumbo storage instead of asking
+  // the Lemonade server to pull. Attached server-side by the flm route.
+  source?: FlmSource;
 }
 
 /**

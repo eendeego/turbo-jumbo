@@ -183,6 +183,22 @@ function presenceAcross(
 }
 
 /**
+ * A plain HF repo's download status across locations, judged by model name —
+ * the join key for repos downloaded whole (an FLM model's FastFlowLM repo).
+ * Coarse like the whole-repo checkpoint check: presence of the repo counts as
+ * complete; it can't confirm every file.
+ */
+export function repoDownloadStatus(
+  repoId: string,
+  locations: InventoryLocation[],
+): LemonadeDownloadInfo {
+  return presenceAcross(
+    (models) => checkpointPresence({repoId, variant: null}, models),
+    locations,
+  );
+}
+
+/**
  * An omni component's download status across locations (best wins), judged only
  * by the files the weight scan tracks. A component whose files aren't trackable
  * (a kokoro ONNX) reads as `none` rather than holding a collection back.

@@ -30,11 +30,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   its flm binary, never in the static catalog — so each peer can name its
   Lemonade server with a new `lemonade_url` config field. The browser then
   shows an "FLM (NPU)" section with that server's models (download state
-  included), and downloading one asks the server to pull it into its own
-  store, with live progress. After the pull, the server is asked whether it
-  now counts the model as downloaded — a server whose flm backend quietly
-  fetched nothing (an unhealthy NPU setup) gets a warning instead of a
-  false "downloaded".
+  included). Models FastFlowLM's public registry maps to a Hugging Face repo
+  download directly into Turbo Jumbo storage — at the registry's pinned
+  revision, through the regular download runner, with sidecars and peer
+  copies like any other model (the `.q4nx` NPU weight format is now
+  recognized, labeled Q4NX). Models without a known source fall back to
+  asking the Lemonade server to pull into its own store, with live progress;
+  after such a pull the server is asked whether it now counts the model as
+  downloaded — a server whose flm backend quietly fetched nothing (an
+  unhealthy NPU setup) gets a warning instead of a false "downloaded".
 - Safetensors models now show their weight precision (BF16, F16, …) as a badge
   on the model row. Previously the dtype read from the safetensors headers was
   never displayed anywhere — only GGUF models showed their quantization, on

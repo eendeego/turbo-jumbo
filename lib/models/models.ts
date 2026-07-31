@@ -169,6 +169,9 @@ function weightLabel(
     return readSafetensorsDtype(fullPath) ?? 'safetensors';
   }
   if (/\.bin$/i.test(filename)) return 'pytorch';
+  // FastFlowLM's NPU-compiled weights are all one 4-bit format; the extension
+  // is the precision label.
+  if (/\.q4nx$/i.test(filename)) return 'Q4NX';
   return quant;
 }
 
