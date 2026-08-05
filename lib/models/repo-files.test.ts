@@ -267,3 +267,53 @@ test('repoFileStatuses attaches sidecar provenance to a present file', async () 
 
   await fsp.rm(base, {recursive: true, force: true});
 });
+
+test('a revision-pinned model is judged against its pinned tree, not main', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
+  const repoId = 'FastFlowLM/pinned';
+  // main has extra kernel files and a different config size; the pinned tag
+  // has exactly the files the download brought. Judging against main would
+  // report missing kernels and an invalid config.
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes(`/api/models/${repoId}/tree/v1-tag`)) {
+      return new Response(
+        JSON.stringify([
+          {type: 'file', path: 'config.json', size: 10},
+          {type: 'file', path: 'model.q4nx', size: 64},
+        ]),
+        {status: 200},
+      );
+    }
+    if (u.includes(`/api/models/${repoId}/tree/main`)) {
+      return new Response(
+        JSON.stringify([
+          {type: 'file', path: 'config.json', size: 999},
+          {type: 'file', path: 'model.q4nx', size: 64},
+          {type: 'file', path: 'attn.xclbin', size: 5},
+        ]),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+  await writeFileOfSize(path.join(base, repoId, 'config.json'), 10);
+  await writeFileOfSize(path.join(base, repoId, 'model.q4nx'), 64);
+  const model: TjModel = {
+    modelUrl: `https://huggingface.co/${repoId}`,
+    repoId,
+    revision: 'v1-tag',
+    files: [],
+  };
+  await fsp.writeFile(
+    path.join(base, repoId, MODEL_SIDECAR_NAME),
+    JSON.stringify(model),
+  );
+
+  const out = await repoFileStatuses(base, repoId);
+  expect(out.map((f) => `${f.state}:${f.path}`).sort()).toEqual([
+    'present:config.json',
+    'present:model.q4nx',
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});

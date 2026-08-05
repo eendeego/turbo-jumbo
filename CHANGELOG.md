@@ -11,6 +11,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The audit is now revision-aware: a model downloaded from a pinned branch or
+  tag (e.g. a FastFlowLM registry pin) records that revision in its sidecar,
+  and every repo comparison — the whole-repo file list, the incomplete and
+  invalid checks, audit source resolution — judges it against that revision
+  instead of main. Previously a pinned repo whose main had moved on reported
+  spurious invalid and missing files.
 - Deleting a model's last weight file now removes its support files too:
   a directory left without any weights takes its config.json, tokenizer
   files, and other companions with it instead of lingering as an unreachable

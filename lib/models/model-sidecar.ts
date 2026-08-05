@@ -38,8 +38,50 @@ function withDerivedCommit(model: TjModel): TjModel {
     // Repo-level, not derived: carry through whatever the model already records.
     ...(model.repoCommit ? {repoCommit: model.repoCommit} : {}),
     ...(model.repoCommitDate ? {repoCommitDate: model.repoCommitDate} : {}),
+    ...(model.revision ? {revision: model.revision} : {}),
     files: model.files,
   };
+}
+
+// Branch/tag names safe to interpolate into HF API urls (same shape the
+// download routes accept).
+const REVISION_RE = /^[A-Za-z0-9_./-]+$/;
+
+/**
+ * The branch or tag `dir`'s model tracks — its sidecar `revision`, defaulting
+ * to `main` when the sidecar is absent, records none, or records something
+ * that can't safely go into a URL.
+ */
+export async function modelRevision(
+  basePath: string,
+  dir: string,
+): Promise<string> {
+  const sidecar = await readModelSidecar(basePath, dir);
+  const rev = sidecar?.revision;
+  return rev && REVISION_RE.test(rev) ? rev : 'main';
+}
+
+/**
+ * Record the branch/tag `dir`'s model tracks. `main` clears the field (it is
+ * the default), so re-downloading from the default branch untracks a pin.
+ * Creates the sidecar when none exists yet — a download whose files all
+ * resolve to nothing (small non-LFS companions) must still remember its pin.
+ */
+export async function setModelRevision(
+  basePath: string,
+  dir: string,
+  repoId: string,
+  revision: string,
+): Promise<void> {
+  const existing = await readModelSidecar(basePath, dir);
+  const model: TjModel = existing ?? {
+    modelUrl: `https://huggingface.co/${repoId}`,
+    repoId,
+    files: [],
+  };
+  if (revision === 'main') delete model.revision;
+  else model.revision = revision;
+  await writeModelSidecar(basePath, dir, model);
 }
 
 /**

@@ -1,4 +1,8 @@
-import {readFileMetaByPath, fileProvenance} from '@/lib/models/model-sidecar';
+import {
+  readFileMetaByPath,
+  fileProvenance,
+  modelRevision,
+} from '@/lib/models/model-sidecar';
 import type {FileProvenance} from '@/lib/models/sidecar-types';
 import {isPickOneBinRepo, isPickOneSafetensorsRepo} from '@/lib/hf/hf-download';
 import {isDiffusersRepo} from '@/lib/models/diffusers';
@@ -18,8 +22,9 @@ export interface RepoFile {
   provenance?: FileProvenance;
 }
 
-// The repo tree changes rarely; cache it per repo. The on-disk comparison below
-// is recomputed every call so a fresh download flips a file present.
+// The repo tree changes rarely; cache it per repo and revision. The on-disk
+// comparison below is recomputed every call so a fresh download flips a file
+// present.
 const TTL_MS = 30 * 60 * 1000;
 interface TreeFile {
   path: string;
@@ -27,11 +32,12 @@ interface TreeFile {
 }
 const treeCache = new Map<string, {files: TreeFile[]; fetchedAt: number}>();
 
-async function repoTree(repoId: string): Promise<TreeFile[]> {
-  const hit = treeCache.get(repoId);
+async function repoTree(repoId: string, revision: string): Promise<TreeFile[]> {
+  const key = `${repoId}@${revision}`;
+  const hit = treeCache.get(key);
   if (hit && Date.now() - hit.fetchedAt < TTL_MS) return hit.files;
   const res = await fetch(
-    `https://huggingface.co/api/models/${repoId}/tree/main?recursive=true`,
+    `https://huggingface.co/api/models/${repoId}/tree/${revision}?recursive=true`,
     {headers: {'User-Agent': 'tj/1.0'}},
   );
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -44,7 +50,7 @@ async function repoTree(repoId: string): Promise<TreeFile[]> {
   const files = entries
     .filter((e) => e.type === 'file')
     .map((e) => ({path: e.path, size: e.lfs?.size ?? e.size}));
-  treeCache.set(repoId, {files, fetchedAt: Date.now()});
+  treeCache.set(key, {files, fetchedAt: Date.now()});
   return files;
 }
 
@@ -66,9 +72,15 @@ export async function repoFileStatuses(
   repoId: string,
 ): Promise<RepoFile[]> {
   const base = nodePath.resolve(storageBase);
+  // Judge against the revision the model tracks (its sidecar pin), not
+  // whatever main looks like today — a pinned repo's main may carry different
+  // files entirely.
+  const revision = await modelRevision(base, repoId);
   // Drop repo clutter (`.gitattributes`, docs, images): never a required file,
   // so never reported as missing.
-  const tree = (await repoTree(repoId)).filter((f) => !isClutterFile(f.path));
+  const tree = (await repoTree(repoId, revision)).filter(
+    (f) => !isClutterFile(f.path),
+  );
   const dir = nodePath.join(base, repoId);
   const paths = tree.map((f) => f.path);
   // A pick-one repo — ggml whisper.cpp-style `.bin` weights, a Comfy-Org

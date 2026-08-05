@@ -15,26 +15,32 @@ import {
   upsertFileMeta,
   removeFileMeta,
   metaToEntry,
+  modelRevision,
 } from '@/lib/models/model-sidecar';
 import {existsSync, statSync} from 'fs';
 import nodePath from 'path';
 
 // A repo's Hugging Face file list changes rarely, but it's a network round-trip,
-// so cache the expected-file list per repo. The on-disk presence check is
-// recomputed every call (cheap) so a just-finished download clears the flag.
+// so cache the expected-file list per repo and revision. The on-disk presence
+// check is recomputed every call (cheap) so a just-finished download clears the
+// flag.
 const TTL_MS = 30 * 60 * 1000;
 const treeCache = new Map<string, {files: string[]; fetchedAt: number}>();
 
-// The files a complete download of `repoId` would contain — what the downloader
-// pulls (repoDownloadFiles), minus pure docs/metadata. Cached per repo.
-async function expectedFiles(repoId: string): Promise<string[]> {
-  const hit = treeCache.get(repoId);
+// The files a complete download of `repoId` at `revision` would contain — what
+// the downloader pulls (repoDownloadFiles), minus pure docs/metadata.
+async function expectedFiles(
+  repoId: string,
+  revision: string,
+): Promise<string[]> {
+  const key = `${repoId}@${revision}`;
+  const hit = treeCache.get(key);
   if (hit && Date.now() - hit.fetchedAt < TTL_MS) return hit.files;
   // Recurse so a checkpoint's nested file (e.g. a Flux VAE under
   // split_files/vae/) is seen and a missing one is flagged, rather than the
   // subdirectory being reported as a single opaque entry.
   const res = await fetch(
-    `https://huggingface.co/api/models/${repoId}/tree/main?recursive=true`,
+    `https://huggingface.co/api/models/${repoId}/tree/${revision}?recursive=true`,
     {headers: {'User-Agent': 'tj/1.0'}},
   );
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -42,7 +48,7 @@ async function expectedFiles(repoId: string): Promise<string[]> {
   const files = repoDownloadFiles(
     entries.filter((e) => e.type === 'file').map((e) => e.path),
   ).filter((p) => !isClutterFile(p));
-  treeCache.set(repoId, {files, fetchedAt: Date.now()});
+  treeCache.set(key, {files, fetchedAt: Date.now()});
   return files;
 }
 
@@ -72,7 +78,10 @@ export async function findIncompleteRepos(
   const results = await Promise.all(
     candidates.map(async (m) => {
       try {
-        const expected = await expectedFiles(m.name);
+        const expected = await expectedFiles(
+          m.name,
+          await modelRevision(base, m.name),
+        );
         if (expected.length === 0) return null;
         // A pick-one repo — ggml whisper.cpp-style `.bin` weights, a Comfy-Org
         // split_files safetensors bundle, or a diffusers pipeline — isn't a
@@ -148,7 +157,11 @@ export async function detectMissingExpectedFiles(
   const base = nodePath.resolve(storageBase);
   const out: AuditResult[] = [];
   for (const repoId of repoIds) {
-    const lfs = await listRepoFiles(repoId, branch);
+    // A model pinned to a revision (sidecar `revision`) is judged against that
+    // revision; the caller's branch is the default for everything else.
+    const pinned = await modelRevision(base, repoId);
+    const repoBranch = pinned !== 'main' ? pinned : branch;
+    const lfs = await listRepoFiles(repoId, repoBranch);
     if (!lfs) continue;
     const repoPaths = lfs.map((f) => f.repoPath);
     const hasGguf = repoPaths.some((p) => /\.gguf$/i.test(p));
@@ -171,7 +184,7 @@ export async function detectMissingExpectedFiles(
     }
     let expected: string[];
     try {
-      expected = await expectedFiles(repoId);
+      expected = await expectedFiles(repoId, repoBranch);
     } catch {
       continue; // network failure: don't falsely flag
     }
@@ -193,7 +206,15 @@ export async function detectMissingExpectedFiles(
           message: 'expected file not downloaded',
           ...(hf ? {hf: hfSummary(hf)} : {}),
         });
-        await persistMissingState(base, repoId, repoPath, branch, hf, 0, true);
+        await persistMissingState(
+          base,
+          repoId,
+          repoPath,
+          repoBranch,
+          hf,
+          0,
+          true,
+        );
       } else if (flaggedMissing.has(repoPath)) {
         let size = 0;
         try {
@@ -205,7 +226,7 @@ export async function detectMissingExpectedFiles(
           base,
           repoId,
           repoPath,
-          branch,
+          repoBranch,
           hf,
           size,
           false,

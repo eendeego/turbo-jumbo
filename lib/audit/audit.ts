@@ -15,6 +15,7 @@ import {repoIdFromModelUrl} from '@/lib/models/model-name';
 import {
   metaToEntry,
   modelDirForRepo,
+  modelRevision,
   removeFileMeta,
   upsertFileMeta,
 } from '@/lib/models/model-sidecar';
@@ -449,9 +450,19 @@ export async function resolveSource(
     ? {repoId: cache.repoId, repoPath: cache.repoPath}
     : pathImpliedRepo(relPath);
   if (implied) {
+    // Resolve against the revision the model tracks (its sidecar pin), so a
+    // repo downloaded at a tag isn't judged — or "updated" — against main.
+    // fullPath is always path.join(basePath, relPath); recover basePath to
+    // read the model sidecar.
+    const basePath = fullPath.endsWith(relPath)
+      ? fullPath.slice(0, fullPath.length - relPath.length - 1)
+      : null;
+    const revision = basePath
+      ? await modelRevision(basePath, implied.repoId)
+      : 'main';
     const fromPath = await resolveHfFileByPath(
       implied.repoId,
-      'main',
+      revision,
       implied.repoPath,
     );
     if (fromPath) return fromPath;

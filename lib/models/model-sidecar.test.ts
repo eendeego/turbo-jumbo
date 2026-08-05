@@ -11,6 +11,8 @@ import {
   readFileMeta,
   readFileMetaByPath,
   readModelSidecar,
+  modelRevision,
+  setModelRevision,
   removeFileMeta,
   fileProvenance,
   summarizeFiles,
@@ -381,5 +383,37 @@ test('upsertFileMeta derives the model sourceCommit from its files', async () =>
   expect((await readModelSidecar(base, 'org/repo'))?.sourceCommit).toBe(
     MIXED_COMMIT,
   );
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('modelRevision defaults to main and setModelRevision round-trips a pin', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-sidecar-'));
+  const repoId = 'FastFlowLM/Gemma3-1B-NPU2';
+  // No sidecar yet: main.
+  expect(await modelRevision(base, repoId)).toBe('main');
+
+  // Setting a pin creates the sidecar and round-trips.
+  await setModelRevision(base, repoId, repoId, 'v0.9.20-faster-q4-1');
+  expect(await modelRevision(base, repoId)).toBe('v0.9.20-faster-q4-1');
+  expect((await readModelSidecar(base, repoId))?.repoId).toBe(repoId);
+
+  // Re-downloading from main clears the pin (absent = main), keeping the file.
+  await setModelRevision(base, repoId, repoId, 'main');
+  expect(await modelRevision(base, repoId)).toBe('main');
+  expect((await readModelSidecar(base, repoId))?.revision).toBeUndefined();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('modelRevision refuses a revision unsafe for URL interpolation', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-sidecar-'));
+  const repoId = 'org/repo';
+  const model: TjModel = {
+    modelUrl: `https://huggingface.co/${repoId}`,
+    repoId,
+    revision: 'evil?x=1#frag',
+    files: [],
+  };
+  await writeModelSidecar(base, repoId, model);
+  expect(await modelRevision(base, repoId)).toBe('main');
   await fsp.rm(base, {recursive: true, force: true});
 });

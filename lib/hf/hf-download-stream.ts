@@ -14,6 +14,7 @@ import {repoFileSizes, resolveHfFileByPath} from '@/lib/hf/hf-infer';
 import {repoIdFromModelUrl} from '@/lib/models/model-name';
 import {
   clearMissingFlag,
+  setModelRevision,
   modelDirForRepo,
   removeFileMeta,
 } from '@/lib/models/model-sidecar';
@@ -52,6 +53,17 @@ async function recordSources(
   // verification). The caller uses this to refuse the cold-storage transfer.
   const failures: string[] = [];
   enqueue('\nRecording sources...\n');
+  // Remember which branch/tag these files came from, so every later repo-tree
+  // comparison (repo file lists, incomplete/invalid checks, audit resolution)
+  // judges the model against its own revision instead of main. Best-effort: a
+  // sidecar write failure must not fail the download.
+  try {
+    await setModelRevision(localBase, repoId, repoId, branch);
+  } catch (e) {
+    enqueue(
+      `  could not record revision ${branch}: ${e instanceof Error ? e.message : String(e)}\n`,
+    );
+  }
   for (const fp of filePaths) {
     if (signal.aborted) return {failures};
     const relPath = path.join(repoId, fp);

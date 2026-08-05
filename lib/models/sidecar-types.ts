@@ -34,6 +34,12 @@ export interface TjModel {
   // HF during audit and set directly. Omitted until an audit resolves it.
   repoCommit?: string;
   repoCommitDate?: string; // ISO 8601 date of `repoCommit`, when known
+  // The branch or tag this model tracks — recorded at download time when the
+  // files came from a non-default revision (a FastFlowLM registry pin like
+  // `v0.9.20-faster-q4-1`). Every repo-tree comparison (repo file lists, the
+  // incomplete/invalid checks, audit source resolution) uses it; absent means
+  // `main`.
+  revision?: string;
   files: TjModelFile[];
 }
 
