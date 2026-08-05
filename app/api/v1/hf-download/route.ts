@@ -11,6 +11,7 @@ export async function POST(req: Request) {
     repoId?: unknown;
     branch?: unknown;
     filePaths?: unknown;
+    fileScope?: unknown;
     sendToCold?: unknown;
     deleteAfterTransfer?: unknown;
   }>(req, isObject);

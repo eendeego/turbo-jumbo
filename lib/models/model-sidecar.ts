@@ -39,6 +39,9 @@ function withDerivedCommit(model: TjModel): TjModel {
     ...(model.repoCommit ? {repoCommit: model.repoCommit} : {}),
     ...(model.repoCommitDate ? {repoCommitDate: model.repoCommitDate} : {}),
     ...(model.revision ? {revision: model.revision} : {}),
+    ...(model.fileScope && model.fileScope.length > 0
+      ? {fileScope: model.fileScope}
+      : {}),
     files: model.files,
   };
 }
@@ -62,16 +65,34 @@ export async function modelRevision(
 }
 
 /**
- * Record the branch/tag `dir`'s model tracks. `main` clears the field (it is
- * the default), so re-downloading from the default branch untracks a pin.
- * Creates the sidecar when none exists yet — a download whose files all
- * resolve to nothing (small non-LFS companions) must still remember its pin.
+ * The file set that constitutes a complete copy of `dir`'s model — its
+ * sidecar `fileScope` — or null when the model is unscoped (a whole-repo
+ * download, judged against the full tree).
+ */
+export async function modelFileScope(
+  basePath: string,
+  dir: string,
+): Promise<Set<string> | null> {
+  const sidecar = await readModelSidecar(basePath, dir);
+  const scope = sidecar?.fileScope?.filter((f) => typeof f === 'string');
+  return scope && scope.length > 0 ? new Set(scope) : null;
+}
+
+/**
+ * Record the branch/tag `dir`'s model tracks, and — when the download was
+ * deliberately file-scoped — the file set that makes a complete copy.
+ * `main` clears the revision (it is the default) and an absent/empty scope
+ * clears the scope, so a later whole-repo re-download from the default
+ * branch untracks both. Creates the sidecar when none exists yet — a
+ * download whose files all resolve to nothing (small non-LFS companions)
+ * must still remember its pin.
  */
 export async function setModelRevision(
   basePath: string,
   dir: string,
   repoId: string,
   revision: string,
+  fileScope?: string[],
 ): Promise<void> {
   const existing = await readModelSidecar(basePath, dir);
   const model: TjModel = existing ?? {
@@ -81,6 +102,8 @@ export async function setModelRevision(
   };
   if (revision === 'main') delete model.revision;
   else model.revision = revision;
+  if (fileScope && fileScope.length > 0) model.fileScope = fileScope;
+  else delete model.fileScope;
   await writeModelSidecar(basePath, dir, model);
 }
 

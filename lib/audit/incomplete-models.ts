@@ -15,6 +15,7 @@ import {
   upsertFileMeta,
   removeFileMeta,
   metaToEntry,
+  modelFileScope,
   modelRevision,
 } from '@/lib/models/model-sidecar';
 import {existsSync, statSync} from 'fs';
@@ -78,10 +79,10 @@ export async function findIncompleteRepos(
   const results = await Promise.all(
     candidates.map(async (m) => {
       try {
-        const expected = await expectedFiles(
-          m.name,
-          await modelRevision(base, m.name),
-        );
+        const scope = await modelFileScope(base, m.name);
+        const expected = (
+          await expectedFiles(m.name, await modelRevision(base, m.name))
+        ).filter((f) => scope == null || scope.has(f));
         if (expected.length === 0) return null;
         // A pick-one repo — ggml whisper.cpp-style `.bin` weights, a Comfy-Org
         // split_files safetensors bundle, or a diffusers pipeline — isn't a
@@ -184,18 +185,32 @@ export async function detectMissingExpectedFiles(
     }
     let expected: string[];
     try {
-      expected = await expectedFiles(repoId, repoBranch);
+      const scope = await modelFileScope(base, repoId);
+      expected = (await expectedFiles(repoId, repoBranch)).filter(
+        (f) => scope == null || scope.has(f),
+      );
     } catch {
       continue; // network failure: don't falsely flag
     }
+    const expectedSet = new Set(expected);
     const lfsByPath = new Map(lfs.map((f) => [f.repoPath, f]));
     const dir = nodePath.join(base, repoId);
     // Files this repo's sidecar currently records as missing: a stale flag on a
     // now-present file is cleared below so the cached audit agrees with disk.
+    // A flag on a file no longer expected (it fell outside a newly-recorded
+    // file scope) is dropped outright.
     const sidecar = await readModelSidecar(base, repoId);
     const flaggedMissing = new Set(
       (sidecar?.files ?? []).filter((f) => f.missing).map((f) => f.path),
     );
+    for (const stale of flaggedMissing) {
+      if (expectedSet.has(stale)) continue;
+      try {
+        await removeFileMeta(base, repoId, stale);
+      } catch {
+        /* best-effort: a stale flag isn't worth failing the audit */
+      }
+    }
     for (const repoPath of expected) {
       const full = nodePath.join(dir, repoPath);
       const hf = lfsByPath.get(repoPath);

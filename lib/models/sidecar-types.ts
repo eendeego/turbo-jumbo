@@ -40,6 +40,12 @@ export interface TjModel {
   // incomplete/invalid checks, audit source resolution) uses it; absent means
   // `main`.
   revision?: string;
+  // The repo files that constitute a complete copy of THIS model, when the
+  // download was deliberately file-scoped (FastFlowLM's registry names the
+  // exact files flm pulls — the repo's extra NPU kernels aren't part of the
+  // model). Completeness checks judge only these; absent means the whole
+  // repo tree.
+  fileScope?: string[];
   files: TjModelFile[];
 }
 

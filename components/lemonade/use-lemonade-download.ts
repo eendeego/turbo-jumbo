@@ -132,6 +132,10 @@ export function useLemonadeDownload({
         repoId: source.repoId,
         branch: source.revision,
         filePaths: missing.length > 0 ? missing : wanted,
+        // The registry's file list IS the complete model — the repo's extra
+        // files (NPU kernels) aren't part of it, so completeness checks
+        // must judge only this set.
+        fileScope: wanted,
         sendToCold,
         deleteAfterTransfer,
       });

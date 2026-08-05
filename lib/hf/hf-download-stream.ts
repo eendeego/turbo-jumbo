@@ -45,6 +45,7 @@ async function recordSources(
   repoId: string,
   branch: string,
   filePaths: string[],
+  fileScope: string[] | undefined,
   signal: AbortSignal,
   enqueue: (s: string) => void,
 ): Promise<{failures: string[]}> {
@@ -53,12 +54,14 @@ async function recordSources(
   // verification). The caller uses this to refuse the cold-storage transfer.
   const failures: string[] = [];
   enqueue('\nRecording sources...\n');
-  // Remember which branch/tag these files came from, so every later repo-tree
-  // comparison (repo file lists, incomplete/invalid checks, audit resolution)
-  // judges the model against its own revision instead of main. Best-effort: a
-  // sidecar write failure must not fail the download.
+  // Remember which branch/tag these files came from — and, for a deliberately
+  // file-scoped download, which file set makes a complete copy — so every
+  // later repo-tree comparison (repo file lists, incomplete/invalid checks,
+  // audit resolution) judges the model against its own revision and scope
+  // instead of main and the whole tree. Best-effort: a sidecar write failure
+  // must not fail the download.
   try {
-    await setModelRevision(localBase, repoId, repoId, branch);
+    await setModelRevision(localBase, repoId, repoId, branch, fileScope);
   } catch (e) {
     enqueue(
       `  could not record revision ${branch}: ${e instanceof Error ? e.message : String(e)}\n`,
@@ -269,11 +272,18 @@ async function moveToColdstorage(
  * disconnects.
  */
 export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
-  const {repoId, branch, filePaths, sendToCold, deleteAfterTransfer} = (body ??
-    {}) as {
+  const {
+    repoId,
+    branch,
+    filePaths,
+    fileScope,
+    sendToCold,
+    deleteAfterTransfer,
+  } = (body ?? {}) as {
     repoId?: unknown;
     branch?: unknown;
     filePaths?: unknown;
+    fileScope?: unknown;
     sendToCold?: unknown;
     deleteAfterTransfer?: unknown;
   };
@@ -298,6 +308,20 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
     )
   )
     return new Response('Invalid filePaths', {status: 400});
+  // Optional: the file set that makes a complete copy of this model (may be a
+  // superset of filePaths when some files were already present). Same shape
+  // rules as filePaths.
+  if (
+    fileScope !== undefined &&
+    (!Array.isArray(fileScope) ||
+      fileScope.some(
+        (fp: unknown) =>
+          typeof fp !== 'string' ||
+          !FILE_PATH_RE.test(fp) ||
+          hasUnsafeSegment(fp),
+      ))
+  )
+    return new Response('Invalid fileScope', {status: 400});
 
   // Download into <base>/<repoId> so files land at <repoId>/<filePath> — the
   // layout the audit expects — making them correctly placed and verifiable.
@@ -436,6 +460,7 @@ export function streamHfDownload(body: unknown, signal: AbortSignal): Response {
             repoId,
             branch,
             filePaths as string[],
+            fileScope as string[] | undefined,
             signal,
             enqueue,
           );

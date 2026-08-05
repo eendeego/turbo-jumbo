@@ -317,3 +317,45 @@ test('a revision-pinned model is judged against its pinned tree, not main', asyn
   ]);
   await fsp.rm(base, {recursive: true, force: true});
 });
+
+test('a file-scoped model is judged only against its scope', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-rf-'));
+  const repoId = 'FastFlowLM/scoped';
+  // The pinned tree carries NPU kernel files the registry never downloads;
+  // with a recorded fileScope they are neither listed nor missing.
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = url.toString();
+    if (u.includes(`/api/models/${repoId}/tree/v1-tag`)) {
+      return new Response(
+        JSON.stringify([
+          {type: 'file', path: 'config.json', size: 10},
+          {type: 'file', path: 'model.q4nx', size: 64},
+          {type: 'file', path: 'attn.xclbin', size: 5},
+          {type: 'file', path: 'layer.xclbin', size: 5},
+        ]),
+        {status: 200},
+      );
+    }
+    return new Response('nf', {status: 404});
+  }) as typeof fetch;
+  await writeFileOfSize(path.join(base, repoId, 'config.json'), 10);
+  await writeFileOfSize(path.join(base, repoId, 'model.q4nx'), 64);
+  const model: TjModel = {
+    modelUrl: `https://huggingface.co/${repoId}`,
+    repoId,
+    revision: 'v1-tag',
+    fileScope: ['config.json', 'model.q4nx'],
+    files: [],
+  };
+  await fsp.writeFile(
+    path.join(base, repoId, MODEL_SIDECAR_NAME),
+    JSON.stringify(model),
+  );
+
+  const out = await repoFileStatuses(base, repoId);
+  expect(out.map((f) => `${f.state}:${f.path}`).sort()).toEqual([
+    'present:config.json',
+    'present:model.q4nx',
+  ]);
+  await fsp.rm(base, {recursive: true, force: true});
+});

@@ -1,6 +1,7 @@
 import {
   readFileMetaByPath,
   fileProvenance,
+  modelFileScope,
   modelRevision,
 } from '@/lib/models/model-sidecar';
 import type {FileProvenance} from '@/lib/models/sidecar-types';
@@ -76,10 +77,14 @@ export async function repoFileStatuses(
   // whatever main looks like today — a pinned repo's main may carry different
   // files entirely.
   const revision = await modelRevision(base, repoId);
+  // A file-scoped model (a FastFlowLM registry pin) is judged only against
+  // the files that make a complete copy of it — the repo's extra files (NPU
+  // kernels) aren't part of the model, so they're neither listed nor missing.
+  const scope = await modelFileScope(base, repoId);
   // Drop repo clutter (`.gitattributes`, docs, images): never a required file,
   // so never reported as missing.
   const tree = (await repoTree(repoId, revision)).filter(
-    (f) => !isClutterFile(f.path),
+    (f) => !isClutterFile(f.path) && (scope == null || scope.has(f.path)),
   );
   const dir = nodePath.join(base, repoId);
   const paths = tree.map((f) => f.path);

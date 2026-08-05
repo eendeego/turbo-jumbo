@@ -12,6 +12,7 @@ import {
   readFileMetaByPath,
   readModelSidecar,
   modelRevision,
+  modelFileScope,
   setModelRevision,
   removeFileMeta,
   fileProvenance,
@@ -415,5 +416,21 @@ test('modelRevision refuses a revision unsafe for URL interpolation', async () =
   };
   await writeModelSidecar(base, repoId, model);
   expect(await modelRevision(base, repoId)).toBe('main');
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('setModelRevision records a file scope and clears it when absent', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-sidecar-'));
+  const repoId = 'FastFlowLM/scoped';
+  await setModelRevision(base, repoId, repoId, 'v1-tag', [
+    'config.json',
+    'model.q4nx',
+  ]);
+  expect(await modelFileScope(base, repoId)).toEqual(
+    new Set(['config.json', 'model.q4nx']),
+  );
+  // A later unscoped download clears the scope.
+  await setModelRevision(base, repoId, repoId, 'main');
+  expect(await modelFileScope(base, repoId)).toBeNull();
   await fsp.rm(base, {recursive: true, force: true});
 });

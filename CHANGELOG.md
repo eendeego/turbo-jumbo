@@ -17,6 +17,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   invalid checks, audit source resolution — judges it against that revision
   instead of main. Previously a pinned repo whose main had moved on reported
   spurious invalid and missing files.
+- Deliberately file-scoped downloads record which files make a complete copy:
+  an FLM model downloads exactly the files FastFlowLM's registry names, so
+  the repo's extra NPU kernel files no longer count as "missing" — the file
+  list and the incomplete check judge only the recorded scope.
 - Deleting a model's last weight file now removes its support files too:
   a directory left without any weights takes its config.json, tokenizer
   files, and other companions with it instead of lingering as an unreachable

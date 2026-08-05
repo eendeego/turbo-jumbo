@@ -35,6 +35,11 @@ export type DownloadRequest = {
   repoId: string;
   branch: string;
   filePaths: string[];
+  // The file set that makes a complete copy of this model, when the download
+  // is deliberately file-scoped (a FastFlowLM registry pin). May be a
+  // superset of filePaths (files already at the target are skipped).
+  // Completeness checks then judge only these files.
+  fileScope?: string[];
   sendToCold?: boolean;
   deleteAfterTransfer?: boolean;
 };
