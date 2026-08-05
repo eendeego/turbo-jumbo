@@ -434,3 +434,46 @@ test('setModelRevision records a file scope and clears it when absent', async ()
   expect(await modelFileScope(base, repoId)).toBeNull();
   await fsp.rm(base, {recursive: true, force: true});
 });
+
+test('removing the last file entry keeps a pinned/scoped sidecar alive', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-sidecar-'));
+  const repoId = 'FastFlowLM/pinned';
+  await setModelRevision(base, repoId, repoId, 'v1-tag', ['a.q4nx', 'b.json']);
+  await upsertFileMeta(
+    base,
+    repoId,
+    repoId,
+    entry({
+      path: 'b.json',
+      originUrl: 'https://huggingface.co/x/blob/v1-tag/b.json',
+    }),
+  );
+  await removeFileMeta(base, repoId, 'b.json');
+  // No file entries remain, but the pin and scope survive.
+  const sidecar = await readModelSidecar(base, repoId);
+  expect(sidecar?.files).toEqual([]);
+  expect(sidecar?.revision).toBe('v1-tag');
+  expect(await modelFileScope(base, repoId)).toEqual(
+    new Set(['a.q4nx', 'b.json']),
+  );
+
+  // An unpinned sidecar still disappears with its last entry.
+  const plain = 'org/plain';
+  await upsertFileMeta(base, plain, plain, entry({path: 'x.gguf'}));
+  await removeFileMeta(base, plain, 'x.gguf');
+  expect(await readModelSidecar(base, plain)).toBeNull();
+  await fsp.rm(base, {recursive: true, force: true});
+});
+
+test('a pinned partial re-download keeps the recorded file scope', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'tj-sidecar-'));
+  const repoId = 'FastFlowLM/keep-scope';
+  await setModelRevision(base, repoId, repoId, 'v1-tag', ['a.q4nx', 'b.json']);
+  // A later pinned download without an explicit scope (the audit's partial
+  // "Download missing files") must not widen the model to the whole tree.
+  await setModelRevision(base, repoId, repoId, 'v1-tag');
+  expect(await modelFileScope(base, repoId)).toEqual(
+    new Set(['a.q4nx', 'b.json']),
+  );
+  await fsp.rm(base, {recursive: true, force: true});
+});

@@ -81,11 +81,13 @@ export async function modelFileScope(
 /**
  * Record the branch/tag `dir`'s model tracks, and — when the download was
  * deliberately file-scoped — the file set that makes a complete copy.
- * `main` clears the revision (it is the default) and an absent/empty scope
- * clears the scope, so a later whole-repo re-download from the default
- * branch untracks both. Creates the sidecar when none exists yet — a
- * download whose files all resolve to nothing (small non-LFS companions)
- * must still remember its pin.
+ * `main` clears the revision (it is the default) and the scope with it: a
+ * whole-repo re-download from the default branch untracks both. A pinned
+ * download without an explicit scope keeps whatever scope is recorded — a
+ * partial re-fetch (the audit's "Download missing files") must not widen
+ * the model back to the whole tree. Creates the sidecar when none exists
+ * yet — a download whose files all resolve to nothing (small non-LFS
+ * companions) must still remember its pin.
  */
 export async function setModelRevision(
   basePath: string,
@@ -103,7 +105,7 @@ export async function setModelRevision(
   if (revision === 'main') delete model.revision;
   else model.revision = revision;
   if (fileScope && fileScope.length > 0) model.fileScope = fileScope;
-  else delete model.fileScope;
+  else if (revision === 'main') delete model.fileScope;
   await writeModelSidecar(basePath, dir, model);
 }
 
@@ -364,7 +366,10 @@ export async function clearMissingFlag(
 
 /**
  * Remove a file's entry from its model sidecar, serialized per dir. When the
- * sidecar has no entries left, the `tjmodel.json` file is deleted.
+ * sidecar has no entries left — and carries no model-level state worth
+ * keeping (a revision pin or file scope) — the `tjmodel.json` file is
+ * deleted. A pinned/scoped model keeps its empty sidecar: deleting one file
+ * must not silently retarget the survivors to main and the whole tree.
  */
 export async function removeFileMeta(
   basePath: string,
@@ -375,7 +380,8 @@ export async function removeFileMeta(
     const model = await readModelSidecar(basePath, dir);
     if (!model) return;
     model.files = model.files.filter((f) => f.path !== key);
-    if (model.files.length === 0) {
+    const pinned = model.revision != null || (model.fileScope?.length ?? 0) > 0;
+    if (model.files.length === 0 && !pinned) {
       await fsp.rm(sidecarPath(basePath, dir), {force: true});
     } else {
       await writeModelSidecar(basePath, dir, withDerivedCommit(model));
