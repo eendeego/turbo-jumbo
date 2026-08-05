@@ -61,9 +61,13 @@ function VolumeMeter({label, usage}: {label: string; usage: DiskUsage}) {
 export function DiskStats({
   activeLocation,
   peers,
+  refreshToken = 0,
 }: {
   activeLocation: string;
   peers: PeerConfig[];
+  // Bump to re-read the figures immediately (a delete/copy/download just
+  // changed them); the periodic poll only covers changes made elsewhere.
+  refreshToken?: number;
 }) {
   // Keyed by the URL it came from, so switching tabs never shows the previous
   // location's figures while the new fetch is in flight.
@@ -98,7 +102,7 @@ export function DiskStats({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [url]);
+  }, [url, refreshToken]);
 
   const usage = fetched && fetched.url === url ? fetched.data : null;
   if (!usage) return null;

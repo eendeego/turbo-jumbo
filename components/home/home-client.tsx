@@ -281,9 +281,15 @@ export function HomeClient({
     })();
   }, [refreshInvalid]);
 
+  // Bumped whenever a mutation refreshes the table, so the footer's disk
+  // meters re-read statfs right away instead of waiting out their poll — a
+  // delete or copy should move the free-space figures immediately.
+  const [diskRefresh, setDiskRefresh] = useState(0);
+
   // Re-fetch the table data after a mutation (e.g. copy) without a full
   // server round-trip / page reload.
   async function refreshModels() {
+    setDiskRefresh((n) => n + 1);
     const res = await fetch('/api/v1/models-table');
     if (res.ok) setModels(await res.json());
   }
@@ -568,7 +574,11 @@ export function HomeClient({
                 </Text>
               )}
               {error && <Banner status="error" title={`Error: ${error}`} />}
-              <DiskStats activeLocation={activeLocation} peers={peerConfigs} />
+              <DiskStats
+                activeLocation={activeLocation}
+                peers={peerConfigs}
+                refreshToken={diskRefresh}
+              />
               <ActionBar
                 selected={selected}
                 onDelete={() => setConfirming(true)}

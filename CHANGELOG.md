@@ -11,6 +11,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The footer's free-space meters now update immediately after a delete, copy,
+  or download instead of waiting out their next periodic poll.
 - The audit hovercard's "Download missing files" now downloads all of them in
   one go — including small companion files (a tokenizer_config.json) that
   previously had no download path at all — instead of quietly fetching a
