@@ -52,6 +52,7 @@ function AuditFailureContent({
   fixing,
   onSetSource,
   onRedownload,
+  onRedownloadAll,
   redownloading,
   onShowRevisions,
   onFixDuplicate,
@@ -62,15 +63,31 @@ function AuditFailureContent({
   fixing?: boolean;
   onSetSource?: (path: string) => void;
   onRedownload?: (file: AuditResult) => void;
+  // Download every re-fetchable missing file in one request. Shown instead of
+  // per-file buttons when several files are missing — pressing "Download
+  // missing files" must not quietly fetch just one.
+  onRedownloadAll?: (files: AuditResult[]) => void;
   redownloading?: boolean;
   onShowRevisions?: (file: AuditResult) => void;
   onFixDuplicate?: (path: string) => void;
   fixingDuplicate?: boolean;
 }) {
+  // The files a re-download can recover. With more than one, a single grouped
+  // action downloads them all — including small companions the audit found no
+  // HF summary for (non-LFS files like a tokenizer_config.json), which have
+  // no per-file button; the group derives their source from a sibling. A
+  // projector keeps its own labeled button (its download has a distinct
+  // flow), and a lone summary-bearing file keeps a per-file button.
+  const redownloadable = failures.filter((f) => f.status === 'incomplete');
+  const grouped =
+    redownloadable.length > 1 &&
+    redownloadable.some((f) => f.hf != null) &&
+    onRedownloadAll != null;
   return (
     <VStack gap={3}>
       {failures.map((f) => {
         const name = f.file.split('/').pop() ?? f.file;
+        const isProjector = name.toLowerCase().startsWith('mmproj');
         const detail = expectedDetail(f);
         const {label, variant} = AUDIT_BADGE[f.status];
         // Only non-cached misplaced files can be relocated server-side.
@@ -80,7 +97,10 @@ function AuditFailureContent({
         // Incomplete (partial) files can be re-fetched; the HF downloader
         // recovers the existing file in place, so it's never deleted first.
         const canRedownload =
-          f.status === 'incomplete' && f.hf != null && onRedownload != null;
+          f.status === 'incomplete' &&
+          f.hf != null &&
+          onRedownload != null &&
+          (!grouped || isProjector);
         // A size/checksum failure that scanned the repo's history carries the
         // revisions it ruled out, viewable in a modal.
         const canShowRevisions =
@@ -163,9 +183,9 @@ function AuditFailureContent({
                   label={
                     redownloading
                       ? 'Downloading…'
-                      : name.toLowerCase().startsWith('mmproj')
+                      : isProjector
                         ? 'Download mmproj'
-                        : 'Download missing files'
+                        : 'Download missing file'
                   }
                   variant="ghost"
                   size="sm"
@@ -187,6 +207,21 @@ function AuditFailureContent({
           </VStack>
         );
       })}
+      {grouped && (
+        <HStack>
+          <Button
+            label={
+              redownloading
+                ? 'Downloading…'
+                : `Download missing files (${redownloadable.length})`
+            }
+            variant="ghost"
+            size="sm"
+            onClick={() => onRedownloadAll?.(redownloadable)}
+            isDisabled={redownloading}
+          />
+        </HStack>
+      )}
     </VStack>
   );
 }
@@ -238,6 +273,17 @@ export function UpdateBadge({updates}: {updates: UpdateResult[]}) {
   );
 }
 
+// The branch the repo's recorded provenance points at (`blob/<branch>/…`), so
+// a revision-pinned model's files re-download from its pin. Missing files
+// carry no provenance, so any recorded sibling supplies it; main otherwise.
+function issuesBranch(issues: RepoFile[]): string {
+  for (const f of issues) {
+    const m = f.provenance?.originUrl.match(/\/blob\/([^/]+)\//);
+    if (m) return m[1];
+  }
+  return 'main';
+}
+
 // Why a whole-repo model's file is flagged, for the invalid audit hovercard.
 // A size that differs from Hugging Face is a truncated/corrupt copy; a size that
 // matches but is still invalid means the sidecar can't attest it (no checksum).
@@ -264,6 +310,7 @@ export function AuditCell({
   fixing,
   onSetSource,
   onRedownload,
+  onRedownloadAll,
   redownloading,
   onShowRevisions,
   onFixDuplicate,
@@ -285,12 +332,17 @@ export function AuditCell({
   // The model's invalid + missing files, named in the hovercard and downloaded.
   repoIssues?: RepoFile[];
   repoId?: string;
-  onDownloadFiles?: (repoId: string, repoPaths: string[]) => void;
+  onDownloadFiles?: (
+    repoId: string,
+    repoPaths: string[],
+    branch?: string,
+  ) => void;
   downloadingFiles?: boolean;
   onFix?: (path: string) => void;
   fixing?: boolean;
   onSetSource?: (path: string) => void;
   onRedownload?: (file: AuditResult) => void;
+  onRedownloadAll?: (files: AuditResult[]) => void;
   redownloading?: boolean;
   onShowRevisions?: (file: AuditResult) => void;
   onFixDuplicate?: (path: string) => void;
@@ -360,7 +412,9 @@ export function AuditCell({
                 variant="ghost"
                 size="sm"
                 isDisabled={downloadingFiles}
-                onClick={() => onDownloadFiles(repoId, downloadPaths)}
+                onClick={() =>
+                  onDownloadFiles(repoId, downloadPaths, issuesBranch(issues))
+                }
               />
             )}
           </VStack>
@@ -436,6 +490,7 @@ export function AuditCell({
           fixing={fixing}
           onSetSource={onSetSource}
           onRedownload={onRedownload}
+          onRedownloadAll={onRedownloadAll}
           redownloading={redownloading}
           onShowRevisions={onShowRevisions}
           onFixDuplicate={onFixDuplicate}

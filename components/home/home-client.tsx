@@ -319,16 +319,50 @@ export function HomeClient({
     [redownload],
   );
 
+  // Download every missing file of a row in one request (the audit hovercard's
+  // grouped "Download missing files"). All failures of a row share one repo;
+  // the branch comes from an audit-recorded source, so a revision-pinned model
+  // re-fetches from its pin, not main. A failure without an HF summary (a
+  // small non-LFS companion the audit couldn't attest) still downloads: its
+  // repo path is derived from its file id via a summary-bearing sibling.
+  const onRedownloadAll = useCallback(
+    (files: AuditResult[]) => {
+      const anchor = files
+        .map((f) => (f.hf ? fileRefFromSummary(f.hf) : null))
+        .find((r) => r != null);
+      if (!anchor) {
+        setError("Couldn't determine a download source for the missing files");
+        return;
+      }
+      const filePaths: string[] = [];
+      for (const f of files) {
+        const ref = f.hf ? fileRefFromSummary(f.hf) : null;
+        if (ref && ref.repoId === anchor.repoId) filePaths.push(ref.repoPath);
+        else if (!ref && f.file.startsWith(`${anchor.repoId}/`))
+          filePaths.push(f.file.slice(anchor.repoId.length + 1));
+      }
+      redownloadPath.current = null; // multi-file: refresh-all on close, no single re-audit
+      setError(null);
+      setRedownloadOpen(true);
+      redownload.start({
+        repoId: anchor.repoId,
+        branch: anchor.branch,
+        filePaths,
+      });
+    },
+    [redownload],
+  );
+
   // Download a whole-repo model's invalid + missing files (from the audit
   // hovercard). Reuses the redownload runner/modal; the HF downloader overwrites
   // an invalid copy in place and fills in any missing file.
   const onDownloadRepoFiles = useCallback(
-    (repoId: string, repoPaths: string[]) => {
+    (repoId: string, repoPaths: string[], branch = 'main') => {
       if (repoPaths.length === 0) return;
       redownloadPath.current = null; // multi-file: refresh-all on close, no single re-audit
       setError(null);
       setRedownloadOpen(true);
-      redownload.start({repoId, branch: 'main', filePaths: repoPaths});
+      redownload.start({repoId, branch, filePaths: repoPaths});
     },
     [redownload],
   );
@@ -509,6 +543,9 @@ export function HomeClient({
               onSetSource={onSetSource}
               onRedownload={
                 auditLocation === 'local' ? onRedownload : undefined
+              }
+              onRedownloadAll={
+                auditLocation === 'local' ? onRedownloadAll : undefined
               }
               onDownloadRepoFiles={
                 auditLocation === 'local' ? onDownloadRepoFiles : undefined

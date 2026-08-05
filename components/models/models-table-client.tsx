@@ -68,6 +68,7 @@ export function ModelsTableClient({
   fixing = false,
   onSetSource,
   onRedownload,
+  onRedownloadAll,
   redownloading = false,
   onDownloadRepoFiles,
   onShowRevisions,
@@ -98,9 +99,16 @@ export function ModelsTableClient({
   fixing?: boolean;
   onSetSource?: (path: string) => void;
   onRedownload?: (file: AuditResult) => void;
+  // Download every re-fetchable missing file of a row in one request.
+  onRedownloadAll?: (files: AuditResult[]) => void;
   redownloading?: boolean;
-  // Download a whole-repo model's invalid + missing files (from its hovercard).
-  onDownloadRepoFiles?: (repoId: string, repoPaths: string[]) => void;
+  // Download a whole-repo model's invalid + missing files (from its hovercard),
+  // from the branch its recorded provenance names (main when unrecorded).
+  onDownloadRepoFiles?: (
+    repoId: string,
+    repoPaths: string[],
+    branch?: string,
+  ) => void;
   onShowRevisions?: (file: AuditResult) => void;
   onFixColdIncomplete?: (paths: string[]) => void;
   coldFixing?: boolean;
@@ -465,6 +473,7 @@ export function ModelsTableClient({
                     fixing={fixing}
                     onSetSource={onSetSource}
                     onRedownload={onRedownload}
+                    onRedownloadAll={onRedownloadAll}
                     redownloading={redownloading}
                     onShowRevisions={onShowRevisions}
                     onFixDuplicate={

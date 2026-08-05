@@ -11,6 +11,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The audit hovercard's "Download missing files" now downloads all of them in
+  one go — including small companion files (a tokenizer_config.json) that
+  previously had no download path at all — instead of quietly fetching a
+  single file. Re-downloads honor the model's pinned revision, and a partial
+  re-fetch or single-file delete no longer erases the model's recorded
+  revision pin or file scope.
 - The audit is now revision-aware: a model downloaded from a pinned branch or
   tag (e.g. a FastFlowLM registry pin) records that revision in its sidecar,
   and every repo comparison — the whole-repo file list, the incomplete and
