@@ -16,6 +16,9 @@ import {formatSize} from '@/lib/models/model-row';
 const styles = stylex.create({
   // Cached (sidecar-derived) audit verdicts are toned down vs fresh results.
   dimmed: {opacity: 0.6},
+  // Long per-file listings scroll inside the hovercard so the action buttons
+  // below them stay reachable no matter how many files are affected.
+  fileList: {maxHeight: 280, overflowY: 'auto'},
 });
 
 const AUDIT_BADGE: Record<
@@ -83,130 +86,195 @@ function AuditFailureContent({
     redownloadable.length > 1 &&
     redownloadable.some((f) => f.hf != null) &&
     onRedownloadAll != null;
+  // In grouped mode each incomplete file renders as a compact name + message
+  // row: the badge, revision, and repo links they'd repeat are identical
+  // across the group, so they appear once in the shared source block below.
+  const sources = redownloadable.map((f) => f.hf).filter((h) => h != null);
+  const sharedSource = grouped ? (sources[0] ?? null) : null;
+  const commits = new Set(
+    sources.map((h) => h.commit).filter((c) => c != null),
+  );
+  const sharedCommit =
+    grouped && commits.size === 1
+      ? (sources.find((h) => h.commit != null) ?? null)
+      : null;
   return (
     <VStack gap={3}>
-      {failures.map((f) => {
-        const name = f.file.split('/').pop() ?? f.file;
-        const isProjector = name.toLowerCase().startsWith('mmproj');
-        const detail = expectedDetail(f);
-        const {label, variant} = AUDIT_BADGE[f.status];
-        // Only non-cached misplaced files can be relocated server-side.
-        const canFix = f.status === 'misplaced' && !f.cached && onFix != null;
-        // Unverifiable files have no inferred source — let the user supply one.
-        const canSetSource = f.status === 'unverifiable' && onSetSource != null;
-        // Incomplete (partial) files can be re-fetched; the HF downloader
-        // recovers the existing file in place, so it's never deleted first.
-        const canRedownload =
-          f.status === 'incomplete' &&
-          f.hf != null &&
-          onRedownload != null &&
-          (!grouped || isProjector);
-        // A size/checksum failure that scanned the repo's history carries the
-        // revisions it ruled out, viewable in a modal.
-        const canShowRevisions =
-          (f.revisionsChecked?.length ?? 0) > 0 && onShowRevisions != null;
-        // Duplicate groups can be resolved server-side: invalid/older copies
-        // deleted, the surviving copy placed at the expected path.
-        const canFixDuplicate =
-          f.status === 'duplicate' && !f.cached && onFixDuplicate != null;
-        return (
-          <VStack
-            key={f.file}
-            gap={1}
-            xstyle={f.cached ? styles.dimmed : undefined}
-          >
-            <Text type="body">
-              {name}
-              {f.cached ? ' (cached)' : ''}
-            </Text>
-            <HStack gap={2} vAlign="center">
-              <Badge label={label} variant={variant} />
-              {f.message && <Text type="supporting">{f.message}</Text>}
-            </HStack>
-            {detail && <Text type="supporting">{detail}</Text>}
-            {f.hf && (
-              <VStack gap={0}>
-                {f.hf.expectedSize != null && (
+      <VStack gap={3} xstyle={styles.fileList}>
+        {failures.map((f) => {
+          if (grouped && f.status === 'incomplete') {
+            const name = f.file.split('/').pop() ?? f.file;
+            const isProjector = name.toLowerCase().startsWith('mmproj');
+            return (
+              <VStack
+                key={f.file}
+                gap={0}
+                xstyle={f.cached ? styles.dimmed : undefined}
+              >
+                <Text type="body">
+                  {name}
+                  {f.cached ? ' (cached)' : ''}
+                </Text>
+                {(f.message || f.hf?.expectedSize != null) && (
                   <Text type="supporting">
-                    Size: {formatSize(f.hf.expectedSize)}
+                    {f.message}
+                    {f.hf?.expectedSize != null &&
+                      `${f.message ? ' · ' : ''}${formatSize(f.hf.expectedSize)}`}
                   </Text>
                 )}
-                {f.hf.commit && (
-                  <Link href={f.hf.commitUrl ?? f.hf.fileUrl} isExternalLink>
-                    Revision {f.hf.commit.slice(0, 12)}
-                    {f.hf.commitDate && ` (${f.hf.commitDate.slice(0, 10)})`}
-                  </Link>
+                {isProjector && f.hf != null && onRedownload != null && (
+                  <HStack>
+                    <Button
+                      label={redownloading ? 'Downloading…' : 'Download mmproj'}
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onRedownload?.(f)}
+                      isDisabled={redownloading}
+                    />
+                  </HStack>
                 )}
-                <Link href={f.hf.modelUrl} isExternalLink>
-                  {f.hf.repoId}
-                </Link>
-                <Link href={f.hf.fileUrl} isExternalLink>
-                  View file on HuggingFace
-                </Link>
               </VStack>
-            )}
-            {canFix && (
-              <HStack>
-                <Button
-                  label={fixing ? 'Fixing…' : 'Fix'}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onFix?.(f.file)}
-                  isDisabled={fixing}
-                />
+            );
+          }
+          const name = f.file.split('/').pop() ?? f.file;
+          const isProjector = name.toLowerCase().startsWith('mmproj');
+          const detail = expectedDetail(f);
+          const {label, variant} = AUDIT_BADGE[f.status];
+          // Only non-cached misplaced files can be relocated server-side.
+          const canFix = f.status === 'misplaced' && !f.cached && onFix != null;
+          // Unverifiable files have no inferred source — let the user supply one.
+          const canSetSource =
+            f.status === 'unverifiable' && onSetSource != null;
+          // Incomplete (partial) files can be re-fetched; the HF downloader
+          // recovers the existing file in place, so it's never deleted first.
+          // (Grouped incomplete files render as compact rows above, so this
+          // full path only sees a lone incomplete file.)
+          const canRedownload =
+            f.status === 'incomplete' && f.hf != null && onRedownload != null;
+          // A size/checksum failure that scanned the repo's history carries the
+          // revisions it ruled out, viewable in a modal.
+          const canShowRevisions =
+            (f.revisionsChecked?.length ?? 0) > 0 && onShowRevisions != null;
+          // Duplicate groups can be resolved server-side: invalid/older copies
+          // deleted, the surviving copy placed at the expected path.
+          const canFixDuplicate =
+            f.status === 'duplicate' && !f.cached && onFixDuplicate != null;
+          return (
+            <VStack
+              key={f.file}
+              gap={1}
+              xstyle={f.cached ? styles.dimmed : undefined}
+            >
+              <Text type="body">
+                {name}
+                {f.cached ? ' (cached)' : ''}
+              </Text>
+              <HStack gap={2} vAlign="center">
+                <Badge label={label} variant={variant} />
+                {f.message && <Text type="supporting">{f.message}</Text>}
               </HStack>
-            )}
-            {canFixDuplicate && (
-              <HStack>
-                <Button
-                  label={fixingDuplicate ? 'Fixing…' : 'Fix'}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onFixDuplicate?.(f.file)}
-                  isDisabled={fixingDuplicate}
-                />
-              </HStack>
-            )}
-            {canSetSource && (
-              <HStack>
-                <Button
-                  label="Set source…"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onSetSource?.(f.file)}
-                />
-              </HStack>
-            )}
-            {canRedownload && (
-              <HStack>
-                <Button
-                  label={
-                    redownloading
-                      ? 'Downloading…'
-                      : isProjector
-                        ? 'Download mmproj'
-                        : 'Download missing file'
-                  }
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onRedownload?.(f)}
-                  isDisabled={redownloading}
-                />
-              </HStack>
-            )}
-            {canShowRevisions && (
-              <HStack>
-                <Button
-                  label="Checked revisions…"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onShowRevisions?.(f)}
-                />
-              </HStack>
-            )}
-          </VStack>
-        );
-      })}
+              {detail && <Text type="supporting">{detail}</Text>}
+              {f.hf && (
+                <VStack gap={0}>
+                  {f.hf.expectedSize != null && (
+                    <Text type="supporting">
+                      Size: {formatSize(f.hf.expectedSize)}
+                    </Text>
+                  )}
+                  {f.hf.commit && (
+                    <Link href={f.hf.commitUrl ?? f.hf.fileUrl} isExternalLink>
+                      Revision {f.hf.commit.slice(0, 12)}
+                      {f.hf.commitDate && ` (${f.hf.commitDate.slice(0, 10)})`}
+                    </Link>
+                  )}
+                  <Link href={f.hf.modelUrl} isExternalLink>
+                    {f.hf.repoId}
+                  </Link>
+                  <Link href={f.hf.fileUrl} isExternalLink>
+                    View file on HuggingFace
+                  </Link>
+                </VStack>
+              )}
+              {canFix && (
+                <HStack>
+                  <Button
+                    label={fixing ? 'Fixing…' : 'Fix'}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onFix?.(f.file)}
+                    isDisabled={fixing}
+                  />
+                </HStack>
+              )}
+              {canFixDuplicate && (
+                <HStack>
+                  <Button
+                    label={fixingDuplicate ? 'Fixing…' : 'Fix'}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onFixDuplicate?.(f.file)}
+                    isDisabled={fixingDuplicate}
+                  />
+                </HStack>
+              )}
+              {canSetSource && (
+                <HStack>
+                  <Button
+                    label="Set source…"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onSetSource?.(f.file)}
+                  />
+                </HStack>
+              )}
+              {canRedownload && (
+                <HStack>
+                  <Button
+                    label={
+                      redownloading
+                        ? 'Downloading…'
+                        : isProjector
+                          ? 'Download mmproj'
+                          : 'Download missing file'
+                    }
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onRedownload?.(f)}
+                    isDisabled={redownloading}
+                  />
+                </HStack>
+              )}
+              {canShowRevisions && (
+                <HStack>
+                  <Button
+                    label="Checked revisions…"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onShowRevisions?.(f)}
+                  />
+                </HStack>
+              )}
+            </VStack>
+          );
+        })}
+      </VStack>
+      {sharedSource && (
+        <VStack gap={0}>
+          {sharedCommit?.commit && (
+            <Link
+              href={sharedCommit.commitUrl ?? sharedCommit.fileUrl}
+              isExternalLink
+            >
+              Revision {sharedCommit.commit.slice(0, 12)}
+              {sharedCommit.commitDate &&
+                ` (${sharedCommit.commitDate.slice(0, 10)})`}
+            </Link>
+          )}
+          <Link href={sharedSource.modelUrl} isExternalLink>
+            {sharedSource.repoId}
+          </Link>
+        </VStack>
+      )}
       {grouped && (
         <HStack>
           <Button
@@ -394,18 +462,20 @@ export function AuditCell({
             <Text type="supporting">
               These files don&apos;t match Hugging Face:
             </Text>
-            {issues.map((f) => (
-              <VStack key={f.path} gap={0}>
-                <Text type="body">{f.path}</Text>
-                <HStack gap={2} vAlign="center">
-                  <Badge
-                    label={f.state === 'missing' ? 'missing' : 'invalid'}
-                    variant="error"
-                  />
-                  <Text type="supporting">{repoIssueReason(f)}</Text>
-                </HStack>
-              </VStack>
-            ))}
+            <VStack gap={2} xstyle={styles.fileList}>
+              {issues.map((f) => (
+                <VStack key={f.path} gap={0}>
+                  <Text type="body">{f.path}</Text>
+                  <HStack gap={2} vAlign="center">
+                    <Badge
+                      label={f.state === 'missing' ? 'missing' : 'invalid'}
+                      variant="error"
+                    />
+                    <Text type="supporting">{repoIssueReason(f)}</Text>
+                  </HStack>
+                </VStack>
+              ))}
+            </VStack>
             {onDownloadFiles && repoId && downloadPaths.length > 0 && (
               <Button
                 label={downloadingFiles ? 'Downloading…' : 'Download files'}

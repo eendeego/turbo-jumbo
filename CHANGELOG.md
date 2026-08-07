@@ -11,6 +11,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The audit hovercard stays usable when a model is missing many files: each
+  missing file is now a single compact line (the shared repo and revision
+  links appear once instead of repeating per file), long file lists scroll
+  inside the card, and the "Download missing files" button no longer gets
+  pushed out of reach. The invalid-files hovercard's list scrolls the same
+  way.
 - The footer's free-space meters now update immediately after a delete, copy,
   or download instead of waiting out their next periodic poll.
 - The audit hovercard's "Download missing files" now downloads all of them in
