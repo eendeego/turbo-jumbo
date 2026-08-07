@@ -91,12 +91,18 @@ function selectedFileInfo(
             : {}),
         });
       } else {
-        // Split quant with multiple selected shards: list each shard file.
+        // Split quant with multiple selected shards: one entry per shard, each
+        // with its own size — shard basenames join per-file, so the presence
+        // check compares each shard against the destination's copy, and the
+        // copy modal can total them for its collapsed "N files · size" row.
         for (const p of matchedPaths) {
+          const filename = p.split('/').pop() ?? p;
+          const size = sourceSizeByKey.get(fileJoinKey(model.name, filename));
           result.push({
             model: model.name,
             quant: q.label,
-            filename: p.split('/').pop() ?? p,
+            filename,
+            ...(size != null ? {size} : {}),
           });
         }
       }
