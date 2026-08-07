@@ -38,6 +38,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The "Copy to…" modal is wider and scrolls long selections inside the
   dialog: the file list gets its own viewport while the destination
   checkboxes and the Cancel/Copy buttons stay visible.
+- The modal listing files that already exist at a copy destination is wider
+  too, with room for full file names and checksums side by side. Long lists
+  scroll inside the dialog instead of stretching it, so Cancel and Continue
+  stay put however many files clash.
 - Copying a sharded model (a multi-file safetensors repo, a split GGUF) no
   longer lists every shard in the copy modal — it shows one line with the
   file count and total size. Shard sizes now also back the "already present"
