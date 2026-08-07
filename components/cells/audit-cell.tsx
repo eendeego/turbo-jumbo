@@ -21,6 +21,12 @@ const styles = stylex.create({
   fileList: {maxHeight: 280, overflowY: 'auto'},
 });
 
+// Hovercards holding buttons or links get a longer hide delay than the 200ms
+// default: leaving the badge starts the hide countdown, and the pointer must
+// reach the card before it fires — a tight window when the target is a button
+// at the far edge of a tall card.
+const INTERACTIVE_HIDE_DELAY = 600;
+
 const AUDIT_BADGE: Record<
   AuditStatus,
   {label: string; variant: 'success' | 'error' | 'warning' | 'neutral'}
@@ -301,6 +307,7 @@ export function UpdateBadge({updates}: {updates: UpdateResult[]}) {
   return (
     <HoverCard
       placement="above"
+      hideDelay={INTERACTIVE_HIDE_DELAY}
       content={
         <VStack gap={1}>
           <Text type="supporting">Newer version on Hugging Face</Text>
@@ -457,6 +464,7 @@ export function AuditCell({
     return (
       <HoverCard
         placement="above"
+        hideDelay={INTERACTIVE_HIDE_DELAY}
         content={
           <VStack gap={2}>
             <Text type="supporting">
@@ -515,6 +523,7 @@ export function AuditCell({
     return (
       <HoverCard
         placement="above"
+        hideDelay={INTERACTIVE_HIDE_DELAY}
         content={
           <VStack gap={2}>
             <Text type="supporting">
@@ -553,6 +562,7 @@ export function AuditCell({
   return (
     <HoverCard
       placement="above"
+      hideDelay={INTERACTIVE_HIDE_DELAY}
       content={
         <AuditFailureContent
           failures={failures ?? []}

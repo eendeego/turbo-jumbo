@@ -16,7 +16,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   links appear once instead of repeating per file), long file lists scroll
   inside the card, and the "Download missing files" button no longer gets
   pushed out of reach. The invalid-files hovercard's list scrolls the same
-  way.
+  way. Audit hovercards containing buttons or links also linger longer after
+  the pointer leaves the badge, so the card no longer vanishes on the way to
+  its button.
 - The footer's free-space meters now update immediately after a delete, copy,
   or download instead of waiting out their next periodic poll.
 - The audit hovercard's "Download missing files" now downloads all of them in
