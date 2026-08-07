@@ -9,6 +9,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Updated the UI toolkit (Astryx 0.3.0) and framework (Next.js 16.3, React
+  19.2.8), so some controls may look subtly different.
+
 ### Fixed
 
 - The audit hovercard stays usable when a model is missing many files: each

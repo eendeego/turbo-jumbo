@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import yaml from 'js-yaml';
+import {load as loadYaml} from 'js-yaml';
 import Ajv2020 from 'ajv/dist/2020';
 import schema from '@/config.schema.json';
 
@@ -55,7 +55,7 @@ function configPath(): string {
 
 function loadConfig(): Config {
   const file = configPath();
-  const loaded = yaml.load(fs.readFileSync(file, 'utf8'));
+  const loaded = loadYaml(fs.readFileSync(file, 'utf8'));
   const error = validateRawConfig(loaded);
   if (error) throw new Error(`Invalid config at ${file}: ${error}`);
   return loaded as Config;
