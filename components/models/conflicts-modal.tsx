@@ -18,9 +18,22 @@ export interface ConflictItem {
   sourceSize: number;
   destSize: number;
   sizeMatch: boolean;
-  md5Match: boolean | null;
-  sourceMd5: string | null;
-  destMd5: string | null;
+  // Which digest the two copies were compared with, and the result. The check
+  // prefers the SHA256 both sidecars already record (no bytes read) and falls
+  // back to md5-ing both copies; null means it couldn't compare at all — the
+  // sizes differ, or one side offered no digest.
+  digest: 'sha256' | 'md5' | null;
+  digestMatch: boolean | null;
+  sourceDigest: string | null;
+  destDigest: string | null;
+}
+
+// Digests are identity, not reading material: enough to eyeball two rows
+// against each other, with the algorithm named so sha256 and md5 rows are
+// never mistaken for each other.
+function shortDigest(value: string | null, algo: 'sha256' | 'md5' | null) {
+  if (!value) return '—';
+  return `${algo ?? '?'}:${value.slice(0, 12)}…`;
 }
 
 interface ConflictsModalProps {
@@ -42,7 +55,7 @@ export function ConflictsModal({
   const peerNameMap = new Map((peers ?? []).map((p) => [p.address, p.name]));
   // Checked = overwrite. Default to overwriting anything that isn't byte-identical.
   const [overwrite, setOverwrite] = useState<Set<string>>(
-    new Set(conflicts.filter((c) => c.md5Match !== true).map(key)),
+    new Set(conflicts.filter((c) => c.digestMatch !== true).map(key)),
   );
 
   function toggleOverwrite(conflict: ConflictItem) {
@@ -97,7 +110,7 @@ export function ConflictsModal({
                     : (peerNameMap.get(conflict.destination) ??
                       conflict.destination);
                 const status =
-                  conflict.md5Match === true
+                  conflict.digestMatch === true
                     ? {label: 'identical', variant: 'success' as const}
                     : conflict.sizeMatch
                       ? {
@@ -140,7 +153,10 @@ export function ConflictsModal({
                               {formatSize(conflict.sourceSize)}
                             </Text>
                             <Text type="code" color="secondary">
-                              {conflict.sourceMd5 ?? '—'}
+                              {shortDigest(
+                                conflict.sourceDigest,
+                                conflict.digest,
+                              )}
                             </Text>
                           </HStack>
                           <HStack gap={3} vAlign="center">
@@ -156,12 +172,15 @@ export function ConflictsModal({
                             <Text
                               type="code"
                               color={
-                                conflict.md5Match === false
+                                conflict.digestMatch === false
                                   ? 'accent'
                                   : 'secondary'
                               }
                             >
-                              {conflict.destMd5 ?? '—'}
+                              {shortDigest(
+                                conflict.destDigest,
+                                conflict.digest,
+                              )}
                             </Text>
                           </HStack>
                         </VStack>

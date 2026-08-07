@@ -1,10 +1,20 @@
-import {useMemo, useState, type Dispatch, type SetStateAction} from 'react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import type {Model} from '@/lib/models/models';
 import type {AsyncState} from '@/lib/util/async-state';
 import {
   readCopyAndReportErrors,
   type CopyProgress,
 } from '@/lib/storage/copy-progress';
+import {
+  readCheckStream,
+  type CheckProgress,
+} from '@/lib/storage/check-progress';
 import {type CopyDestinations} from '@/components/models/copy-modal';
 import {type ConflictItem} from '@/components/models/conflicts-modal';
 
@@ -40,6 +50,13 @@ export function useCopyWorkflow({
   const [copying, setCopying] = useState(false);
   const [copyProgress, setCopyProgress] = useState<CopyProgress | null>(null);
   const [checking, setChecking] = useState(false);
+  const [checkProgress, setCheckProgress] = useState<CheckProgress | null>(
+    null,
+  );
+  // Aborts the in-flight conflict check. The server stops between files when
+  // the request is aborted, so a check that turned out to need real hashing
+  // can be abandoned instead of waited out.
+  const checkAbort = useRef<AbortController | null>(null);
   const [pendingConflicts, setPendingConflicts] = useState<ConflictItem[]>([]);
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
@@ -119,14 +136,19 @@ export function useCopyWorkflow({
       return;
     }
     setChecking(true);
+    setCheckProgress(null);
     setError(null);
     let hasConflicts = false;
     let hasError = false;
+    let cancelled = false;
     let filesToCopy: SourceFile[] = sourceFiles;
+    const abort = new AbortController();
+    checkAbort.current = abort;
     try {
       const res = await fetch('/api/v1/copy/check', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
+        signal: abort.signal,
         body: JSON.stringify({
           files: sourceFiles,
           toColdStorage: destinations.toColdStorage,
@@ -134,28 +156,43 @@ export function useCopyWorkflow({
         }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const {conflicts, files: checkedFiles} = (await res.json()) as {
-        conflicts: ConflictItem[];
+      // The check streams progress and ends with its verdict; no result frame
+      // means it was abandoned, and nothing should be copied.
+      const result = await readCheckStream<ConflictItem, SourceFile>(
+        res,
+        setCheckProgress,
+      );
+      if (!result) {
+        cancelled = true;
+      } else {
         // The check expands the selection with the support files living in
-        // the same model directories; the copy sends that expanded list. An
-        // older server without the field falls back to the selection alone.
-        files?: SourceFile[];
-      };
-      filesToCopy = checkedFiles ?? sourceFiles;
-      if (conflicts.length > 0) {
-        hasConflicts = true;
-        setPendingConflicts(conflicts);
-        setPendingDestinations(destinations);
-        setPendingFiles(filesToCopy);
+        // the same model directories; the copy sends that expanded list.
+        filesToCopy = result.files ?? sourceFiles;
+        if (result.conflicts.length > 0) {
+          hasConflicts = true;
+          setPendingConflicts(result.conflicts);
+          setPendingDestinations(destinations);
+          setPendingFiles(filesToCopy);
+        }
       }
     } catch (e) {
-      hasError = true;
-      setError(e instanceof Error ? e.message : String(e));
+      if (abort.signal.aborted) {
+        cancelled = true;
+      } else {
+        hasError = true;
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
+      checkAbort.current = null;
       setChecking(false);
+      setCheckProgress(null);
     }
-    if (!hasConflicts && !hasError) await doCopy(destinations, [], filesToCopy);
+    if (!hasConflicts && !hasError && !cancelled)
+      await doCopy(destinations, [], filesToCopy);
   }
+
+  // Abandon a running check. The copy never starts: the user asked to stop.
+  const cancelCheck = () => checkAbort.current?.abort();
 
   async function onConflictsConfirm(
     skip: Array<{file: string; destination: string}>,
@@ -251,6 +288,8 @@ export function useCopyWorkflow({
     copying,
     copyProgress,
     checking,
+    checkProgress,
+    cancelCheck,
     confirmingCopy,
     setConfirmingCopy,
     pendingConflicts,

@@ -1,6 +1,6 @@
 'use client';
 
-import {useState} from 'react';
+import {useRef, useState} from 'react';
 import {Section} from '@astryxdesign/core/Section';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
@@ -15,6 +15,10 @@ import {
   readCopyAndReportErrors,
   buildFileSizes,
 } from '@/lib/storage/copy-progress';
+import {
+  readCheckStream,
+  type CheckProgress,
+} from '@/lib/storage/check-progress';
 import {ModelList} from '@/components/models/model-list';
 import {ActionBar} from '@/components/models/action-bar';
 import {
@@ -50,6 +54,11 @@ export function Peer({
   const [copyProgress, setCopyProgress] = useState<CopyProgress | null>(null);
   const [confirmingCopy, setConfirmingCopy] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [checkProgress, setCheckProgress] = useState<CheckProgress | null>(
+    null,
+  );
+  // Aborts the in-flight conflict check (see use-copy-workflow).
+  const checkAbort = useRef<AbortController | null>(null);
   const [pendingConflicts, setPendingConflicts] = useState<ConflictItem[]>([]);
   const [pendingDestinations, setPendingDestinations] =
     useState<CopyDestinations | null>(null);
@@ -93,13 +102,18 @@ export function Peer({
   async function onCopy(destinations: CopyDestinations) {
     setConfirmingCopy(false);
     setChecking(true);
+    setCheckProgress(null);
     setError(null);
     let hasConflicts = false;
     let hasError = false;
+    let cancelled = false;
+    const abort = new AbortController();
+    checkAbort.current = abort;
     try {
       const res = await fetch('/api/v1/copy/check', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
+        signal: abort.signal,
         body: JSON.stringify({
           files: selections,
           from: peer.address,
@@ -109,19 +123,33 @@ export function Peer({
         }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const {conflicts} = (await res.json()) as {conflicts: ConflictItem[]};
-      if (conflicts.length > 0) {
+      // The check streams progress and ends with its verdict; no result frame
+      // means it was abandoned, and nothing should be copied.
+      const result = await readCheckStream<ConflictItem, unknown>(
+        res,
+        setCheckProgress,
+      );
+      if (!result) {
+        cancelled = true;
+      } else if (result.conflicts.length > 0) {
         hasConflicts = true;
-        setPendingConflicts(conflicts);
+        setPendingConflicts(result.conflicts);
         setPendingDestinations(destinations);
       }
     } catch (e) {
-      hasError = true;
-      setError(e instanceof Error ? e.message : String(e));
+      if (abort.signal.aborted) {
+        cancelled = true;
+      } else {
+        hasError = true;
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
+      checkAbort.current = null;
       setChecking(false);
+      setCheckProgress(null);
     }
-    if (!hasConflicts && !hasError) await doCopy(destinations, []);
+    if (!hasConflicts && !hasError && !cancelled)
+      await doCopy(destinations, []);
   }
 
   async function onConflictsConfirm(
@@ -228,6 +256,8 @@ export function Peer({
                 copying={copying}
                 copyProgress={copyProgress}
                 checking={checking}
+                checkProgress={checkProgress}
+                onCancelCheck={() => checkAbort.current?.abort()}
               />
             </VStack>
           ) : (

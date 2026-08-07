@@ -22,6 +22,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The check that runs before a copy — the one that finds files already present
+  at the destination — no longer re-reads both copies of every file to compare
+  them. Turbo Jumbo already records each file's SHA256 when it downloads it, so
+  when both copies still match what their sidecars recorded, the comparison is
+  answered from those records and nothing is read at all. A model whose
+  destination copy was already identical used to mean reading it twice end to
+  end, at the speed of the slowest disk involved; a 155 GiB model that took
+  several minutes now answers in under a second. Files without a usable record
+  — support files, anything a sidecar never covered — are still compared by
+  reading them, and the Copy button now reports which file it's on ("Verifying
+  12/48…") with a Cancel check button beside it, instead of sitting on
+  "Checking…" for minutes with no way out.
 - Updated the UI toolkit (Astryx 0.3.0) and framework (Next.js 16.3, React
   19.2.8), so some controls may look subtly different.
 

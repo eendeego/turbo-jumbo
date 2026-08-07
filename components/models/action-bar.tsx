@@ -10,6 +10,10 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {CommandLineIcon} from '@heroicons/react/24/outline';
 import type {CopyProgress} from '@/lib/storage/copy-progress';
+import {
+  checkStatusLabel,
+  type CheckProgress,
+} from '@/lib/storage/check-progress';
 import {formatSize, formatSpeed} from '@/lib/format/bytes';
 
 const formatBytePair = (v: number, m: number) =>
@@ -29,6 +33,8 @@ interface ActionBarProps {
   copying: boolean;
   copyProgress?: CopyProgress | null;
   checking?: boolean;
+  checkProgress?: CheckProgress | null;
+  onCancelCheck?: () => void;
   onAudit?: () => void;
   auditing?: boolean;
   auditSupported?: boolean;
@@ -47,6 +53,8 @@ export function ActionBar({
   copying,
   copyProgress,
   checking,
+  checkProgress,
+  onCancelCheck,
   onAudit,
   auditing = false,
   auditSupported = false,
@@ -95,8 +103,24 @@ export function ActionBar({
               : `${selected.size} file${selected.size !== 1 ? 's' : ''} selected`}
           </Text>
           <HStack gap={2}>
+            {/* A check that has to hash reads whole files, so it says which
+                one and how far along it is — and can be abandoned. */}
+            {checking && onCancelCheck && (
+              <Button
+                label="Cancel check"
+                variant="secondary"
+                size="sm"
+                onClick={onCancelCheck}
+              />
+            )}
             <Button
-              label={copying ? 'Copying…' : checking ? 'Checking…' : 'Copy to…'}
+              label={
+                copying
+                  ? 'Copying…'
+                  : checking
+                    ? checkStatusLabel(checkProgress)
+                    : 'Copy to…'
+              }
               variant="secondary"
               size="sm"
               // Like the Audit tooltip, only explains the no-selection case;

@@ -423,6 +423,8 @@ export function HomeClient({
     copying,
     copyProgress,
     checking,
+    checkProgress,
+    cancelCheck,
     confirmingCopy,
     setConfirmingCopy,
     pendingConflicts,
@@ -588,6 +590,8 @@ export function HomeClient({
                 copying={copying}
                 copyProgress={copyProgress}
                 checking={checking}
+                checkProgress={checkProgress}
+                onCancelCheck={cancelCheck}
                 onAudit={onAudit}
                 auditing={auditing}
                 auditSupported={auditLocation !== null}
