@@ -116,8 +116,11 @@ export function ConflictsModal({
                       />
                       <StackItem size="fill">
                         <VStack gap={1}>
+                          {/* The path gets a line to itself: sharing one with
+                              the destination, status and action crushed all
+                              four together once a name grew long. */}
+                          <Text type="code">{conflict.file}</Text>
                           <HStack gap={2} vAlign="center">
-                            <Text type="code">{conflict.file}</Text>
                             <Text type="supporting">→ {destLabel}</Text>
                             <Badge
                               variant={status.variant}

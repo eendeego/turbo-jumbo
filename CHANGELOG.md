@@ -39,7 +39,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   dialog: the file list gets its own viewport while the destination
   checkboxes and the Cancel/Copy buttons stay visible.
 - The modal listing files that already exist at a copy destination is wider
-  too, with room for full file names and checksums side by side. Long lists
+  too, and each file's path now gets a line of its own instead of being
+  squeezed alongside its destination, status and overwrite/skip label — a
+  long path used to wrap mid-name and run into the status badge. Long lists
   scroll inside the dialog instead of stretching it, so Cancel and Continue
   stay put however many files clash.
 - Copying a sharded model (a multi-file safetensors repo, a split GGUF) no
