@@ -11,7 +11,7 @@ import {List, ListItem} from '@astryxdesign/core/List';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/models/model-types';
-import {groupCopyFiles} from '@/lib/models/copy-file-groups';
+import {groupSelectedFiles} from '@/lib/models/selected-file-groups';
 import {allFilesPresent} from '@/lib/peers/peer-paths';
 import type {FileInfo} from '@/components/models/delete-modal';
 
@@ -107,7 +107,7 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
         content={
           <LayoutContent>
             <List hasDividers>
-              {groupCopyFiles(files).map((entry, i) => (
+              {groupSelectedFiles(files).map((entry, i) => (
                 <ListItem
                   key={i}
                   label={entry.label}

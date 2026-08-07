@@ -1,4 +1,5 @@
-import {test, expect} from 'bun:test';
+import {test, expect, spyOn} from 'bun:test';
+import fs from 'fs';
 import {promises as fsp} from 'fs';
 import os from 'os';
 import path from 'path';
@@ -799,6 +800,67 @@ test('scanModels leaves sidecar undefined when there is none', async () => {
   const models = scanModels(root);
   expect(models.length).toBeGreaterThan(0);
   expect(models.every((m) => m.sidecar === undefined)).toBe(true);
+
+  await fsp.rm(root, {recursive: true, force: true});
+});
+
+// Build a minimal valid safetensors file so the scanner can read its dtype.
+function safetensorsBytes(dtype: string): Buffer {
+  const json = Buffer.from(
+    JSON.stringify({t: {dtype, shape: [1], data_offsets: [0, 2]}}),
+    'utf8',
+  );
+  const len = Buffer.alloc(8);
+  len.writeBigUInt64LE(BigInt(json.length));
+  return Buffer.concat([len, json, Buffer.alloc(2)]);
+}
+
+// A split model's identity must not depend on directory iteration order: two
+// hosts holding identical files list them in whatever order their filesystem
+// returns, and a big checkpoint's shards can each carry a different dtype (a
+// real DeepSeek repo has BF16, I64 and F32 shards). Picking the first shard the
+// walk happens to see made the same model read BF16 on one host and F32 on
+// another, so nothing that surfaced the quant agreed across peers.
+test('a split model takes its representative and quant from the lowest shard', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'scan-order-'));
+  const dir = path.join(root, 'org', 'repo');
+  await fsp.mkdir(dir, {recursive: true});
+  // Shard 1 is BF16; the later shards differ, as in a real mixed checkpoint.
+  await fsp.writeFile(
+    path.join(dir, 'model-00001-of-00003.safetensors'),
+    safetensorsBytes('BF16'),
+  );
+  await fsp.writeFile(
+    path.join(dir, 'model-00002-of-00003.safetensors'),
+    safetensorsBytes('I64'),
+  );
+  await fsp.writeFile(
+    path.join(dir, 'model-00003-of-00003.safetensors'),
+    safetensorsBytes('F32'),
+  );
+
+  const readdir = fs.readdirSync;
+  const spy = spyOn(fs, 'readdirSync');
+  try {
+    // Stand in for a host whose directory order differs from ours. Sorted
+    // descending rather than merely reversed: real readdir order is already
+    // arbitrary, so only an explicit order makes this deterministic.
+    spy.mockImplementation(((...args: Parameters<typeof fs.readdirSync>) =>
+      [...(readdir as (...a: unknown[]) => unknown[])(...args)].sort((a, b) =>
+        String((b as {name: string}).name).localeCompare(
+          String((a as {name: string}).name),
+        ),
+      )) as typeof fs.readdirSync);
+    const model = scanModels(root).find((m) => m.name === 'org/repo');
+    const split = model!.files[0];
+    expect(split.isSplit).toBe(true);
+    expect(
+      (split as {representativeFilename: string}).representativeFilename,
+    ).toBe('model-00001-of-00003.safetensors');
+    expect(split.quant).toBe('BF16');
+  } finally {
+    spy.mockRestore();
+  }
 
   await fsp.rm(root, {recursive: true, force: true});
 });

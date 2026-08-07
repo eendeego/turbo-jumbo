@@ -16,6 +16,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A sharded model no longer gets a different quantization label on each
+  machine. The label is read from one shard's header, and which shard that
+  was depended on the order the filesystem happened to list the directory in
+  — so a mixed-precision checkpoint could read BF16 on one peer and F32 on
+  another. The lowest-numbered shard now always decides.
+- Deleting a sharded model no longer warns that it isn't backed up in cold
+  storage when every shard is in fact there, and copying one no longer counts
+  a destination as already having it when only a single shard is present.
 - The "Copy to…" modal is wider and scrolls long selections inside the
   dialog: the file list gets its own viewport while the destination
   checkboxes and the Cancel/Copy buttons stay visible.

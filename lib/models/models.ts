@@ -249,6 +249,10 @@ export function scanModels(
     presentPaths: Shard[];
     totalSize: number;
     representativeFilename: string;
+    // Which shard the representative (and the quant read from it) came from.
+    // Kept so the lowest-numbered shard always wins regardless of the order
+    // the walk sees them in — see the update below.
+    representativeIndex: number;
   }
   const splitMap = new Map<string, SplitAccum>();
 
@@ -317,9 +321,20 @@ export function scanModels(
             presentPaths: [],
             totalSize: 0,
             representativeFilename: entry.name,
+            representativeIndex: index,
           });
         }
         const accum = splitMap.get(key)!;
+        // Directory order is arbitrary and differs between machines holding the
+        // same files, so the representative must not be "whichever shard we saw
+        // first": the lowest-numbered one wins. The quant follows it, because a
+        // mixed-dtype checkpoint reads BF16 off shard 1 and F32 off shard 40 —
+        // which made two peers label the identical model differently.
+        if (index < accum.representativeIndex) {
+          accum.representativeIndex = index;
+          accum.representativeFilename = entry.name;
+          accum.quant = weightLabel(fullPath, entry.name, quant);
+        }
         accum.presentIndices.add(index);
         accum.presentPaths.push({path: relPath, size});
         accum.totalSize += size;

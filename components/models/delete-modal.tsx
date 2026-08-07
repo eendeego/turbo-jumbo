@@ -7,8 +7,9 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
-import type {Model} from '@/lib/models/model-types';
-import {modelDisplayName} from '@/lib/models/model-name';
+import {shardPath, type Model} from '@/lib/models/model-types';
+import {groupSelectedFiles} from '@/lib/models/selected-file-groups';
+import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peers/peer-paths';
 import {filePaths} from '@/components/models/model-list';
 
 export interface FileInfo {
@@ -18,6 +19,13 @@ export interface FileInfo {
   size?: number; // source size, for size-aware "already present" checks
 }
 
+/**
+ * The selected files, one entry per file. A split quant contributes one entry
+ * per selected shard — not a single entry under its representative filename:
+ * the representative is whichever shard the scan saw first, so a one-entry
+ * split let a destination holding just that shard pass as holding the whole
+ * model, and hid the other shards from every presence check.
+ */
 export function selectedFileInfo(
   models: Model[],
   selected: Set<string>,
@@ -25,12 +33,25 @@ export function selectedFileInfo(
   const result: FileInfo[] = [];
   for (const model of models) {
     for (const file of model.files) {
-      const paths = filePaths(file);
-      if (paths.length > 0 && paths.some((p) => selected.has(p))) {
+      const matched = filePaths(file).filter((p) => selected.has(p));
+      if (matched.length === 0) continue;
+      if (!file.isSplit) {
         result.push({
           model: model.name,
           quant: file.quant,
-          filename: file.isSplit ? file.representativeFilename : file.filename,
+          filename: file.filename,
+          size: file.size,
+        });
+        continue;
+      }
+      const sizeByPath = new Map(file.files.map((s) => [shardPath(s), s.size]));
+      for (const p of matched) {
+        const size = sizeByPath.get(p);
+        result.push({
+          model: model.name,
+          quant: file.quant,
+          filename: fileBasename(p),
+          ...(size != null ? {size} : {}),
         });
       }
     }
@@ -38,19 +59,19 @@ export function selectedFileInfo(
   return result;
 }
 
+/**
+ * Whether any selected file has no cold-storage copy. Joins on `fileJoinKey`
+ * (the same identity the copy destinations use), so a split is compared shard
+ * by shard: matching the two sides' *representative* filenames instead reported
+ * a fully-backed split as missing, because each host derives its representative
+ * from its own directory order.
+ */
 export function anyMissingFromColdStorage(
   files: FileInfo[],
   coldModels: Model[],
 ): boolean {
-  const coldFilenames = new Set<string>();
-  for (const model of coldModels) {
-    for (const file of model.files) {
-      coldFilenames.add(
-        file.isSplit ? file.representativeFilename : file.filename,
-      );
-    }
-  }
-  return files.some((f) => !coldFilenames.has(f.filename));
+  const coldKeys = peerFileKeys(coldModels);
+  return files.some((f) => !coldKeys.has(fileJoinKey(f.model, f.filename)));
 }
 
 interface DeleteModalProps {
@@ -112,11 +133,11 @@ export function DeleteModal({
             {from ? ` from ${from}` : ''}?
           </Heading>
           <List hasDividers>
-            {files.map((f, i) => (
+            {groupSelectedFiles(files).map((entry, i) => (
               <ListItem
                 key={i}
-                label={f.filename}
-                description={`${modelDisplayName(f.model)} / ${f.quant}`}
+                label={entry.label}
+                description={entry.description}
               />
             ))}
           </List>

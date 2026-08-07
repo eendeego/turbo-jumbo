@@ -1,10 +1,10 @@
 import {describe, expect, test} from 'bun:test';
-import {groupCopyFiles} from '@/lib/models/copy-file-groups';
+import {groupSelectedFiles} from '@/lib/models/selected-file-groups';
 
-describe('groupCopyFiles', () => {
+describe('groupSelectedFiles', () => {
   test('keeps single-file quants as one row each', () => {
     expect(
-      groupCopyFiles([
+      groupSelectedFiles([
         {model: 'org/repo-GGUF', quant: 'Q4_K_M', filename: 'a-Q4_K_M.gguf'},
         {model: 'org/repo-GGUF', quant: 'Q8_0', filename: 'a-Q8_0.gguf'},
       ]),
@@ -16,7 +16,7 @@ describe('groupCopyFiles', () => {
 
   test('collapses a multi-file quant into a count and total size', () => {
     expect(
-      groupCopyFiles([
+      groupSelectedFiles([
         {
           model: 'deepseek-ai/DeepSeek-V4',
           quant: 'BF16',
@@ -43,7 +43,7 @@ describe('groupCopyFiles', () => {
 
   test('omits the size when any shard size is unknown', () => {
     expect(
-      groupCopyFiles([
+      groupSelectedFiles([
         {model: 'm', quant: 'BF16', filename: 'a.safetensors', size: 1024},
         {model: 'm', quant: 'BF16', filename: 'b.safetensors'},
       ]),
@@ -52,7 +52,7 @@ describe('groupCopyFiles', () => {
 
   test('interleaved quants group independently and keep first-seen order', () => {
     expect(
-      groupCopyFiles([
+      groupSelectedFiles([
         {model: 'm', quant: 'A', filename: 'a-1.safetensors', size: 1},
         {model: 'other', quant: 'Q8_0', filename: 'o.gguf'},
         {model: 'm', quant: 'A', filename: 'a-2.safetensors', size: 1},
