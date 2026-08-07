@@ -16,6 +16,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The "Copy to…" modal is wider and scrolls long selections inside the
+  dialog: the file list gets its own viewport while the destination
+  checkboxes and the Cancel/Copy buttons stay visible.
 - The audit hovercard stays usable when a model is missing many files: each
   missing file is now a single compact line (the shared repo and revision
   links appear once instead of repeating per file), long file lists scroll

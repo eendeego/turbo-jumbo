@@ -1,9 +1,10 @@
 'use client';
 
 import {useState, useEffect} from 'react';
-import {Dialog} from '@astryxdesign/core/Dialog';
+import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
+import {Layout, LayoutContent, LayoutFooter} from '@astryxdesign/core/Layout';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
-import {Heading, Text} from '@astryxdesign/core/Text';
+import {Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {List, ListItem} from '@astryxdesign/core/List';
@@ -91,89 +92,107 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
         if (!open) onCancel();
       }}
       purpose="required"
+      width="min(800px, 92vw)"
+      maxHeight="85vh"
     >
-      <VStack gap={4}>
-        <Heading level={3}>
-          Copy {files.length} {files.length === 1 ? 'file' : 'files'} to…
-        </Heading>
-
-        <List hasDividers>
-          {files.map((f, i) => (
-            <ListItem
-              key={i}
-              label={f.filename}
-              description={`${modelDisplayName(f.model)} / ${f.quant}`}
-            />
-          ))}
-        </List>
-
-        <VStack gap={2}>
-          {showColdStorage && (
-            <>
-              <CheckboxInput
-                label="Cold storage"
-                description={coldAlreadyPresent ? 'already present' : undefined}
-                value={toColdStorage}
-                isDisabled={coldAlreadyPresent}
-                onChange={(checked) => {
-                  setToColdStorage(checked);
-                  if (!checked) setDeleteAfterCopy(false);
-                }}
-              />
-              {toColdStorage && (
-                <CheckboxInput
-                  label="Delete after copying"
-                  value={deleteAfterCopy}
-                  onChange={setDeleteAfterCopy}
-                />
-              )}
-            </>
-          )}
-
-          {peers === null ? (
-            <Spinner label="Loading peers…" />
-          ) : (
-            availablePeers.map((peer) => {
-              const peerModels = peerModelsMap.get(peer.address);
-              const alreadyPresent =
-                peerModels !== undefined && allFilesPresent(files, peerModels);
-              const note = peer.isLocal
-                ? alreadyPresent
-                  ? 'local · already present'
-                  : 'local'
-                : alreadyPresent
-                  ? 'already present'
-                  : undefined;
-              return (
-                <CheckboxInput
-                  key={peer.address}
-                  label={peer.name}
-                  description={note}
-                  value={selectedPeers.has(peer.address)}
-                  isDisabled={alreadyPresent}
-                  onChange={() => togglePeer(peer.address)}
-                />
-              );
-            })
-          )}
-
-          {!showColdStorage &&
-            peers !== null &&
-            availablePeers.length === 0 && (
-              <Text type="supporting">No destinations available.</Text>
-            )}
-        </VStack>
-
-        <HStack gap={2} hAlign="end">
-          <Button label="Cancel" variant="secondary" onClick={onCancel} />
-          <Button
-            label="Copy"
-            variant="primary"
-            isDisabled={!canCopy}
-            onClick={handleCopy}
+      {/* Only the file list scrolls; the destination checkboxes live in the
+          pinned footer with the buttons so they stay visible no matter how
+          many files are selected. */}
+      <Layout
+        header={
+          <DialogHeader
+            title={`Copy ${files.length} ${files.length === 1 ? 'file' : 'files'} to…`}
           />
-        </HStack>
-      </VStack>
+        }
+        content={
+          <LayoutContent>
+            <List hasDividers>
+              {files.map((f, i) => (
+                <ListItem
+                  key={i}
+                  label={f.filename}
+                  description={`${modelDisplayName(f.model)} / ${f.quant}`}
+                />
+              ))}
+            </List>
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter>
+            <VStack gap={4}>
+              <VStack gap={2}>
+                {showColdStorage && (
+                  <>
+                    <CheckboxInput
+                      label="Cold storage"
+                      description={
+                        coldAlreadyPresent ? 'already present' : undefined
+                      }
+                      value={toColdStorage}
+                      isDisabled={coldAlreadyPresent}
+                      onChange={(checked) => {
+                        setToColdStorage(checked);
+                        if (!checked) setDeleteAfterCopy(false);
+                      }}
+                    />
+                    {toColdStorage && (
+                      <CheckboxInput
+                        label="Delete after copying"
+                        value={deleteAfterCopy}
+                        onChange={setDeleteAfterCopy}
+                      />
+                    )}
+                  </>
+                )}
+
+                {peers === null ? (
+                  <Spinner label="Loading peers…" />
+                ) : (
+                  availablePeers.map((peer) => {
+                    const peerModels = peerModelsMap.get(peer.address);
+                    const alreadyPresent =
+                      peerModels !== undefined &&
+                      allFilesPresent(files, peerModels);
+                    const note = peer.isLocal
+                      ? alreadyPresent
+                        ? 'local · already present'
+                        : 'local'
+                      : alreadyPresent
+                        ? 'already present'
+                        : undefined;
+                    return (
+                      <CheckboxInput
+                        key={peer.address}
+                        label={peer.name}
+                        description={note}
+                        value={selectedPeers.has(peer.address)}
+                        isDisabled={alreadyPresent}
+                        onChange={() => togglePeer(peer.address)}
+                      />
+                    );
+                  })
+                )}
+
+                {!showColdStorage &&
+                  peers !== null &&
+                  availablePeers.length === 0 && (
+                    <Text type="supporting">No destinations available.</Text>
+                  )}
+              </VStack>
+
+              <HStack gap={2} hAlign="end">
+                <Button label="Cancel" variant="secondary" onClick={onCancel} />
+                <Button
+                  label="Copy"
+                  variant="primary"
+                  isDisabled={!canCopy}
+                  onClick={handleCopy}
+                />
+              </HStack>
+            </VStack>
+          </LayoutFooter>
+        }
+      />
     </Dialog>
   );
 }
