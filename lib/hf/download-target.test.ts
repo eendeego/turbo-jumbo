@@ -48,6 +48,20 @@ test('remote peer without base_path falls back to a placeholder path', () => {
   });
 });
 
+test('a peer with a Unicode name targets its proxy by slug', () => {
+  const unicode: Peer = {
+    name: 'Zürich',
+    address: '192.0.2.4:3000',
+    slug: 'zurich',
+    base_path: '/mnt/g',
+  };
+  expect(downloadTarget('192.0.2.4:3000', [unicode], '/local/models')).toEqual({
+    url: '/api/v1/peers/zurich/hf-download',
+    displayPath: '/mnt/g/turbo-jumbo',
+    diskUsageUrl: '/api/v1/peers/zurich/disk-usage',
+  });
+});
+
 test('peerModelsDir honors the turbo_jumbo_subdir override', () => {
   expect(
     peerModelsDir({

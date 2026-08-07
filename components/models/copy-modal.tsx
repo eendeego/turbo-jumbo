@@ -9,6 +9,7 @@ import {Button} from '@astryxdesign/core/Button';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {Spinner} from '@astryxdesign/core/Spinner';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer} from '@/lib/config';
 import type {Model} from '@/lib/models/model-types';
 import {groupSelectedFiles} from '@/lib/models/selected-file-groups';
@@ -50,7 +51,7 @@ export function CopyModal({files, from, onCopy, onCancel}: CopyModalProps) {
   useEffect(() => {
     if (!peers) return;
     peers.forEach((peer) => {
-      fetch(`/api/v1/peers/${encodeURIComponent(peer.name)}/models`)
+      fetch(`/api/v1/peers/${peerSlug(peer)}/models`)
         .then((r) => r.json())
         .then((models: Model[]) =>
           setPeerModelsMap((prev) => new Map(prev).set(peer.address, models)),

@@ -2,6 +2,7 @@
 
 import {useCallback, useEffect, useState} from 'react';
 import {usePathname, useRouter} from 'next/navigation';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import {locationHref} from '@/lib/storage/locations';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models/models';
@@ -53,9 +54,7 @@ export function LemonadeModal({
     const local = peerConfigs.find((p) => p.isLocal);
     if (!local) return;
     try {
-      const res = await fetch(
-        `/api/v1/peers/${encodeURIComponent(local.name)}/models`,
-      );
+      const res = await fetch(`/api/v1/peers/${peerSlug(local)}/models`);
       if (!res.ok) return;
       const models = (await res.json()) as Model[];
       handleModelsRefreshed(local.address, models);
@@ -130,8 +129,10 @@ export function LemonadeModal({
   // match the InventoryLocation entries.
   const targetPeerAddress =
     activeLocation === 'all' ? localPeerAddress : activeLocation;
-  const targetName =
-    peerConfigs.find((p) => p.address === targetPeerAddress)?.name ?? null;
+  const targetPeer =
+    peerConfigs.find((p) => p.address === targetPeerAddress) ?? null;
+  const targetName = targetPeer?.name ?? null;
+  const targetSlug = targetPeer ? peerSlug(targetPeer) : null;
   // Any peer tab (and All) can download now; only Cold Storage has no Lemonade
   // view, and it never reaches here.
   const canDownload =
@@ -173,6 +174,7 @@ export function LemonadeModal({
           hfTokenSet={hfTokenSet}
           target={target}
           targetName={targetName}
+          targetSlug={targetSlug}
           inventoryLocations={inventoryLocations}
           lemonadeCacheModels={lemonadeCacheModels}
           incompleteRepos={incompleteRepos}

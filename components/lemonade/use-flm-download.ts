@@ -22,10 +22,11 @@ const num = (v: unknown) => (typeof v === 'number' ? v : 0);
  * the dropped stream as a cancel).
  */
 export function useFlmDownload({
-  peerName,
+  peerSlug,
   onDone,
 }: {
-  peerName: string | null;
+  // How the FLM endpoints name the target peer.
+  peerSlug: string | null;
   onDone?: () => void;
 }) {
   const [model, setModel] = useState<FlmModel | null>(null);
@@ -40,7 +41,7 @@ export function useFlmDownload({
   const abortRef = useRef<AbortController | null>(null);
 
   const start = async (m: FlmModel) => {
-    if (running || !peerName) return;
+    if (running || !peerSlug) return;
     setModel(m);
     setProgress(null);
     setError(null);
@@ -52,7 +53,7 @@ export function useFlmDownload({
       const res = await fetch('/api/v1/lemonade/flm/pull', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({peer: peerName, model: m.name}),
+        body: JSON.stringify({peer: peerSlug, model: m.name}),
         signal: ac.signal,
       });
       if (!res.ok || !res.body) {
@@ -106,9 +107,7 @@ export function useFlmDownload({
       // Ask the server whether it now counts the model as downloaded — the
       // one signal that the weights actually landed in its store.
       try {
-        const check = await fetch(
-          `/api/v1/lemonade/flm?peer=${encodeURIComponent(peerName)}`,
-        );
+        const check = await fetch(`/api/v1/lemonade/flm?peer=${peerSlug}`);
         if (check.ok) {
           const data = (await check.json()) as {models?: FlmModel[]};
           const entry = data.models?.find((x) => x.name === m.name);

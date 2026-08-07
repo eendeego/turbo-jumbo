@@ -107,6 +107,7 @@ export function LemonadeBrowser({
   hfTokenSet,
   target,
   targetName,
+  targetSlug,
   inventoryLocations,
   lemonadeCacheModels,
   incompleteRepos,
@@ -118,6 +119,8 @@ export function LemonadeBrowser({
   // machine it lands on — used to skip files already present there.
   target: DownloadTarget;
   targetName: string | null;
+  // That same peer's slug, which is how the FLM endpoints name it.
+  targetSlug: string | null;
   inventoryLocations: InventoryLocation[];
   // Models found in Lemonade's own cache directory, surfaced with a distinct
   // token alongside the regular download-status marker.
@@ -181,8 +184,8 @@ export function LemonadeBrowser({
   // FLM (NPU) models live only on the target peer's Lemonade server —
   // discovered from its flm binary at runtime, never in the static catalog —
   // so they're fetched live from that server via its configured lemonade_url.
-  // The state names the peer it was fetched for, so a stale answer from a
-  // previous target never renders under the new one.
+  // The state names (by slug) the peer it was fetched for, so a stale answer
+  // from a previous target never renders under the new one.
   const [flmState, setFlmState] = useState<{
     peer: string;
     models: FlmModel[] | null; // null: server unconfigured for this peer
@@ -197,9 +200,7 @@ export function LemonadeBrowser({
       error: string | null;
     } | null> => {
       try {
-        const res = await fetch(
-          `/api/v1/lemonade/flm?peer=${encodeURIComponent(peer)}`,
-        );
+        const res = await fetch(`/api/v1/lemonade/flm?peer=${peer}`);
         if (!res.ok) {
           const text = await res.text().catch(() => `${res.status}`);
           return {peer, models: null, error: text};
@@ -220,26 +221,26 @@ export function LemonadeBrowser({
     [],
   );
   useEffect(() => {
-    if (!targetName) return;
+    if (!targetSlug) return;
     let cancelled = false;
-    void fetchFlm(targetName).then((s) => {
+    void fetchFlm(targetSlug).then((s) => {
       if (!cancelled && s) setFlmState(s);
     });
     return () => {
       cancelled = true;
     };
-  }, [fetchFlm, targetName]);
+  }, [fetchFlm, targetSlug]);
   const refreshFlm = useCallback(() => {
-    if (!targetName) return;
-    void fetchFlm(targetName).then((s) => {
+    if (!targetSlug) return;
+    void fetchFlm(targetSlug).then((s) => {
       if (s) setFlmState(s);
     });
-  }, [fetchFlm, targetName]);
-  const flmModels = flmState?.peer === targetName ? flmState.models : null;
-  const flmError = flmState?.peer === targetName ? flmState.error : null;
+  }, [fetchFlm, targetSlug]);
+  const flmModels = flmState?.peer === targetSlug ? flmState.models : null;
+  const flmError = flmState?.peer === targetSlug ? flmState.error : null;
 
   const flm = useFlmDownload({
-    peerName: targetName,
+    peerSlug: targetSlug,
     // A finished (or cancelled) pull changed the server's downloaded flags.
     onDone: refreshFlm,
   });

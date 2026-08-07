@@ -8,6 +8,7 @@ import {HStack} from '@astryxdesign/core/Stack';
 import {Button} from '@astryxdesign/core/Button';
 import {HoverCard} from '@astryxdesign/core/HoverCard';
 import {Text} from '@astryxdesign/core/Text';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer as PeerConfig} from '@/lib/config';
 import {versionLabel, type AppVersion} from '@/lib/version/resolve-version';
 import {locationHref, parseRoute, ALL_LOCATION} from '@/lib/storage/locations';
@@ -162,7 +163,7 @@ export function AppChrome({
 
       {syncOpen && consolidatePeer && (
         <LemonadeSyncModal
-          syncUrl={`/api/v1/peers/${encodeURIComponent(consolidatePeer.name)}/lemonade/sync`}
+          syncUrl={`/api/v1/peers/${peerSlug(consolidatePeer)}/lemonade/sync`}
           onClose={() => setSyncOpen(false)}
           onSynced={() => router.refresh()}
         />

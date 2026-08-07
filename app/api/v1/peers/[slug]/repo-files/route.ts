@@ -1,4 +1,5 @@
 import {config, localPeer, localModelsDir} from '@/lib/config';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import {logger} from '@/lib/util/logger';
 import {repoFileStatuses} from '@/lib/models/repo-files';
 
@@ -8,10 +9,10 @@ const REPO_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 // peer, proxied to the peer's own endpoint otherwise (mirrors the models route).
 export async function GET(
   req: Request,
-  {params}: {params: Promise<{name: string}>},
+  {params}: {params: Promise<{slug: string}>},
 ) {
-  const {name} = await params;
-  const peer = config.peers.find((p) => p.name === name);
+  const {slug} = await params;
+  const peer = config.peers.find((p) => peerSlug(p) === slug);
   if (!peer) return new Response('Unknown peer', {status: 404});
   const repoId = new URL(req.url).searchParams.get('repoId') ?? '';
   if (!REPO_ID_RE.test(repoId))

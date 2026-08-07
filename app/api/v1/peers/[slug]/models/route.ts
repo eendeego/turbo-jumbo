@@ -5,6 +5,7 @@ import {
   coldStorageDir,
   lemonadeDir,
 } from '@/lib/config';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import {logger} from '@/lib/util/logger';
 import {scanModels, annotateColdStorage} from '@/lib/models/models';
 import {hasStringFiles, readJsonBody} from '@/lib/util/request';
@@ -16,11 +17,11 @@ import nodePath from 'path';
 // peer's models same-origin instead of calling each peer cross-origin.
 export async function GET(
   _req: Request,
-  {params}: {params: Promise<{name: string}>},
+  {params}: {params: Promise<{slug: string}>},
 ) {
-  const {name} = await params;
+  const {slug} = await params;
 
-  const peer = config.peers.find((p) => p.name === name);
+  const peer = config.peers.find((p) => peerSlug(p) === slug);
   if (!peer) return new Response('Unknown peer', {status: 404});
 
   if (peer === localPeer) {
@@ -50,11 +51,11 @@ export async function GET(
 
 export async function DELETE(
   req: Request,
-  {params}: {params: Promise<{name: string}>},
+  {params}: {params: Promise<{slug: string}>},
 ) {
-  const {name} = await params;
+  const {slug} = await params;
 
-  const peer = config.peers.find((p) => p.name === name);
+  const peer = config.peers.find((p) => peerSlug(p) === slug);
   if (!peer) return new Response('Unknown peer', {status: 404});
 
   const body = await readJsonBody<{files: string[]; dryRun?: boolean}>(

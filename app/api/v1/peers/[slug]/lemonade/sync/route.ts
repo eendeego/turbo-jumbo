@@ -1,5 +1,6 @@
 import {NextResponse} from 'next/server';
 import {config, localPeer} from '@/lib/config';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import {logger} from '@/lib/util/logger';
 import {previewSync, runSync} from '@/lib/lemonade/lemonade-sync-run';
 
@@ -10,10 +11,10 @@ import {previewSync, runSync} from '@/lib/lemonade/lemonade-sync-run';
 
 export async function GET(
   _req: Request,
-  {params}: {params: Promise<{name: string}>},
+  {params}: {params: Promise<{slug: string}>},
 ) {
-  const {name} = await params;
-  const peer = config.peers.find((p) => p.name === name);
+  const {slug} = await params;
+  const peer = config.peers.find((p) => peerSlug(p) === slug);
   if (!peer) return new Response('Unknown peer', {status: 404});
 
   if (peer === localPeer) {
@@ -38,10 +39,10 @@ export async function GET(
 
 export async function POST(
   _req: Request,
-  {params}: {params: Promise<{name: string}>},
+  {params}: {params: Promise<{slug: string}>},
 ) {
-  const {name} = await params;
-  const peer = config.peers.find((p) => p.name === name);
+  const {slug} = await params;
+  const peer = config.peers.find((p) => peerSlug(p) === slug);
   if (!peer) return new Response('Unknown peer', {status: 404});
 
   if (peer === localPeer) {

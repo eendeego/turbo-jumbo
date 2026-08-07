@@ -1,5 +1,6 @@
 import {config} from '@/lib/config';
 import {lemonadeApiBase} from '@/lib/lemonade/flm';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import {logger} from '@/lib/util/logger';
 import {isObject, readJsonBody} from '@/lib/util/request';
 
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
   if (body instanceof Response) return body;
   if (typeof body.peer !== 'string' || typeof body.model !== 'string')
     return new Response('Invalid body', {status: 400});
-  const peer = config.peers.find((p) => p.name === body.peer);
+  const peer = config.peers.find((p) => peerSlug(p) === body.peer);
   if (!peer) return new Response('Unknown peer', {status: 404});
   if (!peer.lemonade_url)
     return new Response('Peer has no Lemonade server configured', {
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
   const abort = new AbortController();
   req.signal.addEventListener('abort', () => abort.abort(), {once: true});
 
-  logger.info(`[flm] pull ${body.model} on ${body.peer} (${base})`);
+  logger.info(`[flm] pull ${body.model} on ${peer.name} (${base})`);
   let res: Response;
   try {
     res = await fetch(`${base}/pull`, {

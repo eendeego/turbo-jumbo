@@ -4,10 +4,14 @@ import path from 'path';
 import {load as loadYaml} from 'js-yaml';
 import Ajv2020 from 'ajv/dist/2020';
 import schema from '@/config.schema.json';
+import {peerSlugError} from '@/lib/peers/peer-slug';
 
 export interface Peer {
   name: string;
   address: string; // host:port the peer serves on
+  // URL-safe identity (see lib/peers/peer-slug.ts). Optional; derived from the
+  // name when unset.
+  slug?: string;
   // Required for the local peer; remote peers manage their own paths.
   base_path?: string;
   cold_storage_path?: string;
@@ -32,12 +36,13 @@ const validate = new Ajv2020({allErrors: true}).compile<Config>(schema);
 /**
  * Validate a parsed config object against config.schema.json. Returns null if
  * valid, or a human-readable summary of every violation otherwise. The schema
- * covers structure and types; the "local peer requires base_path and
+ * covers structure and types; the cross-peer slug rules it can't express are
+ * checked on top of it. The "local peer requires base_path and
  * cold_storage_path" rule depends on which peer matches this machine's IP and
  * is left to the caller.
  */
 export function validateRawConfig(raw: unknown): string | null {
-  if (validate(raw)) return null;
+  if (validate(raw)) return peerSlugError(raw.peers);
   return (validate.errors ?? [])
     .map((e) => {
       const where = e.instancePath || '(root)';

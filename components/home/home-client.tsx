@@ -5,6 +5,7 @@ import {Layout, LayoutContent, LayoutFooter} from '@astryxdesign/core/Layout';
 import {VStack} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {Banner} from '@astryxdesign/core/Banner';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models/models';
 import {
@@ -146,9 +147,7 @@ export function HomeClient({
   const refreshPeerModels = useCallback(
     async (peer: PeerConfig) => {
       try {
-        const res = await fetch(
-          `/api/v1/peers/${encodeURIComponent(peer.name)}/models`,
-        );
+        const res = await fetch(`/api/v1/peers/${peerSlug(peer)}/models`);
         if (!res.ok) return;
         const models = (await res.json()) as Model[];
         handleModelsRefreshed(peer.address, models);
@@ -169,9 +168,7 @@ export function HomeClient({
     const entries = await Promise.all(
       peerConfigs.map(async (p) => {
         try {
-          const res = await fetch(
-            `/api/v1/peers/${encodeURIComponent(p.name)}/incomplete`,
-          );
+          const res = await fetch(`/api/v1/peers/${peerSlug(p)}/incomplete`);
           if (!res.ok) return [p.address, new Set<string>()] as const;
           const data = (await res.json()) as {incomplete?: string[]};
           return [p.address, new Set(data.incomplete ?? [])] as const;
@@ -191,9 +188,7 @@ export function HomeClient({
     const entries = await Promise.all(
       peerConfigs.map(async (p) => {
         try {
-          const res = await fetch(
-            `/api/v1/peers/${encodeURIComponent(p.name)}/invalid`,
-          );
+          const res = await fetch(`/api/v1/peers/${peerSlug(p)}/invalid`);
           if (!res.ok) return [p.address, new Set<string>()] as const;
           const data = (await res.json()) as {invalid?: string[]};
           return [p.address, new Set(data.invalid ?? [])] as const;

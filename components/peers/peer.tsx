@@ -7,6 +7,7 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Banner} from '@astryxdesign/core/Banner';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models/model-types';
 import {
@@ -70,7 +71,7 @@ export function Peer({
     setConfirmingDelete(false);
     setDeleting(true);
     setError(null);
-    const url = `/api/v1/peers/${encodeURIComponent(peer.name)}/models`;
+    const url = `/api/v1/peers/${peerSlug(peer)}/models`;
     try {
       const del = await fetch(url, {
         method: 'DELETE',
@@ -155,9 +156,7 @@ export function Peer({
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       await readCopyAndReportErrors(res, setCopyProgress, setError);
       if (destinations.deleteAfterCopy) {
-        const refreshed = await fetch(
-          `/api/v1/peers/${encodeURIComponent(peer.name)}/models`,
-        );
+        const refreshed = await fetch(`/api/v1/peers/${peerSlug(peer)}/models`);
         if (!refreshed.ok)
           throw new Error(`${refreshed.status} ${refreshed.statusText}`);
         onModelsRefreshed(peer.address, await refreshed.json());

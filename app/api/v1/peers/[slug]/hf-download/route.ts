@@ -1,4 +1,5 @@
 import {config, localPeer} from '@/lib/config';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import {logger} from '@/lib/util/logger';
 import {isObject, readJsonBody} from '@/lib/util/request';
 import {streamHfDownload} from '@/lib/hf/hf-download-stream';
@@ -8,10 +9,10 @@ import {streamHfDownload} from '@/lib/hf/hf-download-stream';
 // to its own /api/v1/hf-download and pipe the streamed output straight back.
 export async function POST(
   req: Request,
-  {params}: {params: Promise<{name: string}>},
+  {params}: {params: Promise<{slug: string}>},
 ) {
-  const {name} = await params;
-  const peer = config.peers.find((p) => p.name === name);
+  const {slug} = await params;
+  const peer = config.peers.find((p) => peerSlug(p) === slug);
   if (!peer) return new Response('Unknown peer', {status: 404});
 
   const body = await readJsonBody<Record<string, unknown>>(req, isObject);

@@ -9,6 +9,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Peers can now set a `slug` in `config.yaml` — the short, URL-safe name that
+  identifies a machine in its tab's address (`/zurich`) and in the endpoints
+  that address it. It was previously derived from the peer's name, which broke
+  down for names that aren't plain ASCII: `Zürich` became `z-rich`, and a name
+  with no ASCII letters or digits at all left the peer with no reachable tab.
+  Leave it out and nothing changes — the derived name is still the default.
+  The app now refuses to start if two peers end up with the same slug, or if a
+  peer's name yields none, instead of quietly making a tab unreachable.
+
 ### Changed
 
 - Updated the UI toolkit (Astryx 0.3.0) and framework (Next.js 16.3, React

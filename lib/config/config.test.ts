@@ -74,6 +74,39 @@ test('rejects an unknown peer key (e.g. the old local_path)', () => {
   expect(err).toContain('local_path');
 });
 
+test('accepts a peer slug', () => {
+  expect(
+    validateRawConfig({
+      peers: [{...validPeer, name: 'Zürich', slug: 'zurich'}],
+    }),
+  ).toBeNull();
+});
+
+test('rejects a slug that is not lowercase-hyphenated', () => {
+  for (const slug of ['Zürich', 'Box', 'box_1', '-box', 'box-', 'a--b', '']) {
+    expect(
+      validateRawConfig({peers: [{...validPeer, slug}]}),
+      `slug ${JSON.stringify(slug)} should be rejected`,
+    ).not.toBeNull();
+  }
+});
+
+test('rejects peers whose slugs collide', () => {
+  const err = validateRawConfig({
+    peers: [
+      {...validPeer, name: 'Zürich', slug: 'zurich'},
+      {name: 'zurich', address: '192.0.2.2:3000'},
+    ],
+  });
+  expect(err).toContain('zurich');
+});
+
+test('rejects a peer whose name derives no slug', () => {
+  expect(
+    validateRawConfig({peers: [{...validPeer, name: '東京'}]}),
+  ).not.toBeNull();
+});
+
 test('rejects a non-numeric peer_check_interval', () => {
   expect(
     validateRawConfig({

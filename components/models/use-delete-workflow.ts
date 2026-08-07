@@ -1,5 +1,6 @@
 import {useMemo, useState, type Dispatch, type SetStateAction} from 'react';
 import {useRouter} from 'next/navigation';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer as PeerConfig} from '@/lib/config';
 
 /**
@@ -69,7 +70,7 @@ export function useDeleteWorkflow({
           ...peerConfigs
             .filter((p) => !p.isLocal)
             .map((p) =>
-              fetch(`/api/v1/peers/${encodeURIComponent(p.name)}/models`, {
+              fetch(`/api/v1/peers/${peerSlug(p)}/models`, {
                 method: 'DELETE',
                 headers,
                 body,
@@ -87,7 +88,7 @@ export function useDeleteWorkflow({
         } else {
           const peer = peerConfigs.find((p) => p.address === activeLocation);
           if (!peer) throw new Error('Unknown location');
-          url = `/api/v1/peers/${encodeURIComponent(peer.name)}/models`;
+          url = `/api/v1/peers/${peerSlug(peer)}/models`;
         }
         const del = await fetch(url, {method: 'DELETE', headers, body});
         if (!del.ok) throw new Error(`${del.status} ${del.statusText}`);

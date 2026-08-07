@@ -5,6 +5,7 @@ import {
   type FlmSource,
 } from '@/lib/lemonade/flm';
 import {FLM_REGISTRY_URL, parseFlmRegistry} from '@/lib/lemonade/flm-registry';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import {logger} from '@/lib/util/logger';
 
 // The registry changes rarely; cache it like the HF repo trees. A failed
@@ -38,8 +39,8 @@ async function flmRegistry(): Promise<Map<string, FlmSource>> {
 // the server has no FLM models. Each model additionally carries the HF
 // source its tag resolves to in FastFlowLM's public registry, when known.
 export async function GET(req: Request) {
-  const name = new URL(req.url).searchParams.get('peer') ?? '';
-  const peer = config.peers.find((p) => p.name === name);
+  const slug = new URL(req.url).searchParams.get('peer') ?? '';
+  const peer = config.peers.find((p) => peerSlug(p) === slug);
   if (!peer) return new Response('Unknown peer', {status: 404});
   if (!peer.lemonade_url) return Response.json({configured: false, models: []});
   const base = lemonadeApiBase(peer.lemonade_url);
@@ -54,10 +55,10 @@ export async function GET(req: Request) {
       const source = registry.get(m.checkpoint);
       return source ? {...m, source} : m;
     });
-    logger.trace(`[flm] ${name}: ${models.length} FLM model(s)`);
+    logger.trace(`[flm] ${peer.name}: ${models.length} FLM model(s)`);
     return Response.json({configured: true, server: base, models});
   } catch (e) {
-    logger.warn(`[flm] ${name} (${base}) unreachable: ${String(e)}`);
+    logger.warn(`[flm] ${peer.name} (${base}) unreachable: ${String(e)}`);
     return new Response(
       `Lemonade server unreachable: ${e instanceof Error ? e.message : String(e)}`,
       {status: 502},

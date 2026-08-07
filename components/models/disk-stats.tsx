@@ -5,6 +5,7 @@ import * as stylex from '@stylexjs/stylex';
 import {HStack, StackItem} from '@astryxdesign/core/Stack';
 import {Text} from '@astryxdesign/core/Text';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer as PeerConfig} from '@/lib/config';
 import {type DiskUsage, type DownloadDiskUsage} from '@/lib/storage/disk-space';
 import {formatSize} from '@/lib/format/bytes';
@@ -81,7 +82,7 @@ export function DiskStats({
     activeLocation === 'cold-storage' || peer?.isLocal
       ? '/api/v1/disk-usage'
       : peer
-        ? `/api/v1/peers/${encodeURIComponent(peer.name)}/disk-usage`
+        ? `/api/v1/peers/${peerSlug(peer)}/disk-usage`
         : null;
 
   useEffect(() => {

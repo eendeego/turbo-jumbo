@@ -1,4 +1,5 @@
 import {ALL_LOCATION} from '@/lib/storage/locations';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer} from '@/lib/config';
 
 export interface DownloadTarget {
@@ -36,10 +37,10 @@ export function downloadTarget(
       diskUsageUrl: '/api/v1/disk-usage',
     };
   }
-  const name = encodeURIComponent(peer.name);
+  const slug = peerSlug(peer);
   return {
-    url: `/api/v1/peers/${name}/hf-download`,
+    url: `/api/v1/peers/${slug}/hf-download`,
     displayPath: peerModelsDir(peer) ?? `${peer.name} models directory`,
-    diskUsageUrl: `/api/v1/peers/${name}/disk-usage`,
+    diskUsageUrl: `/api/v1/peers/${slug}/disk-usage`,
   };
 }

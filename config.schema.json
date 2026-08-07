@@ -42,6 +42,11 @@
           "pattern": "^.+:[0-9]+$",
           "description": "host:port the peer serves on. For IPv6, bracket the host, e.g. \"[2001:db8::1]:3000\"."
         },
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "URL-safe id for this peer, used in its tab path (/zurich) and in /api/v1/peers/<slug>/…. Lowercase letters, digits and single hyphens. Optional; defaults to the name lowercased with runs of other characters turned into hyphens. Set it when that default would be empty (a name with no ASCII letters or digits) or would collide with another peer."
+        },
         "base_path": {
           "type": "string",
           "minLength": 1,

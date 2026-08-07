@@ -12,6 +12,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {PeerModels} from '@/components/peers/peer';
 import type {
@@ -190,7 +191,7 @@ export function ModelsTableClient({
     const peer = peers.find((p) => p.address === activeLocation);
     const urlFor = (repoId: string) =>
       peer
-        ? `/api/v1/peers/${encodeURIComponent(peer.name)}/repo-files?repoId=${encodeURIComponent(repoId)}`
+        ? `/api/v1/peers/${peerSlug(peer)}/repo-files?repoId=${encodeURIComponent(repoId)}`
         : `/api/v1/local-models/repo-files?repoId=${encodeURIComponent(repoId)}`;
     const wanted = new Set<string>(expanded);
     for (const name of invalidRepos ?? []) wanted.add(name);

@@ -1,6 +1,7 @@
 'use client';
 
 import {useEffect, useState, useCallback, useRef} from 'react';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models/model-types';
 import type {PeerModels} from '@/components/peers/peer';
@@ -56,7 +57,7 @@ export function usePeerModels() {
     const peerList = activePeers;
 
     const fetchPeer = (peer: PeerConfig) => {
-      const url = `/api/v1/peers/${encodeURIComponent(peer.name)}/models`;
+      const url = `/api/v1/peers/${peerSlug(peer)}/models`;
       clientLog('trace', `[http] GET ${url} (poll)`);
       fetch(url)
         .then((r) => {

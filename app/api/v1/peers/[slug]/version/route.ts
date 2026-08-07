@@ -1,4 +1,5 @@
 import {config, localPeer} from '@/lib/config';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import {logger} from '@/lib/util/logger';
 import {appVersion} from '@/lib/version/app-version';
 
@@ -7,10 +8,10 @@ import {appVersion} from '@/lib/version/app-version';
 // what each machine runs and flag mismatched peers.
 export async function GET(
   _req: Request,
-  {params}: {params: Promise<{name: string}>},
+  {params}: {params: Promise<{slug: string}>},
 ) {
-  const {name} = await params;
-  const peer = config.peers.find((p) => p.name === name);
+  const {slug} = await params;
+  const peer = config.peers.find((p) => peerSlug(p) === slug);
   if (!peer) return new Response('Unknown peer', {status: 404});
 
   if (peer === localPeer) {

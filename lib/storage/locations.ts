@@ -1,28 +1,23 @@
 import type {Peer} from '@/lib/config';
+import {peerSlug} from '@/lib/peers/peer-slug';
 
 // Internal tab ids used throughout the app. Peer tabs use the peer's address as
 // their id; these two are reserved sentinel ids.
 export const ALL_LOCATION = 'all';
 export const COLD_STORAGE_LOCATION = 'cold-storage';
 
-export function slugifyPeerName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
 // Internal tab id -> URL path. The "all" tab is canonically the root.
 export function locationHref(id: string, peers: Peer[]): string {
   if (id === ALL_LOCATION) return '/';
   if (id === COLD_STORAGE_LOCATION) return `/${COLD_STORAGE_LOCATION}`;
   const peer = peers.find((p) => p.address === id);
-  return peer ? `/${slugifyPeerName(peer.name)}` : '/';
+  return peer ? `/${peerSlug(peer)}` : '/';
 }
 
 // URL segments (from an optional catch-all) -> internal tab id, or null when
 // the path doesn't correspond to a known tab. Reserved slugs win over a peer
-// that happens to slugify to the same value.
+// claiming the same one — config validation rejects that, but the order here
+// keeps the reserved tabs reachable regardless.
 export function resolveLocation(
   segments: string[] | undefined,
   peers: Peer[],
@@ -32,7 +27,7 @@ export function resolveLocation(
   const slug = segments[0];
   if (slug === ALL_LOCATION) return ALL_LOCATION;
   if (slug === COLD_STORAGE_LOCATION) return COLD_STORAGE_LOCATION;
-  const peer = peers.find((p) => slugifyPeerName(p.name) === slug);
+  const peer = peers.find((p) => peerSlug(p) === slug);
   return peer ? peer.address : null;
 }
 
@@ -78,9 +73,7 @@ export function lemonadeHref(id: string, peers: Peer[]): string {
   if (id === ALL_LOCATION) return '/download/lemonade';
   if (id === COLD_STORAGE_LOCATION) return `/${COLD_STORAGE_LOCATION}`;
   const peer = peers.find((p) => p.address === id);
-  return peer
-    ? `/${slugifyPeerName(peer.name)}/download/lemonade`
-    : '/download/lemonade';
+  return peer ? `/${peerSlug(peer)}/download/lemonade` : '/download/lemonade';
 }
 
 // Internal tab id -> Hugging Face download route. The All view and every peer
@@ -89,5 +82,5 @@ export function hfHref(id: string, peers: Peer[]): string {
   if (id === ALL_LOCATION) return '/download/hf';
   if (id === COLD_STORAGE_LOCATION) return `/${COLD_STORAGE_LOCATION}`;
   const peer = peers.find((p) => p.address === id);
-  return peer ? `/${slugifyPeerName(peer.name)}/download/hf` : '/download/hf';
+  return peer ? `/${peerSlug(peer)}/download/hf` : '/download/hf';
 }

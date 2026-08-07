@@ -1,4 +1,5 @@
 import {config, localPeer, localModelsDir, coldStorageDir} from '@/lib/config';
+import {peerSlug} from '@/lib/peers/peer-slug';
 import {logger} from '@/lib/util/logger';
 import {downloadDiskUsage} from '@/lib/storage/disk-usage';
 
@@ -7,10 +8,10 @@ import {downloadDiskUsage} from '@/lib/storage/disk-usage';
 // download targeting that peer can be checked against the right disk.
 export async function GET(
   _req: Request,
-  {params}: {params: Promise<{name: string}>},
+  {params}: {params: Promise<{slug: string}>},
 ) {
-  const {name} = await params;
-  const peer = config.peers.find((p) => p.name === name);
+  const {slug} = await params;
+  const peer = config.peers.find((p) => peerSlug(p) === slug);
   if (!peer) return new Response('Unknown peer', {status: 404});
 
   if (peer === localPeer) {

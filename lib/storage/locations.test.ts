@@ -1,11 +1,38 @@
 import {test, expect} from 'bun:test';
-import {parseRoute, lemonadeHref, hfHref} from '@/lib/storage/locations';
+import {
+  parseRoute,
+  lemonadeHref,
+  hfHref,
+  locationHref,
+} from '@/lib/storage/locations';
 import type {Peer} from '@/lib/config';
 
 const peers: Peer[] = [
   {name: 'My Box', address: '192.0.2.1', isLocal: true} as Peer,
   {name: 'Remote Two', address: '192.0.2.2'} as Peer,
 ];
+
+// A peer whose Unicode name derives an unusable slug, so config sets one.
+const slugged: Peer[] = [{name: '東京', address: '192.0.2.3', slug: 'tokyo'}];
+
+test('locationHref: configured slug names the peer tab', () => {
+  expect(locationHref('192.0.2.3', slugged)).toBe('/tokyo');
+});
+
+test('parseRoute: configured slug → peer/table', () => {
+  expect(parseRoute(['tokyo'], slugged)).toEqual({
+    location: '192.0.2.3',
+    view: 'table',
+  });
+});
+
+test('parseRoute: the derived slug does not resolve once one is configured', () => {
+  expect(parseRoute([''], slugged)).toBeNull();
+});
+
+test('hfHref: configured slug names the peer download path', () => {
+  expect(hfHref('192.0.2.3', slugged)).toBe('/tokyo/download/hf');
+});
 
 test('parseRoute: root → all/table', () => {
   expect(parseRoute(undefined, peers)).toEqual({
