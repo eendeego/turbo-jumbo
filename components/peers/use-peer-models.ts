@@ -4,7 +4,7 @@ import {useEffect, useState, useCallback, useRef} from 'react';
 import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models/model-types';
-import type {PeerModels} from '@/components/peers/peer';
+import type {PeerModels} from '@/lib/peers/peer-models';
 import {AsyncState} from '@/lib/util/async-state';
 import {clientLog} from '@/lib/util/client-log';
 import {subscribeToPeerEvents} from '@/lib/peers/peer-event-client';

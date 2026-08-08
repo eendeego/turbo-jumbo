@@ -4,7 +4,7 @@ import {useMemo} from 'react';
 import type {Peer as PeerConfig} from '@/lib/config';
 import type {Model} from '@/lib/models/models';
 import type {InventoryLocation} from '@/lib/lemonade/lemonade';
-import type {PeerModels} from '@/components/peers/peer';
+import type {PeerModels} from '@/lib/peers/peer-models';
 import {usePeerModels} from '@/components/peers/use-peer-models';
 import {AsyncState} from '@/lib/util/async-state';
 

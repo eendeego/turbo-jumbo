@@ -1,6 +1,6 @@
 import {useMemo} from 'react';
 import type {Peer as PeerConfig} from '@/lib/config';
-import type {PeerModels} from '@/components/peers/peer';
+import type {PeerModels} from '@/lib/peers/peer-models';
 import type {RepoFile} from '@/lib/models/repo-files';
 import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peers/peer-paths';
 import {isDiffusersRepo} from '@/lib/models/diffusers';

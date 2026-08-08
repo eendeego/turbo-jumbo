@@ -14,7 +14,7 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
 import {peerSlug} from '@/lib/peers/peer-slug';
 import type {Peer as PeerConfig} from '@/lib/config';
-import type {PeerModels} from '@/components/peers/peer';
+import type {PeerModels} from '@/lib/peers/peer-models';
 import type {
   AuditProgressEvent,
   AuditResult,
