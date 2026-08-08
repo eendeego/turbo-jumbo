@@ -44,6 +44,19 @@ export interface SplitGroup {
 
 export type ModelFile = SingleFile | SplitGroup;
 
+/**
+ * Every storage path a file entry stands for: one for a single file, one per
+ * present shard for a split. A split whose shards carry no paths falls back to
+ * its representative filename, so it still selects as something.
+ */
+export function filePaths(file: ModelFile): string[] {
+  if (file.isSplit) {
+    const paths = file.files.map(shardPath).filter(Boolean);
+    return paths.length ? paths : [file.representativeFilename];
+  }
+  return [file.path ?? file.filename];
+}
+
 export interface Model {
   name: string;
   files: ModelFile[];

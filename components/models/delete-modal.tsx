@@ -7,10 +7,9 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {List, ListItem} from '@astryxdesign/core/List';
 import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
-import {shardPath, type Model} from '@/lib/models/model-types';
+import {filePaths, shardPath, type Model} from '@/lib/models/model-types';
 import {groupSelectedFiles} from '@/lib/models/selected-file-groups';
 import {fileBasename, fileJoinKey, peerFileKeys} from '@/lib/peers/peer-paths';
-import {filePaths} from '@/components/models/model-list';
 
 export interface FileInfo {
   model: string;
